@@ -43,7 +43,10 @@ claude/yolo:claude'
 AGENTS=$(printf '%s\n' "$AGENT_CMDS" | while IFS=: read -r name cmd; do
   command -v "$cmd" >/dev/null 2>&1 && printf '%s\n' "$name"
 done)
-[ -z "$AGENTS" ] && { echo "agent-picker: no agent CLIs found on PATH" >&2; exit 1; }
+[ -z "$AGENTS" ] && {
+  echo "agent-picker: no agent CLIs found on PATH" >&2
+  exit 1
+}
 
 # height = prompt row + top/bottom borders + one row per entry
 height=$(($(printf '%s\n' "$AGENTS" | wc -l) + 3))
