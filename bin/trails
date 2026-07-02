@@ -22,15 +22,28 @@ yolo() {
 }
 
 # Stage + commit via the commit-commands plugin's /commit skill. Print mode
-# (-p): this is a one-shot action, not a session to sit in. --verbose streams
-# each tool call as it runs instead of staying silent until the final result.
+# (-p): this is a one-shot action, not a session to sit in. Plain -p/--verbose
+# only prints the final result — real progress needs --output-format
+# stream-json, piped through jq into readable per-tool-call lines.
 commit() {
-  exec claude -p --verbose "/commit $*"
+  claude -p --verbose --output-format stream-json "/commit $*" | jq -rj '
+    if .type == "assistant" then
+      (.message.content[]? | select(.type == "tool_use")
+        | "→ " + .name + ": " + (.input.description // .input.command // (.input | tostring)) + "\n")
+    elif .type == "user" then
+      (.message.content[]? | select(.type == "tool_result")
+        | "  " + (if .is_error then "✗ " else "✓ " end)
+        + ((.content | if type == "string" then . else tostring end) | .[0:200]) + "\n")
+    elif .type == "result" then
+      "\n✔ " + .result + "\n"
+    else empty end
+  '
 }
 
 if [ "$1" = "commit" ]; then
   shift
   commit "$@"
+  exit $?
 fi
 
 AGENT_CMDS='default:claude
