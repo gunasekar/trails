@@ -22,9 +22,10 @@ yolo() {
 }
 
 # Stage + commit via the commit-commands plugin's /commit skill. Print mode
-# (-p): this is a one-shot action, not a session to sit in.
+# (-p): this is a one-shot action, not a session to sit in. --verbose streams
+# each tool call as it runs instead of staying silent until the final result.
 commit() {
-  exec claude -p "/commit $*"
+  exec claude -p --verbose "/commit $*"
 }
 
 if [ "$1" = "commit" ]; then
