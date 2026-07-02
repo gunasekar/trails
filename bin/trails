@@ -1,0 +1,59 @@
+#!/usr/bin/env sh
+# fzf agent picker. Used as `agent` from any shell, as nvim's right-panel
+# agent terminal command (see lua/plugins/agents.lua), and as Zed's
+# agent.terminal_init_command. Add entries to AGENT_CMDS + the case below to
+# expose more agents/personas.
+#
+# `agent commit [context...]` skips the picker and stages+commits in one shot
+# via the /commit skill, printing the result instead of opening a session.
+
+# Skip-permissions mode — bypasses all tool approval prompts. Guarded against
+# root or $HOME since the agent can run any command unconfirmed.
+yolo() {
+  if [ "$(id -u)" -eq 0 ]; then
+    echo "agent: refusing yolo as root" >&2
+    exit 1
+  fi
+  if [ "$PWD" = "$HOME" ]; then
+    echo "agent: refusing yolo in \$HOME — cd into a project directory" >&2
+    exit 1
+  fi
+  exec claude --dangerously-skip-permissions
+}
+
+# Stage + commit via the commit-commands plugin's /commit skill. Print mode
+# (-p): this is a one-shot action, not a session to sit in.
+commit() {
+  exec claude -p "/commit $*"
+}
+
+if [ "$1" = "commit" ]; then
+  shift
+  commit "$@"
+fi
+
+AGENT_CMDS='default:claude
+cursor:cursor-agent
+antigravity:agy
+claude/plan:claude
+claude/explore:claude
+claude/yolo:claude'
+
+# Only list an entry if its underlying command is on PATH.
+AGENTS=$(printf '%s\n' "$AGENT_CMDS" | while IFS=: read -r name cmd; do
+  command -v "$cmd" >/dev/null 2>&1 && printf '%s\n' "$name"
+done)
+[ -z "$AGENTS" ] && { echo "agent-picker: no agent CLIs found on PATH" >&2; exit 1; }
+
+# height = prompt row + top/bottom borders + one row per entry
+height=$(($(printf '%s\n' "$AGENTS" | wc -l) + 3))
+
+choice=$(printf '%s\n' "$AGENTS" | fzf --prompt='Agent: ' --height="$height" --reverse --no-info) || exit 0
+case "$choice" in
+  claude/plan) exec claude --agent Plan --model opus ;;
+  claude/explore) exec claude --agent Explore --model sonnet ;;
+  claude/yolo) yolo ;;
+  cursor) exec cursor-agent ;;
+  antigravity) exec agy ;;
+  default | *) exec claude ;;
+esac
