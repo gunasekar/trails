@@ -49,6 +49,7 @@ fi
 AGENT_CMDS='default:claude
 cursor:cursor-agent
 antigravity:agy
+opencode:opencode
 claude/plan:claude
 claude/explore:claude
 claude/yolo:claude'
@@ -72,5 +73,6 @@ case "$choice" in
   claude/yolo) yolo ;;
   cursor) exec cursor-agent ;;
   antigravity) exec agy ;;
+  opencode) exec opencode ;;
   default | *) exec claude ;;
 esac
