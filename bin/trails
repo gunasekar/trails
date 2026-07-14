@@ -230,7 +230,8 @@ classify() {
 #
 # Deliberately not scoped to $PWD, which is the one thing the picker cannot be: the
 # picker answers "what is running *here*", and this answers "what did I leave running
-# while I walked away". That is the question a notifier asks.
+# while I walked away". That is the question a notifier asks, and the SwiftBar plugin
+# (swiftbar/.config/swiftbar/plugins/agents.10s.sh) is the only caller today.
 #
 # blocked < waiting < working alphabetically, which is also most-wants-you first, so a
 # plain sort is the right sort.
