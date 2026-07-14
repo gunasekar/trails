@@ -5,7 +5,12 @@
 #
 #   aigent                  pick a running session to rejoin, or an agent to start
 #   aigent new              skip the running sessions, start a fresh one
+#   aigent status           every agent session on the box, TSV, for a notifier to read
 #   aigent commit [ctx...]  stage + commit via the /commit skill, no session
+#
+# Env:
+#   AGENT_SETTLE           seconds between the two screen samples (default 0.35)
+#   AGENT_ASK_RE           regex meaning "the agent is asking you something"
 #
 # `aigent`, not `agent`, and the extra 'i' is the whole point. ~/.local/bin is a shared
 # namespace — every CLI installer drops binaries into it — and cursor-agent ships one
@@ -91,7 +96,7 @@ TAB=$(printf '\t')
 # indistinguishable from here, so we show what's running and let you choose rather
 # than guess.)
 #
-# Two labels, because they answer two different questions:
+# Three labels, because they answer three different questions:
 #
 #   @agent      what is running (claude, cursor, claude/plan). launch() wrote it
 #               down; falls back to the process name for a session we did not start.
@@ -99,6 +104,7 @@ TAB=$(printf '\t')
 #               publishes as the terminal title (OSC 2) and tmux exposes as
 #               pane_title. Claude Code puts its summary there ("Set up tmux with
 #               Ghostty terminal"), which is exactly the /resume name.
+#   status      whether it is working, or wants you back. See live_sessions below.
 #
 # Two claude sessions in one project used to be distinguishable only by opening
 # them. Now they say what they are and what they are doing.
@@ -111,8 +117,76 @@ TAB=$(printf '\t')
 # (opencode's constant "OpenCode") does not match the strip and survives whole.
 TASK_FMT='#{=45:#{?#{==:#{pane_title},#{host}},,#{s|^[^ ]+ ||:pane_title}}}'
 
-# Every agent session on the box, TSV: name, agent, task. Unfiltered — is_ours
-# narrows it to this project for the picker.
+# ─── Is this agent working, or does it want you? ─────────────────────────────
+# The question the picker exists to answer. A row that says what is running and what
+# it is on still cannot say whether it needs you — and "needs you" is the only reason
+# you opened the picker.
+#
+# tmux knows whether a *client* is attached (session_attached), which is a fact about
+# your terminal, not about the agent: three sessions here all read "attached" while one
+# was mid-edit and two had been sitting on a finished turn for twenty minutes.
+#
+# The signal is the screen, and it is agent-agnostic. Every one of these TUIs animates
+# while it works — a spinner, a token count, an elapsed timer — so a working pane's
+# visible screen is *different* 300ms later, and a stopped one's is byte-for-byte
+# identical. A permission prompt does not animate; the cursor blinking in an empty
+# input box is drawn by the terminal, not written to the pty. So: hash the screen,
+# wait, hash again.
+#
+# That is why there are no hooks. Claude Code has Stop and PermissionRequest hooks
+# that would report this exactly — and only for Claude. cursor-agent, opencode and
+# antigravity have nothing of the sort, so a hook-built status would light up one row
+# of the picker and leave the rest permanently blank. Repainting a pty is the one
+# thing all four already do, because it is what makes them agents in a terminal.
+#
+# Do not try to replace this with a tmux timestamp. #{session_activity} looks like
+# exactly the clock this wants and is not one: a detached pane printing every 200ms
+# still had its "activity" age grow 0 → 3 → 5s. It tracks tmux's own sticky alert
+# bookkeeping (same reason monitor-silence's flag stays set while a pane is actively
+# producing), not bytes on the pty. Two captures is the honest way, and it costs one
+# sleep for the whole list.
+#
+#   working   the screen changed across the gap
+#   blocked   still, and the bottom of it is asking you a question
+#   waiting   still, and not asking — it finished its turn, your move
+#
+# blocked-vs-waiting is the one heuristic and the only agent-shaped thing here: it
+# greps the screen, so an agent that merely prints the word "Approve" can fool it.
+# Both mean "wants you" and both sort above working, so a wrong guess costs a colour.
+# AGENT_ASK_RE replaces the pattern for an agent that asks in words it doesn't know.
+#
+# AGENT_SETTLE is the gap, and it is the whole latency this adds to opening the
+# picker. It has to outlast the slowest repaint of a *working* agent. Real ones spin a
+# braille glyph at ~10Hz — Claude repainted on 5 of 5 samples 300ms apart, and a 10Hz
+# fake is caught 6 times out of 6 even at 0.15s — so the default has room to spare. An
+# agent that repainted only once a second would need ~1.2s to be seen reliably.
+#
+# Which is the safe direction to be wrong in, and not by luck: guessing needs both
+# samples to differ, so a still screen can never read as working, only a working one
+# can read as still. The bad case is a slow-painting agent shown as waiting — you open
+# it and find it busy. The case that would actually cost you, a stopped agent hidden
+# under "working" while it waits, cannot happen.
+SETTLE=${AGENT_SETTLE:-0.35}
+ASK_RE=${AGENT_ASK_RE:-'Do you want|Would you like|Allow |Approve|\[y/[nN]\]|\(y/[nN]\)|❯ +[0-9]\.'}
+
+RED=$(printf '\033[31m')
+YEL=$(printf '\033[33m')
+DIM=$(printf '\033[2m')
+RST=$(printf '\033[0m')
+
+# The *visible* screen only (no -S): a question is on screen by definition, and
+# scrollback would only turn old questions into current ones.
+#
+# Both samples must be hashed through the identical pipeline or every session reads
+# as working forever: `$(screen_of x)` strips the capture's trailing blank rows (a
+# command substitution eats trailing newlines) and piping it straight to cksum does
+# not, so the two passes hashed different bytes and never agreed. screen_hash takes
+# the *content*, so both callers normalise the same way by construction.
+screen_of() { tmux capture-pane -pt "$1" 2>/dev/null; }
+screen_hash() { printf '%s\n' "$1" | cksum; }
+
+# Every agent session on the box, TSV: name, agent, task. Unclassified and unfiltered —
+# is_ours narrows it to this project for the picker, `aigent status` keeps the lot.
 sessions() {
   tmux list-sessions -F \
     "#{session_name}|#{?@agent,#{@agent},#{pane_current_command}}|$TASK_FMT" 2>/dev/null |
@@ -124,6 +198,44 @@ sessions() {
     done
 }
 
+# stdin: name/agent/task. stdout: the same with a state in front.
+#
+# The sleep is the cost of the whole thing, so it is paid once for the entire list
+# rather than once per session: hash every screen, wait, hash every screen again.
+classify() {
+  rows=$(cat)
+  [ -n "$rows" ] || return 0
+
+  before=$(printf '%s\n' "$rows" | cut -f1 | while read -r name; do
+    printf '%s\t%s\n' "$name" "$(screen_hash "$(screen_of "$name")")"
+  done)
+  sleep "$SETTLE"
+
+  printf '%s\n' "$rows" | while IFS="$TAB" read -r name label task; do
+    now=$(screen_of "$name")
+    was=$(printf '%s\n' "$before" | awk -F"$TAB" -v n="$name" '$1 == n { print $2 }')
+
+    if [ "$(screen_hash "$now")" != "$was" ]; then
+      state=working
+    elif printf '%s\n' "$now" | awk 'NF' | tail -n 15 | grep -Eq "$ASK_RE"; then
+      state=blocked
+    else
+      state=waiting
+    fi
+    printf '%s\t%s\t%s\t%s\n' "$state" "$name" "$label" "$task"
+  done
+}
+
+# `aigent status` — every agent session on this machine, TSV: state, session, agent, task.
+#
+# Deliberately not scoped to $PWD, which is the one thing the picker cannot be: the
+# picker answers "what is running *here*", and this answers "what did I leave running
+# while I walked away". That is the question a notifier asks.
+#
+# blocked < waiting < working alphabetically, which is also most-wants-you first, so a
+# plain sort is the right sort.
+status() { sessions | classify | sort; }
+
 # Menu lines are TAB-delimited, and fzf is told to display only from field 3 on
 # (--with-nth). Fields 1 and 2 — the verb and the target — are carried but never drawn:
 # the verb is what the dispatch at the bottom matches to decide attach-vs-launch, and
@@ -132,16 +244,29 @@ sessions() {
 # every line and only its `-2`/`-3` suffix ever distinguishes them — while in a
 # half-width pane it pushed the task, the one part that actually differs, off the end
 # of the line. The suffix survives as a `#2` badge.
+#
+# Sorted by what it wants from you rather than by name: blocked, then waiting, then
+# the ones getting on with it. The agent you have to go and unblock is the reason you
+# opened the picker, so it lands under the cursor.
 live_sessions() {
   sessions | while IFS="$TAB" read -r name label task; do
     is_ours "$name" || continue
+    printf '%s\t%s\t%s\n' "$name" "$label" "$task"
+  done | classify | while IFS="$TAB" read -r state name label task; do
+    case $state in
+      blocked) rank=0 dot=$RED ;;
+      waiting) rank=1 dot=$YEL ;;
+      *) rank=2 dot=$DIM ;;
+    esac
 
     n=${name#"$SESSION"}
     n=${n#-}
     [ -n "$n" ] && label="$label · #$n"
     [ -n "$task" ] && task="  $task"
-    printf 'attach\t%s\t[%s]%s\n' "$name" "$label" "$task"
-  done
+    # Sort key up front, stripped after.
+    printf '%s\tattach\t%s\t%s●%s [%s · %s]%s\n' \
+      "$rank" "$name" "$dot" "$RST" "$state" "$label" "$task"
+  done | sort | cut -f2-
 }
 
 # What a session of ours looks like. Everything here is session-scoped, so a tmux
@@ -295,6 +420,10 @@ case $1 in
     exit $?
     ;;
   new) FORCE_NEW=1 ;;
+  status)
+    status
+    exit 0
+    ;;
   --print-menu)
     print_menu
     exit 0
@@ -317,7 +446,7 @@ MENU=$(print_menu) || exit 1
 # (Zed's terminal, nvim's right panel) can still run past the edge — wrapping costs a
 # second row and shows all of it, where truncating would hide the one field that tells
 # two sessions of one project apart.
-set -- --prompt='Agent: ' --reverse --no-info --wrap \
+set -- --prompt='Agent: ' --reverse --no-info --ansi --wrap \
   --delimiter='\t' --with-nth='3..' --height=~80%
 if printf '%s\n' "$MENU" | grep -q '^attach'; then
   set -- "$@" --header='enter: attach/start   ctrl-x: kill session' \
