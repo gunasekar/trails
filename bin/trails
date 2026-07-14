@@ -1,37 +1,276 @@
 #!/usr/bin/env sh
-# fzf agent picker. Used as `aigent` from any shell, as nvim's right-panel
-# agent terminal command (see lua/plugins/agents.lua), and as Zed's
-# agent.terminal_init_command. Add entries to AGENT_CMDS + the case below to
-# expose more agents/personas.
+# fzf agent picker. Used as `aigent` from any shell, as nvim's right-panel agent
+# terminal command (see lua/plugins/agents.lua), and as Zed's
+# agent.terminal_init_command.
 #
-# `aigent commit [context...]` skips the picker and stages+commits in one shot
-# via the /commit skill, printing the result instead of opening a session.
+#   aigent                  pick a running session to rejoin, or an agent to start
+#   aigent new              skip the running sessions, start a fresh one
+#   aigent commit [ctx...]  stage + commit via the /commit skill, no session
 #
-# `aigent`, not `agent`, and the extra 'i' is the whole point. ~/.local/bin is a
-# shared namespace — every CLI installer drops binaries into it — and cursor-agent
-# ships one called `agent`, which overwrote this script's symlink on install *and
-# on every self-update*, quietly turning `agent` into Cursor's CLI. Owning a name
-# that a vendor also wants is a fight you re-lose on every update, so don't have
-# it: `agent` is a word they ship, `aigent` is not.
+# `aigent`, not `agent`, and the extra 'i' is the whole point. ~/.local/bin is a shared
+# namespace — every CLI installer drops binaries into it — and cursor-agent ships one
+# called `agent`, which overwrote this script's symlink on install *and on every
+# self-update*, quietly turning `agent` into Cursor's CLI. Owning a name that a vendor
+# also wants is a fight you re-lose on every update, so don't have it: `agent` is a word
+# they ship, `aigent` is not.
+#
+# The tmux sessions are named aigent-<project> to match. $PREFIX below is the only
+# definition of "a session of ours", so changing it orphans anything already running
+# under the old one — rename live sessions rather than leave them stranded:
+#   tmux rename-session -t agent-foo aigent-foo
+#
+# Sessions live in tmux, one per agent, named after the project directory. Zed's
+# remote mode runs this on the ssh host, and when Zed disconnects or quits the
+# agent process dies with its terminal — leaving `claude --resume` as the only way
+# back, which replays the transcript into a *new* process. Held in tmux, the
+# process simply stays alive: reconnecting re-attaches to the running conversation,
+# so there is nothing to resume. Every frontend goes through this one script and
+# behaves identically; the same session is reachable from a plain terminal with
+# `tmux a -t aigent-<project>`.
 
-# Skip-permissions mode — bypasses all tool approval prompts. Guarded against
-# root or $HOME since the agent can run any command unconfirmed.
-yolo() {
-  if [ "$(id -u)" -eq 0 ]; then
-    echo "aigent: refusing yolo as root" >&2
-    exit 1
-  fi
-  if [ "$PWD" = "$HOME" ]; then
-    echo "aigent: refusing yolo in \$HOME — cd into a project directory" >&2
-    exit 1
-  fi
-  exec claude --dangerously-skip-permissions
+# ─── Agent registry ──────────────────────────────────────────────────────────
+# name|command|args — the single source of truth. It drives the menu, the PATH
+# filter and the launch, so adding an agent is one line here and nothing else.
+AGENTS='claude|claude|
+cursor|cursor-agent|
+antigravity|agy|
+opencode|opencode|
+claude/plan|claude|--agent Plan --model opus
+claude/explore|claude|--agent Explore --model sonnet
+claude/yolo|claude|--dangerously-skip-permissions'
+
+agent_row() {
+  printf '%s\n' "$AGENTS" | awk -F'|' -v n="$1" '$1 == n { print; exit }'
 }
 
-# Stage + commit via the commit-commands plugin's /commit skill. Print mode
-# (-p): this is a one-shot action, not a session to sit in. Plain -p/--verbose
-# only prints the final result — real progress needs --output-format
-# stream-json, piped through jq into readable per-tool-call lines.
+# Only offer an agent whose command actually exists here.
+available_agents() {
+  printf '%s\n' "$AGENTS" | while IFS='|' read -r name cmd _; do
+    command -v "$cmd" >/dev/null 2>&1 && printf '%s\n' "$name"
+  done
+}
+
+# ─── This project's sessions ─────────────────────────────────────────────────
+# The one place the session prefix is spelled. sessions() finds our sessions on the
+# box by it and is_ours() narrows those to this project, so both read it from here
+# rather than each hard-coding the string — two copies of a name is two chances to
+# rename one of them.
+PREFIX=aigent-
+
+# tmux forbids '.' and ':' in session names (both are target separators), and
+# spaces make `tmux a -t <name>` a quoting chore. Two projects sharing a basename
+# share a name — rare, and obvious when it happens.
+SESSION=$PREFIX$(basename "$PWD" | tr ':. ' '___')
+
+# One definition of "a session of ours": the exact name, or an -N sibling. Never
+# a prefix — aigent-api must not swallow aigent-api-worker, a different project that
+# happens to start the same. The menu, the kill and next_free all ask through here.
+is_ours() {
+  case $1 in
+    "$SESSION") return 0 ;;
+    "$SESSION"-*)
+      case ${1#"$SESSION"-} in
+        '' | *[!0-9]*) return 1 ;;
+        *) return 0 ;;
+      esac
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+# Wrap the agent in tmux everywhere except inside tmux itself, where the process
+# is persistent regardless and nesting would double every prefix key.
+USE_TMUX=
+if [ -z "$TMUX" ] && command -v tmux >/dev/null 2>&1; then
+  USE_TMUX=1
+fi
+
+TAB=$(printf '\t')
+
+# Agents running here. ("Zed reconnected" and "give me a second agent" are
+# indistinguishable from here, so we show what's running and let you choose rather
+# than guess.)
+#
+# Two labels, because they answer two different questions:
+#
+#   @agent      what is running (claude, cursor, claude/plan). launch() wrote it
+#               down; falls back to the process name for a session we did not start.
+#   $TASK_FMT   what it is working on — the agent's own session name, which it
+#               publishes as the terminal title (OSC 2) and tmux exposes as
+#               pane_title. Claude Code puts its summary there ("Set up tmux with
+#               Ghostty terminal"), which is exactly the /resume name.
+#
+# Two claude sessions in one project used to be distinguishable only by opening
+# them. Now they say what they are and what they are doing.
+#
+# The format has to defend against two things. tmux seeds pane_title with the
+# *hostname*, so "has a title" is not "is non-empty" — a pane whose program never
+# set one reads back `airbochs`, which would show up as the task. And Claude Code
+# prefixes the title with an animated spinner glyph ("⠐ Set up tmux…", a new frame
+# every tick), so the leading glyph is stripped. A title with no glyph and no space
+# (opencode's constant "OpenCode") does not match the strip and survives whole.
+TASK_FMT='#{=45:#{?#{==:#{pane_title},#{host}},,#{s|^[^ ]+ ||:pane_title}}}'
+
+# Every agent session on the box, TSV: name, agent, task. Unfiltered — is_ours
+# narrows it to this project for the picker.
+sessions() {
+  tmux list-sessions -F \
+    "#{session_name}|#{?@agent,#{@agent},#{pane_current_command}}|$TASK_FMT" 2>/dev/null |
+    while IFS='|' read -r name label task; do
+      case $name in
+        "$PREFIX"*) printf '%s\t%s\t%s\n' "$name" "$label" "$task" ;;
+        *) ;; # a tmux session you started yourself — not ours to report on
+      esac
+    done
+}
+
+# Menu lines are TAB-delimited, and fzf is told to display only from field 3 on
+# (--with-nth). Fields 1 and 2 — the verb and the target — are carried but never drawn:
+# the verb is what the dispatch at the bottom matches to decide attach-vs-launch, and
+# the target is what ctrl-x reads as {2}. The session name is the thing worth hiding:
+# every row is the same project by construction, so `aigent-_dotfiles` is identical on
+# every line and only its `-2`/`-3` suffix ever distinguishes them — while in a
+# half-width pane it pushed the task, the one part that actually differs, off the end
+# of the line. The suffix survives as a `#2` badge.
+live_sessions() {
+  sessions | while IFS="$TAB" read -r name label task; do
+    is_ours "$name" || continue
+
+    n=${name#"$SESSION"}
+    n=${n#-}
+    [ -n "$n" ] && label="$label · #$n"
+    [ -n "$task" ] && task="  $task"
+    printf 'attach\t%s\t[%s]%s\n' "$name" "$label" "$task"
+  done
+}
+
+# What a session of ours looks like. Everything here is session-scoped, so a tmux
+# session you started yourself keeps its own keys, chrome and layout.
+#
+# Applied on create *and* on attach, so a session started before any of this
+# existed picks it up the next time you go back to it, rather than staying odd
+# forever.
+#
+# One agent, one pane: a session here *is* an agent — Zed and nvim each treat it as a
+# single view, the picker gives it a single row, @agent labels it as one thing — and a
+# second pane would make all three lie.
+#
+# @agent_locked is only a marker. The enforcing lives in tmux.conf, where the split
+# and new-window keys are guarded by `if -F '#{@agent_locked}'`, because tmux has no
+# before-split-window — every hook is after-* — so a hook could only create the pane
+# and then kill it. A guarded key refuses, and nothing is ever created.
+#
+# Deliberate routes stay open: `tmux split-window -t <session>` from elsewhere,
+# join-pane (which fires no hook at all — uncatchable), and the split entries in the
+# prefix + < / > context menus. Each names the session as a target or takes real
+# navigation, so none is the accident this guards against.
+#
+# No status bar: it would spend the bottom row on a session name you already know (you
+# are looking at the thread that owns it), a clock, and a window list of exactly one
+# window.
+apply_policy() {
+  tmux set-option -t "$1" @agent_locked 1
+  tmux set-option -t "$1" status off
+}
+
+next_free() {
+  tmux has-session -t "=$SESSION" 2>/dev/null || {
+    printf '%s' "$SESSION"
+    return
+  }
+  n=2
+  while tmux has-session -t "=$SESSION-$n" 2>/dev/null; do
+    n=$((n + 1))
+  done
+  printf '%s-%s' "$SESSION" "$n"
+}
+
+# ─── Picker internals (invoked by fzf, one process each) ─────────────────────
+# These live here rather than inline in the fzf flags because embedding shell in
+# an fzf binding is a quoting minefield: fzf single-quotes every placeholder and
+# then runs the result through $SHELL, where zsh expands a bare leading `=` to a
+# command path. Both traps silently ate the kill. As subcommands they are plain
+# shell, and directly testable: `aigent --kill <name>`.
+
+# ctrl-x: kill the highlighted session. Sessions outlive the terminal that started
+# them — that is the entire point — so nothing else ever reaps the ones you are
+# finished with, and they hold their scrollback until something does.
+#
+# is_ours is the guard: a "new  default" row would otherwise hand us the agent name
+# as a target and try to kill a session literally called "default".
+kill_session() {
+  is_ours "$1" || return 0
+  tmux kill-session -t "=$1" 2>/dev/null
+}
+
+# Sessions already running here, then the agents you can start. `aigent new` skips
+# straight to the new-session half. Re-run by fzf after a kill, hence a subcommand.
+print_menu() {
+  agents=$(available_agents)
+  [ -n "$agents" ] || {
+    echo "aigent: no agent CLIs found on PATH" >&2
+    exit 1
+  }
+  running=
+  [ -n "$USE_TMUX" ] && [ -z "$FORCE_NEW" ] && running=$(live_sessions)
+  # `$(...)` eats trailing newlines, so re-add one or the last session line welds
+  # itself onto the first agent line.
+  [ -n "$running" ] && printf '%s\n' "$running"
+  # Same three fields: verb, target, what's drawn.
+  printf '%s\n' "$agents" | awk -v OFS='\t' '{ print "new", $0, "new     " $0 }'
+}
+
+# ─── Launch ──────────────────────────────────────────────────────────────────
+# Created detached, then stamped with @agent, then attached — not a single
+# new-session, which would exec away before we could set the option. @agent records
+# which entry you picked so the picker can label the session later without having
+# to work out what is inside it: claude reports `claude.exe`, cursor-agent reports
+# bare `node` (it is a Node wrapper), and only opencode sets a pane title. What we
+# launched is the only thing that reliably knows what is running.
+launch() {
+  row=$(agent_row "$1")
+  [ -n "$row" ] || {
+    echo "aigent: unknown agent '$1'" >&2
+    exit 1
+  }
+  cmd=${row#*|}
+  args=${cmd#*|}
+  cmd=${cmd%%|*}
+
+  # Skip-permissions mode runs any command unconfirmed, so refuse the two places
+  # that would be catastrophic.
+  if [ "$1" = claude/yolo ]; then
+    [ "$(id -u)" -eq 0 ] && {
+      echo "aigent: refusing yolo as root" >&2
+      exit 1
+    }
+    [ "$PWD" = "$HOME" ] && {
+      echo "aigent: refusing yolo in \$HOME — cd into a project directory" >&2
+      exit 1
+    }
+  fi
+
+  # $args is a controlled, space-separated field from the table above; splitting
+  # it into separate arguments is the point.
+  # shellcheck disable=SC2086
+  [ -n "$USE_TMUX" ] || exec "$cmd" $args
+
+  SESSION=$(next_free)
+  # No "=" prefix on set-option: it does not accept one and fails with `no such
+  # session: =name` (attach-session and has-session do accept it — it is not
+  # universal). Safe anyway, since we just created this exact name.
+  # shellcheck disable=SC2086
+  tmux new-session -d -s "$SESSION" -c "$PWD" "$cmd" $args || exit 1
+  tmux set-option -t "$SESSION" @agent "$1"
+
+  apply_policy "$SESSION"
+  exec tmux attach-session -t "=$SESSION"
+}
+
+# Stage + commit via the commit-commands plugin's /commit skill. Print mode (-p):
+# a one-shot action, not a session to sit in. Plain -p/--verbose only prints the
+# final result — real progress needs --output-format stream-json, piped through jq
+# into readable per-tool-call lines.
 commit() {
   claude -p --verbose --output-format stream-json "/commit $*" | jq -rj '
     if .type == "assistant" then
@@ -47,39 +286,54 @@ commit() {
   '
 }
 
-if [ "$1" = "commit" ]; then
-  shift
-  commit "$@"
-  exit $?
+# ─── Dispatch ────────────────────────────────────────────────────────────────
+FORCE_NEW=
+case $1 in
+  commit)
+    shift
+    commit "$@"
+    exit $?
+    ;;
+  new) FORCE_NEW=1 ;;
+  --print-menu)
+    print_menu
+    exit 0
+    ;;
+  --kill)
+    kill_session "$2"
+    exit 0
+    ;;
+  '') ;;
+  *)
+    echo "aigent: unknown argument '$1'" >&2
+    exit 1
+    ;;
+esac
+
+MENU=$(print_menu) || exit 1
+
+# --height=~80%: hug the content, capped at 80% of the terminal, so three sessions do not
+# open a full-screen box. --wrap because a task is still a sentence and a narrow pane
+# (Zed's terminal, nvim's right panel) can still run past the edge — wrapping costs a
+# second row and shows all of it, where truncating would hide the one field that tells
+# two sessions of one project apart.
+set -- --prompt='Agent: ' --reverse --no-info --wrap \
+  --delimiter='\t' --with-nth='3..' --height=~80%
+if printf '%s\n' "$MENU" | grep -q '^attach'; then
+  set -- "$@" --header='enter: attach/start   ctrl-x: kill session' \
+    --bind="ctrl-x:execute-silent($0 --kill {2})+reload($0 --print-menu)"
 fi
 
-AGENT_CMDS='default:claude
-cursor:cursor-agent
-antigravity:agy
-opencode:opencode
-claude/plan:claude
-claude/explore:claude
-claude/yolo:claude'
+choice=$(printf '%s\n' "$MENU" | fzf "$@") || exit 0
 
-# Only list an entry if its underlying command is on PATH.
-AGENTS=$(printf '%s\n' "$AGENT_CMDS" | while IFS=: read -r name cmd; do
-  command -v "$cmd" >/dev/null 2>&1 && printf '%s\n' "$name"
-done)
-[ -z "$AGENTS" ] && {
-  echo "aigent: no agent CLIs found on PATH" >&2
-  exit 1
-}
+# Field 2 is the target either way — a session name to attach to, or an agent to
+# start. cut splits on TAB by default, which is the delimiter the menu is built with.
+target=$(printf '%s' "$choice" | cut -f2)
 
-# height = prompt row + top/bottom borders + one row per entry
-height=$(($(printf '%s\n' "$AGENTS" | wc -l) + 3))
-
-choice=$(printf '%s\n' "$AGENTS" | fzf --prompt='Agent: ' --height="$height" --reverse --no-info) || exit 0
-case "$choice" in
-  claude/plan) exec claude --agent Plan --model opus ;;
-  claude/explore) exec claude --agent Explore --model sonnet ;;
-  claude/yolo) yolo ;;
-  cursor) exec cursor-agent ;;
-  antigravity) exec agy ;;
-  opencode) exec opencode ;;
-  default | *) exec claude ;;
+case $choice in
+  attach*)
+    apply_policy "$target"
+    exec tmux attach-session -t "=$target"
+    ;;
+  *) launch "$target" ;;
 esac
