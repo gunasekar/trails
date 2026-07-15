@@ -294,9 +294,18 @@ live_sessions() {
 # No status bar: it would spend the bottom row on a session name you already know (you
 # are looking at the thread that owns it), a clock, and a window list of exactly one
 # window.
+#
+# No pane border either, and this one is not optional chrome — tmux.conf sets
+# `pane-border-status top` *globally* (it labels each pane with its command, which is
+# useful in a grid of panes). An agent session is a single pane, so that label is dead
+# weight: it draws a ` 1: claude.exe ` row across the top and costs the agent a line of
+# height. Turned off per-session here, which overrides the global for this session only
+# — a grid you build yourself keeps its labels. (`off` is the tmux default; the reason
+# it has to be set back is precisely that the global turned it on.)
 apply_policy() {
   tmux set-option -t "$1" @agent_locked 1
   tmux set-option -t "$1" status off
+  tmux set-option -t "$1" pane-border-status off
 }
 
 next_free() {
