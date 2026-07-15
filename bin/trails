@@ -1,7 +1,6 @@
 #!/usr/bin/env sh
 # fzf agent picker. Used as `aigent` from any shell, as nvim's right-panel agent
-# terminal command (see lua/plugins/agents.lua), and as Zed's
-# agent.terminal_init_command.
+# terminal command (lua/plugins/agents.lua), and as Zed's agent.terminal_init_command.
 #
 #   aigent                  pick a running session to rejoin, or an agent to start
 #   aigent new              skip the running sessions, start a fresh one
@@ -12,30 +11,26 @@
 #   AGENT_SETTLE           seconds between the two screen samples (default 0.35)
 #   AGENT_ASK_RE           regex meaning "the agent is asking you something"
 #
-# `aigent`, not `agent`, and the extra 'i' is the whole point. ~/.local/bin is a shared
-# namespace — every CLI installer drops binaries into it — and cursor-agent ships one
-# called `agent`, which overwrote this script's symlink on install *and on every
-# self-update*, quietly turning `agent` into Cursor's CLI. Owning a name that a vendor
-# also wants is a fight you re-lose on every update, so don't have it: `agent` is a word
-# they ship, `aigent` is not.
+# `aigent`, not `agent`: ~/.local/bin is a shared namespace, and cursor-agent ships
+# a binary called `agent` that overwrote this script's symlink on install and on
+# every self-update. Owning a name a vendor also wants is a fight you re-lose on
+# every update, so don't share it.
 #
-# The tmux sessions are named aigent-<project> to match. $PREFIX below is the only
-# definition of "a session of ours", so changing it orphans anything already running
-# under the old one — rename live sessions rather than leave them stranded:
+# Sessions live in tmux, one per agent, named aigent-<project>. $PREFIX below is the
+# only definition of "a session of ours", so changing it orphans anything already
+# running — rename live sessions rather than strand them:
 #   tmux rename-session -t agent-foo aigent-foo
 #
-# Sessions live in tmux, one per agent, named after the project directory. Zed's
-# remote mode runs this on the ssh host, and when Zed disconnects or quits the
-# agent process dies with its terminal — leaving `claude --resume` as the only way
-# back, which replays the transcript into a *new* process. Held in tmux, the
-# process simply stays alive: reconnecting re-attaches to the running conversation,
-# so there is nothing to resume. Every frontend goes through this one script and
-# behaves identically; the same session is reachable from a plain terminal with
-# `tmux a -t aigent-<project>`.
+# Why tmux: Zed's remote mode runs this on the ssh host, and when Zed disconnects the
+# agent process dies with its terminal, leaving `claude --resume` (which replays the
+# transcript into a *new* process) as the only way back. Held in tmux the process
+# stays alive, so reconnecting re-attaches to the running conversation with nothing to
+# resume. Every frontend goes through this one script; the same session is reachable
+# from a plain terminal with `tmux a -t aigent-<project>`.
 
 # ─── Agent registry ──────────────────────────────────────────────────────────
-# name|command|args — the single source of truth. It drives the menu, the PATH
-# filter and the launch, so adding an agent is one line here and nothing else.
+# name|command|args — the single source of truth. Drives the menu, the PATH filter
+# and the launch, so adding an agent is one line here and nothing else.
 AGENTS='claude|claude|
 cursor|cursor-agent|
 antigravity|agy|
@@ -56,20 +51,19 @@ available_agents() {
 }
 
 # ─── This project's sessions ─────────────────────────────────────────────────
-# The one place the session prefix is spelled. sessions() finds our sessions on the
-# box by it and is_ours() narrows those to this project, so both read it from here
-# rather than each hard-coding the string — two copies of a name is two chances to
-# rename one of them.
+# The one place the session prefix is spelled. sessions() and is_ours() both read it
+# from here rather than hard-coding the string — two copies is two chances to rename
+# only one of them.
 PREFIX=aigent-
 
-# tmux forbids '.' and ':' in session names (both are target separators), and
-# spaces make `tmux a -t <name>` a quoting chore. Two projects sharing a basename
-# share a name — rare, and obvious when it happens.
+# tmux forbids '.' and ':' in session names (both are target separators), and spaces
+# make `tmux a -t <name>` a quoting chore. Two projects sharing a basename share a
+# name — rare, and obvious when it happens.
 SESSION=$PREFIX$(basename "$PWD" | tr ':. ' '___')
 
-# One definition of "a session of ours": the exact name, or an -N sibling. Never
-# a prefix — aigent-api must not swallow aigent-api-worker, a different project that
-# happens to start the same. The menu, the kill and next_free all ask through here.
+# One definition of "a session of ours": the exact name, or an -N sibling. Never a
+# prefix — aigent-api must not swallow aigent-api-worker. The menu, the kill and
+# next_free all ask through here.
 is_ours() {
   case $1 in
     "$SESSION") return 0 ;;
@@ -83,8 +77,8 @@ is_ours() {
   esac
 }
 
-# Wrap the agent in tmux everywhere except inside tmux itself, where the process
-# is persistent regardless and nesting would double every prefix key.
+# Wrap the agent in tmux everywhere except inside tmux itself, where the process is
+# persistent anyway and nesting would double every prefix key.
 USE_TMUX=
 if [ -z "$TMUX" ] && command -v tmux >/dev/null 2>&1; then
   USE_TMUX=1
@@ -93,79 +87,56 @@ fi
 TAB=$(printf '\t')
 
 # Agents running here. ("Zed reconnected" and "give me a second agent" are
-# indistinguishable from here, so we show what's running and let you choose rather
-# than guess.)
+# indistinguishable from here, so show what's running and let you choose.)
 #
-# Three labels, because they answer three different questions:
+# Three labels answering three questions:
+#   @agent      what is running (claude, cursor, claude/plan). launch() wrote it down;
+#               falls back to the process name for a session we did not start.
+#   $TASK_FMT   what it's working on — the agent's own session name, published as the
+#               terminal title (OSC 2) and exposed by tmux as pane_title. Claude Code
+#               puts its /resume summary there.
+#   status      whether it's working or wants you back — see live_sessions below.
 #
-#   @agent      what is running (claude, cursor, claude/plan). launch() wrote it
-#               down; falls back to the process name for a session we did not start.
-#   $TASK_FMT   what it is working on — the agent's own session name, which it
-#               publishes as the terminal title (OSC 2) and tmux exposes as
-#               pane_title. Claude Code puts its summary there ("Set up tmux with
-#               Ghostty terminal"), which is exactly the /resume name.
-#   status      whether it is working, or wants you back. See live_sessions below.
-#
-# Two claude sessions in one project used to be distinguishable only by opening
-# them. Now they say what they are and what they are doing.
-#
-# The format has to defend against two things. tmux seeds pane_title with the
-# *hostname*, so "has a title" is not "is non-empty" — a pane whose program never
-# set one reads back `airbochs`, which would show up as the task. And Claude Code
-# prefixes the title with an animated spinner glyph ("⠐ Set up tmux…", a new frame
-# every tick), so the leading glyph is stripped. A title with no glyph and no space
-# (opencode's constant "OpenCode") does not match the strip and survives whole.
+# TASK_FMT defends against two things: tmux seeds pane_title with the *hostname*, so
+# "has a title" is not "is non-empty" (an unset pane reads back `airbochs`); and Claude
+# Code prefixes an animated spinner glyph, so the leading glyph is stripped. A title
+# with no glyph and no space (opencode's "OpenCode") survives whole.
 TASK_FMT='#{=45:#{?#{==:#{pane_title},#{host}},,#{s|^[^ ]+ ||:pane_title}}}'
 
 # ─── Is this agent working, or does it want you? ─────────────────────────────
-# The question the picker exists to answer. A row that says what is running and what
-# it is on still cannot say whether it needs you — and "needs you" is the only reason
-# you opened the picker.
+# The question the picker exists to answer, and "wants you" is the only reason you
+# opened it. tmux's session_attached is a fact about your terminal, not the agent —
+# every session here reads "attached" whether mid-edit or sat on a finished turn.
 #
-# tmux knows whether a *client* is attached (session_attached), which is a fact about
-# your terminal, not about the agent: three sessions here all read "attached" while one
-# was mid-edit and two had been sitting on a finished turn for twenty minutes.
+# The signal is the screen, and it's agent-agnostic: every one of these TUIs animates
+# while it works (spinner, token count, timer), so a working pane's screen differs
+# 300ms later and a stopped one's is byte-identical. A permission prompt doesn't
+# animate (the blinking cursor is drawn by the terminal, not the pty). So: hash the
+# screen, wait, hash again.
 #
-# The signal is the screen, and it is agent-agnostic. Every one of these TUIs animates
-# while it works — a spinner, a token count, an elapsed timer — so a working pane's
-# visible screen is *different* 300ms later, and a stopped one's is byte-for-byte
-# identical. A permission prompt does not animate; the cursor blinking in an empty
-# input box is drawn by the terminal, not written to the pty. So: hash the screen,
-# wait, hash again.
+# That's why there are no hooks. Claude Code's Stop/PermissionRequest hooks would
+# report this exactly — and only for Claude; cursor-agent, opencode and antigravity
+# have nothing, so a hook-built status would light one row and leave the rest blank.
+# Repainting a pty is the one thing all four already do.
 #
-# That is why there are no hooks. Claude Code has Stop and PermissionRequest hooks
-# that would report this exactly — and only for Claude. cursor-agent, opencode and
-# antigravity have nothing of the sort, so a hook-built status would light up one row
-# of the picker and leave the rest permanently blank. Repainting a pty is the one
-# thing all four already do, because it is what makes them agents in a terminal.
-#
-# Do not try to replace this with a tmux timestamp. #{session_activity} looks like
-# exactly the clock this wants and is not one: a detached pane printing every 200ms
-# still had its "activity" age grow 0 → 3 → 5s. It tracks tmux's own sticky alert
-# bookkeeping (same reason monitor-silence's flag stays set while a pane is actively
-# producing), not bytes on the pty. Two captures is the honest way, and it costs one
-# sleep for the whole list.
+# And not a tmux timestamp: #{session_activity} tracks tmux's sticky alert bookkeeping,
+# not pty bytes — a detached pane printing every 200ms still had its "activity" age
+# grow 0 → 3 → 5s. Two captures is the honest way, and costs one sleep for the list.
 #
 #   working   the screen changed across the gap
-#   blocked   still, and the bottom of it is asking you a question
-#   waiting   still, and not asking — it finished its turn, your move
+#   blocked   still, and the bottom is asking you a question
+#   waiting   still, and not asking — finished its turn, your move
 #
-# blocked-vs-waiting is the one heuristic and the only agent-shaped thing here: it
-# greps the screen, so an agent that merely prints the word "Approve" can fool it.
-# Both mean "wants you" and both sort above working, so a wrong guess costs a colour.
-# AGENT_ASK_RE replaces the pattern for an agent that asks in words it doesn't know.
+# blocked-vs-waiting is the one heuristic: it greps the screen, so an agent that prints
+# "Approve" can fool it. Both mean "wants you" and sort above working, so a wrong guess
+# costs a colour. AGENT_ASK_RE overrides the pattern for an agent that asks in other words.
 #
-# AGENT_SETTLE is the gap, and it is the whole latency this adds to opening the
-# picker. It has to outlast the slowest repaint of a *working* agent. Real ones spin a
-# braille glyph at ~10Hz — Claude repainted on 5 of 5 samples 300ms apart, and a 10Hz
-# fake is caught 6 times out of 6 even at 0.15s — so the default has room to spare. An
-# agent that repainted only once a second would need ~1.2s to be seen reliably.
-#
-# Which is the safe direction to be wrong in, and not by luck: guessing needs both
-# samples to differ, so a still screen can never read as working, only a working one
-# can read as still. The bad case is a slow-painting agent shown as waiting — you open
-# it and find it busy. The case that would actually cost you, a stopped agent hidden
-# under "working" while it waits, cannot happen.
+# AGENT_SETTLE is the gap, and the whole latency this adds. It must outlast the slowest
+# repaint of a *working* agent; real ones spin at ~10Hz (Claude repainted on 5/5 samples
+# 300ms apart), so 0.35 has room. The error is one-sided by construction: guessing
+# working needs both samples to differ, so a still screen can never read as working. The
+# bad case is a slow agent shown waiting (you open it and it's busy); a stopped agent
+# hidden under "working" cannot happen.
 SETTLE=${AGENT_SETTLE:-0.35}
 ASK_RE=${AGENT_ASK_RE:-'Do you want|Would you like|Allow |Approve|\[y/[nN]\]|\(y/[nN]\)|❯ +[0-9]\.'}
 
@@ -175,13 +146,13 @@ DIM=$(printf '\033[2m')
 RST=$(printf '\033[0m')
 
 # The *visible* screen only (no -S): a question is on screen by definition, and
-# scrollback would only turn old questions into current ones.
+# scrollback would turn old questions into current ones.
 #
-# Both samples must be hashed through the identical pipeline or every session reads
-# as working forever: `$(screen_of x)` strips the capture's trailing blank rows (a
-# command substitution eats trailing newlines) and piping it straight to cksum does
-# not, so the two passes hashed different bytes and never agreed. screen_hash takes
-# the *content*, so both callers normalise the same way by construction.
+# Both samples must hash through the identical pipeline or every session reads as
+# working forever: `$(screen_of x)` strips the capture's trailing blank rows (command
+# substitution eats trailing newlines) and piping straight to cksum does not, so the
+# two passes hashed different bytes. screen_hash takes the *content*, so both callers
+# normalise the same way by construction.
 screen_of() { tmux capture-pane -pt "$1" 2>/dev/null; }
 screen_hash() { printf '%s\n' "$1" | cksum; }
 
@@ -198,10 +169,8 @@ sessions() {
     done
 }
 
-# stdin: name/agent/task. stdout: the same with a state in front.
-#
-# The sleep is the cost of the whole thing, so it is paid once for the entire list
-# rather than once per session: hash every screen, wait, hash every screen again.
+# stdin: name/agent/task. stdout: the same with a state in front. The sleep is paid
+# once for the whole list: hash every screen, wait, hash every screen again.
 classify() {
   rows=$(cat)
   [ -n "$rows" ] || return 0
@@ -227,28 +196,20 @@ classify() {
 }
 
 # `aigent status` — every agent session on this machine, TSV: state, session, agent, task.
-#
-# Deliberately not scoped to $PWD, which is the one thing the picker cannot be: the
-# picker answers "what is running *here*", and this answers "what did I leave running
-# while I walked away". That is the question a notifier asks, and the SwiftBar plugin
-# (swiftbar/.config/swiftbar/plugins/agents.10s.sh) is the only caller today.
-#
-# blocked < waiting < working alphabetically, which is also most-wants-you first, so a
-# plain sort is the right sort.
+# Deliberately not scoped to $PWD: the picker answers "what's running *here*", this
+# answers "what did I leave running while I walked away" — the question a notifier asks
+# (the SwiftBar plugin swiftbar/.config/swiftbar/plugins/agents.10s.sh is the only caller).
+# blocked < waiting < working alphabetically is also most-wants-you first, so plain sort.
 status() { sessions | classify | sort; }
 
-# Menu lines are TAB-delimited, and fzf is told to display only from field 3 on
-# (--with-nth). Fields 1 and 2 — the verb and the target — are carried but never drawn:
-# the verb is what the dispatch at the bottom matches to decide attach-vs-launch, and
-# the target is what ctrl-x reads as {2}. The session name is the thing worth hiding:
-# every row is the same project by construction, so `aigent-_dotfiles` is identical on
-# every line and only its `-2`/`-3` suffix ever distinguishes them — while in a
-# half-width pane it pushed the task, the one part that actually differs, off the end
-# of the line. The suffix survives as a `#2` badge.
+# Menu lines are TAB-delimited; fzf draws only field 3 on (--with-nth). Fields 1-2 are
+# carried but never drawn: field 1 (verb) is what the dispatch matches for attach-vs-launch,
+# field 2 (target) is what ctrl-x reads as {2}. The session name is worth hiding — every
+# row is the same project, so `aigent-_dotfiles` repeats identically and in a half-width
+# pane pushed the task (the part that differs) off the end. The suffix survives as a `#2` badge.
 #
-# Sorted by what it wants from you rather than by name: blocked, then waiting, then
-# the ones getting on with it. The agent you have to go and unblock is the reason you
-# opened the picker, so it lands under the cursor.
+# Sorted by what it wants from you: blocked, waiting, then the ones getting on with it —
+# so the agent you have to unblock lands under the cursor.
 live_sessions() {
   sessions | while IFS="$TAB" read -r name label task; do
     is_ours "$name" || continue
@@ -271,37 +232,22 @@ live_sessions() {
 }
 
 # What a session of ours looks like. Everything here is session-scoped, so a tmux
-# session you started yourself keeps its own keys, chrome and layout.
+# session you started yourself keeps its own keys, chrome and layout. Applied on create
+# *and* on attach, so a session started before any of this existed picks it up next time.
 #
-# Applied on create *and* on attach, so a session started before any of this
-# existed picks it up the next time you go back to it, rather than staying odd
-# forever.
+# @agent_locked marks "one agent, one pane": a session here *is* an agent (Zed, nvim and
+# the picker each treat it as a single view), so a second pane would make all three lie.
+# The enforcing lives in tmux.conf, where the split/new-window keys are guarded by
+# `if -F '#{@agent_locked}'` — tmux has no before-split-window, so a hook could only
+# create the pane then kill it; a guarded key refuses and nothing is created. Deliberate
+# routes stay open: `tmux split-window -t <session>`, join-pane (fires no hook), and the
+# prefix + < / > context menus.
 #
-# One agent, one pane: a session here *is* an agent — Zed and nvim each treat it as a
-# single view, the picker gives it a single row, @agent labels it as one thing — and a
-# second pane would make all three lie.
-#
-# @agent_locked is only a marker. The enforcing lives in tmux.conf, where the split
-# and new-window keys are guarded by `if -F '#{@agent_locked}'`, because tmux has no
-# before-split-window — every hook is after-* — so a hook could only create the pane
-# and then kill it. A guarded key refuses, and nothing is ever created.
-#
-# Deliberate routes stay open: `tmux split-window -t <session>` from elsewhere,
-# join-pane (which fires no hook at all — uncatchable), and the split entries in the
-# prefix + < / > context menus. Each names the session as a target or takes real
-# navigation, so none is the accident this guards against.
-#
-# No status bar: it would spend the bottom row on a session name you already know (you
-# are looking at the thread that owns it), a clock, and a window list of exactly one
-# window.
-#
-# No pane border either, and this one is not optional chrome — tmux.conf sets
-# `pane-border-status top` *globally* (it labels each pane with its command, which is
-# useful in a grid of panes). An agent session is a single pane, so that label is dead
-# weight: it draws a ` 1: claude.exe ` row across the top and costs the agent a line of
-# height. Turned off per-session here, which overrides the global for this session only
-# — a grid you build yourself keeps its labels. (`off` is the tmux default; the reason
-# it has to be set back is precisely that the global turned it on.)
+# No status bar: it would spend the bottom row on a session name you already know, a
+# clock, and a one-window list. No pane border either — tmux.conf sets pane-border-status
+# top *globally* (useful in a grid), but an agent session is a single pane, so that label
+# is dead weight costing a line of height. Both overridden per-session, so a grid you
+# build yourself keeps them.
 apply_policy() {
   tmux set-option -t "$1" @agent_locked 1
   tmux set-option -t "$1" status off
@@ -321,25 +267,21 @@ next_free() {
 }
 
 # ─── Picker internals (invoked by fzf, one process each) ─────────────────────
-# These live here rather than inline in the fzf flags because embedding shell in
-# an fzf binding is a quoting minefield: fzf single-quotes every placeholder and
-# then runs the result through $SHELL, where zsh expands a bare leading `=` to a
-# command path. Both traps silently ate the kill. As subcommands they are plain
-# shell, and directly testable: `aigent --kill <name>`.
+# These are subcommands rather than shell inline in the fzf flags: fzf single-quotes
+# every placeholder and runs the result through $SHELL, where zsh expands a bare leading
+# `=` to a command path — both traps silently ate the kill. As subcommands they're plain
+# shell and directly testable: `aigent --kill <name>`.
 
-# ctrl-x: kill the highlighted session. Sessions outlive the terminal that started
-# them — that is the entire point — so nothing else ever reaps the ones you are
-# finished with, and they hold their scrollback until something does.
-#
-# is_ours is the guard: a "new  default" row would otherwise hand us the agent name
-# as a target and try to kill a session literally called "default".
+# ctrl-x: kill the highlighted session. Sessions outlive the terminal that started them,
+# so nothing else ever reaps them. is_ours guards it: a "new  default" row would otherwise
+# hand us the agent name and try to kill a session literally called "default".
 kill_session() {
   is_ours "$1" || return 0
   tmux kill-session -t "=$1" 2>/dev/null
 }
 
-# Sessions already running here, then the agents you can start. `aigent new` skips
-# straight to the new-session half. Re-run by fzf after a kill, hence a subcommand.
+# Sessions already running here, then the agents you can start. `aigent new` skips to the
+# new-session half. Re-run by fzf after a kill, hence a subcommand.
 print_menu() {
   agents=$(available_agents)
   [ -n "$agents" ] || {
@@ -356,12 +298,10 @@ print_menu() {
 }
 
 # ─── Launch ──────────────────────────────────────────────────────────────────
-# Created detached, then stamped with @agent, then attached — not a single
-# new-session, which would exec away before we could set the option. @agent records
-# which entry you picked so the picker can label the session later without having
-# to work out what is inside it: claude reports `claude.exe`, cursor-agent reports
-# bare `node` (it is a Node wrapper), and only opencode sets a pane title. What we
-# launched is the only thing that reliably knows what is running.
+# Created detached, stamped with @agent, then attached — not a single new-session, which
+# would exec away before we could set the option. @agent records which entry you picked so
+# the picker can label the session without inspecting it: claude reports `claude.exe`,
+# cursor-agent reports bare `node`, only opencode sets a pane title.
 launch() {
   row=$(agent_row "$1")
   [ -n "$row" ] || {
@@ -372,8 +312,8 @@ launch() {
   args=${cmd#*|}
   cmd=${cmd%%|*}
 
-  # Skip-permissions mode runs any command unconfirmed, so refuse the two places
-  # that would be catastrophic.
+  # Skip-permissions mode runs any command unconfirmed, so refuse the two places that
+  # would be catastrophic.
   if [ "$1" = claude/yolo ]; then
     [ "$(id -u)" -eq 0 ] && {
       echo "aigent: refusing yolo as root" >&2
@@ -385,15 +325,15 @@ launch() {
     }
   fi
 
-  # $args is a controlled, space-separated field from the table above; splitting
-  # it into separate arguments is the point.
+  # $args is a controlled, space-separated field from the table above; splitting it into
+  # separate arguments is the point.
   # shellcheck disable=SC2086
   [ -n "$USE_TMUX" ] || exec "$cmd" $args
 
   SESSION=$(next_free)
-  # No "=" prefix on set-option: it does not accept one and fails with `no such
-  # session: =name` (attach-session and has-session do accept it — it is not
-  # universal). Safe anyway, since we just created this exact name.
+  # No "=" prefix on set-option: it does not accept one and fails with `no such session:
+  # =name` (attach-session and has-session do accept it). Safe anyway — we just created
+  # this exact name.
   # shellcheck disable=SC2086
   tmux new-session -d -s "$SESSION" -c "$PWD" "$cmd" $args || exit 1
   tmux set-option -t "$SESSION" @agent "$1"
@@ -402,10 +342,9 @@ launch() {
   exec tmux attach-session -t "=$SESSION"
 }
 
-# Stage + commit via the commit-commands plugin's /commit skill. Print mode (-p):
-# a one-shot action, not a session to sit in. Plain -p/--verbose only prints the
-# final result — real progress needs --output-format stream-json, piped through jq
-# into readable per-tool-call lines.
+# Stage + commit via the commit-commands plugin's /commit skill. Print mode (-p): a
+# one-shot action, not a session. Plain -p only prints the final result — real progress
+# needs --output-format stream-json, piped through jq into per-tool-call lines.
 commit() {
   claude -p --verbose --output-format stream-json "/commit $*" | jq -rj '
     if .type == "assistant" then
@@ -451,11 +390,10 @@ esac
 
 MENU=$(print_menu) || exit 1
 
-# --height=~80%: hug the content, capped at 80% of the terminal, so three sessions do not
-# open a full-screen box. --wrap because a task is still a sentence and a narrow pane
-# (Zed's terminal, nvim's right panel) can still run past the edge — wrapping costs a
-# second row and shows all of it, where truncating would hide the one field that tells
-# two sessions of one project apart.
+# --height=~80%: hug the content, capped at 80%, so three sessions don't open a
+# full-screen box. --wrap because a task is a sentence and a narrow pane (Zed's terminal,
+# nvim's right panel) can run past the edge — wrapping costs a row and shows all of it,
+# where truncating would hide the field that tells two sessions of one project apart.
 set -- --prompt='Agent: ' --reverse --no-info --ansi --wrap \
   --delimiter='\t' --with-nth='3..' --height=~80%
 if printf '%s\n' "$MENU" | grep -q '^attach'; then
@@ -465,8 +403,8 @@ fi
 
 choice=$(printf '%s\n' "$MENU" | fzf "$@") || exit 0
 
-# Field 2 is the target either way — a session name to attach to, or an agent to
-# start. cut splits on TAB by default, which is the delimiter the menu is built with.
+# Field 2 is the target either way — a session name to attach to, or an agent to start.
+# cut splits on TAB by default, the delimiter the menu is built with.
 target=$(printf '%s' "$choice" | cut -f2)
 
 case $choice in
