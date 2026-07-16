@@ -144,9 +144,9 @@ TASK_FMT='#{=45:#{?#{==:#{pane_title},#{host}},,#{s|^[^A-Za-z0-9 ]+ ||:pane_titl
 #
 #   working   the screen changed across the gap
 #   blocked   still, and the bottom is asking you a question
-#   waiting   still, and not asking — finished its turn, your move
+#   idle      still, and not asking — finished its turn, your move
 #
-# blocked-vs-waiting is the one heuristic: it greps the screen, so an agent that prints
+# blocked-vs-idle is the one heuristic: it greps the screen, so an agent that prints
 # "Approve" can fool it. Both mean "wants you" and sort above working, so a wrong guess
 # costs a colour. AGENT_ASK_RE overrides the pattern for an agent that asks in other words.
 #
@@ -154,7 +154,7 @@ TASK_FMT='#{=45:#{?#{==:#{pane_title},#{host}},,#{s|^[^A-Za-z0-9 ]+ ||:pane_titl
 # repaint of a *working* agent; real ones spin at ~10Hz (Claude repainted on 5/5 samples
 # 300ms apart), so 0.35 has room. The error is one-sided by construction: guessing
 # working needs both samples to differ, so a still screen can never read as working. The
-# bad case is a slow agent shown waiting (you open it and it's busy); a stopped agent
+# bad case is a slow agent shown idle (you open it and it's busy); a stopped agent
 # hidden under "working" cannot happen.
 SETTLE=${AGENT_SETTLE:-0.35}
 ASK_RE=${AGENT_ASK_RE:-'Do you want|Would you like|Allow |Approve|\[y/[nN]\]|\(y/[nN]\)|❯ +[0-9]\.'}
@@ -208,7 +208,7 @@ classify() {
     elif printf '%s\n' "$now" | awk 'NF' | tail -n 15 | grep -Eq "$ASK_RE"; then
       state=blocked
     else
-      state=waiting
+      state=idle
     fi
     printf '%s\t%s\t%s\t%s\n' "$state" "$name" "$label" "$task"
   done
@@ -218,7 +218,9 @@ classify() {
 # Deliberately not scoped to $PWD: the picker answers "what's running *here*", this
 # answers "what did I leave running while I walked away" — the question a notifier asks
 # (the SwiftBar plugin swiftbar/.config/swiftbar/plugins/agents.10s.sh is the only caller).
-# blocked < waiting < working alphabetically is also most-wants-you first, so plain sort.
+# blocked < idle < working alphabetically is also most-wants-you first, so plain sort. The
+# coincidence is load-bearing: renaming a state re-rolls it, and a name that sorts wrong
+# re-orders the notifier's rows quietly rather than failing.
 status() { sessions | classify | sort; }
 
 # Menu lines are TAB-delimited; fzf draws only field 3 on (--with-nth). Fields 1-2 are
@@ -227,7 +229,7 @@ status() { sessions | classify | sort; }
 # row is the same project, so `aigent-_dotfiles` repeats identically and in a half-width
 # pane pushed the task (the part that differs) off the end. The suffix survives as a `#2` badge.
 #
-# Sorted by what it wants from you: blocked, waiting, then the ones getting on with it —
+# Sorted by what it wants from you: blocked, idle, then the ones getting on with it —
 # so the agent you have to unblock lands under the cursor.
 live_sessions() {
   sessions | while IFS="$TAB" read -r name label task; do
@@ -236,7 +238,7 @@ live_sessions() {
   done | classify | while IFS="$TAB" read -r state name label task; do
     case $state in
       blocked) rank=0 dot=$RED ;;
-      waiting) rank=1 dot=$YEL ;;
+      idle) rank=1 dot=$YEL ;;
       *) rank=2 dot=$DIM ;;
     esac
 
