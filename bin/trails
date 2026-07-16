@@ -109,10 +109,18 @@ TAB=$(printf '\t')
 #   status      whether it's working or wants you back — see live_sessions below.
 #
 # TASK_FMT defends against two things: tmux seeds pane_title with the *hostname*, so
-# "has a title" is not "is non-empty" (an unset pane reads back `airbochs`); and Claude
-# Code prefixes an animated spinner glyph, so the leading glyph is stripped. A title
-# with no glyph and no space (opencode's "OpenCode") survives whole.
-TASK_FMT='#{=45:#{?#{==:#{pane_title},#{host}},,#{s|^[^ ]+ ||:pane_title}}}'
+# "has a title" is not "is non-empty" (an unset pane reads back `airbochs`) — compared
+# against #{host} and not #{host_short}, because that seed is gethostname() verbatim and
+# the two differ wherever the box answers with an FQDN; and Claude Code prefixes an
+# animated spinner glyph, so a leading glyph is stripped.
+#
+# "Glyph" has to be spelled out rather than taken as "whatever comes first". `^[^ ]+ `
+# ate the first word of any title that had one — "Fixing the flaky test" displayed as
+# "the flaky test", and a quoted opener lost the quote and the word inside it. Barring
+# alphanumerics from the run confines it to decoration: every Claude title (✳, ⠂) still
+# loses its glyph, and a title that opens with a plain word now survives whole, as one
+# with no glyph and no space (opencode's "OpenCode") always did.
+TASK_FMT='#{=45:#{?#{==:#{pane_title},#{host}},,#{s|^[^A-Za-z0-9 ]+ ||:pane_title}}}'
 
 # ─── Is this agent working, or does it want you? ─────────────────────────────
 # The question the picker exists to answer, and "wants you" is the only reason you
