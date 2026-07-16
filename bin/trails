@@ -35,6 +35,7 @@ AGENTS='claude|claude|
 cursor|cursor-agent|
 antigravity|agy|
 opencode|opencode|
+pi|pi|
 claude/plan|claude|--agent Plan --model opus
 claude/explore|claude|--agent Explore --model sonnet
 claude/yolo|claude|--dangerously-skip-permissions'
