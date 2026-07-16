@@ -58,24 +58,34 @@ available_agents() {
 PREFIX=aigent-
 
 # tmux forbids '.' and ':' in session names (both are target separators), and spaces
-# make `tmux a -t <name>` a quoting chore. Two projects sharing a basename share a
-# name — rare, and obvious when it happens.
+# make `tmux a -t <name>` a quoting chore. Two projects sharing a basename both want
+# this name; the loser lands on an -N sibling and is_ours tells them apart by path.
 SESSION=$PREFIX$(basename "$PWD" | tr ':. ' '___')
 
-# One definition of "a session of ours": the exact name, or an -N sibling. Never a
-# prefix — aigent-api must not swallow aigent-api-worker. The menu, the kill and
-# next_free all ask through here.
+# One definition of "a session of ours": an aigent- session started in this directory.
+# The menu and the kill both ask through here.
+#
+# Not the name, because the name cannot answer it. `aigent-foo-2` is equally "foo's
+# second agent" and "project foo-2's first", and reading it as the former let the picker
+# list — and ctrl-x kill — another project's live session. The exact name is no better:
+# ~/a/foo and ~/b/foo both want aigent-foo, so whoever launched second sits on
+# aigent-foo-2 and the name says nothing about which of them owns it.
+#
+# So ask tmux where the session was started: launch() passes -c "$PWD" and tmux keeps it
+# verbatim as #{session_path}. Exact, needs no bookkeeping of our own, and already true
+# of every session started before this rule existed.
+#
+# The prefix check leads and does the refusing — a "new  claude" row reaches kill_session
+# as the agent name and must not resolve to a session at all. No "=" on -t: unlike
+# has-session, display-message ignores it and silently answers nothing (same trap as
+# set-option, see launch()). Safe without: these names always come from a live
+# list-sessions, so an exact match exists and wins.
 is_ours() {
   case $1 in
-    "$SESSION") return 0 ;;
-    "$SESSION"-*)
-      case ${1#"$SESSION"-} in
-        '' | *[!0-9]*) return 1 ;;
-        *) return 0 ;;
-      esac
-      ;;
+    "$PREFIX"*) ;;
     *) return 1 ;;
   esac
+  [ "$(tmux display-message -pt "$1" '#{session_path}' 2>/dev/null)" = "$PWD" ]
 }
 
 # Wrap the agent in tmux everywhere except inside tmux itself, where the process is
@@ -222,8 +232,15 @@ live_sessions() {
       *) rank=2 dot=$DIM ;;
     esac
 
+    # The -N suffix, and only that: is_ours admits any aigent- session started here, so a
+    # name that isn't $SESSION-<digits> (one you made by hand) would otherwise badge
+    # itself with the whole leftover string.
     n=${name#"$SESSION"}
     n=${n#-}
+    case $n in
+      '' | *[!0-9]*) n= ;;
+      *) ;; # a real -N ordinal, worth a badge
+    esac
     [ -n "$n" ] && label="$label · #$n"
     [ -n "$task" ] && task="  $task"
     # Sort key up front, stripped after.
