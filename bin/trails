@@ -299,6 +299,23 @@ print_menu() {
 }
 
 # ─── Launch ──────────────────────────────────────────────────────────────────
+# How long to give an agent to fall over before assuming it came up, and the whole cost of
+# the dead-on-arrival guard in launch() — every launch that works waits this long before
+# attaching.
+#
+# It buys margin over a real measurement: cursor-agent with no keychain took 350ms and
+# 650ms to die on two runs, and a bare `echo; exit 1` took 350-450ms, most of it process
+# startup rather than the failure itself. So a value near the measurement is not safe —
+# 0.5 sat inside the range and let the very failure this exists for through. 1.5 is ~2.3x
+# the slowest seen.
+#
+# Guessing low is not a cheap mistake, which is what pushed this up rather than down: the
+# check turns remain-on-exit back off, so an agent dying just after the deadline has its
+# session torn down with the error inside it — the exact silence this guard removes. A
+# death later than this reads as a normal exit and you are back to today's behaviour, so
+# the guard only ever adds.
+BOOT=1.5
+
 # Created detached, stamped with @agent, then attached — not a single new-session, which
 # would exec away before we could set the option. @agent records which entry you picked so
 # the picker can label the session without inspecting it: claude reports `claude.exe`,
@@ -335,9 +352,35 @@ launch() {
   # No "=" prefix on set-option: it does not accept one and fails with `no such session:
   # =name` (attach-session and has-session do accept it). Safe anyway — we just created
   # this exact name.
+  #
+  # remain-on-exit keeps the pane after the agent exits, so the guard below can read why.
+  # Chained into new-session's own command list rather than set by a second tmux call: an
+  # agent that dies in milliseconds is reaped before a follow-up call can land, which is
+  # the exact case worth catching. remain-on-exit-format '' drops tmux's own "Pane is
+  # dead" banner, leaving the capture to be the agent's words and nothing else.
   # shellcheck disable=SC2086
-  tmux new-session -d -s "$SESSION" -c "$PWD" "$cmd" $args || exit 1
+  tmux new-session -d -s "$SESSION" -c "$PWD" "$cmd" $args \
+    \; set-option -w -t "$SESSION" remain-on-exit on \
+    \; set-option -w -t "$SESSION" remain-on-exit-format '' || exit 1
   tmux set-option -t "$SESSION" @agent "$1"
+
+  # Dead on arrival. tmux drops a session the moment its command exits and the error goes
+  # with it, so an agent that can't start (bad token, no keychain) made aigent look like it
+  # simply did nothing — the failure and a successful launch were both silence. Print what
+  # the agent said rather than attaching to a corpse.
+  #
+  # -S- to read history, unlike screen_of(): a dying pane scrolls its output up out of the
+  # visible screen, so the last thing it said is only in the scrollback.
+  sleep "$BOOT"
+  if [ "$(tmux display-message -pt "$SESSION" '#{pane_dead}' 2>/dev/null)" = 1 ]; then
+    echo "aigent: $1 exited immediately (status $(tmux display-message -pt "$SESSION" '#{pane_dead_status}' 2>/dev/null))" >&2
+    tmux capture-pane -pS- -t "$SESSION" 2>/dev/null | awk 'NF' | tail -n 15 >&2
+    tmux kill-session -t "=$SESSION" 2>/dev/null
+    exit 1
+  fi
+  # Survived, so back to the default: quitting the agent should close the session, not
+  # leave a dead pane the picker would keep listing.
+  tmux set-option -w -t "$SESSION" remain-on-exit off
 
   apply_policy "$SESSION"
   exec tmux attach-session -t "=$SESSION"
