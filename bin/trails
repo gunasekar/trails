@@ -32,13 +32,18 @@
 # ─── Agent registry ──────────────────────────────────────────────────────────
 # name|command|args — the single source of truth. Drives the menu, the PATH filter
 # and the launch, so adding an agent is one line here and nothing else.
+#
+# A variant earns a row only if it cannot be reached from inside a running session.
+# Claude Code switches agent and model on demand, so a claude/plan or claude/explore
+# entry was a second way to do what the default session already does when asked — every
+# session started as plain `claude` anyway, and the rows were noise in a menu whose job
+# is to be scanned. --dangerously-skip-permissions is the opposite: it is fixed at exec
+# time and there is no asking for it later, so it stays.
 AGENTS='claude|claude|
 cursor|cursor-agent|
 antigravity|agy|
 opencode|opencode|
 pi|pi|
-claude/plan|claude|--agent Plan --model opus
-claude/explore|claude|--agent Explore --model sonnet
 claude/yolo|claude|--dangerously-skip-permissions'
 
 agent_row() {
@@ -102,7 +107,7 @@ TAB=$(printf '\t')
 # indistinguishable from here, so show what's running and let you choose.)
 #
 # Three labels answering three questions:
-#   @agent      what is running (claude, cursor, claude/plan). launch() wrote it down;
+#   @agent      what is running (claude, cursor, claude/yolo). launch() wrote it down;
 #               falls back to the process name for a session we did not start.
 #   $TASK_FMT   what it's working on — the agent's own session name, published as the
 #               terminal title (OSC 2) and exposed by tmux as pane_title. Claude Code
