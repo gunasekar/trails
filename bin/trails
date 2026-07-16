@@ -406,8 +406,18 @@ launch() {
 # Stage + commit via the commit-commands plugin's /commit skill. Print mode (-p): a
 # one-shot action, not a session. Plain -p only prints the final result — real progress
 # needs --output-format stream-json, piped through jq into per-tool-call lines.
+#
+# claude's status has to be carried out of the pipeline by hand. `$?` after a pipeline is
+# the *last* command's — jq's — and jq exits 0 on an empty stream, so a claude that died
+# on a bad token printed nothing and still reported success. That is a commit you believe
+# happened. No pipefail: this is /bin/sh, and it isn't POSIX everywhere that runs (dash
+# only grew it in 0.5.12), so stash the real status on the way past instead.
 commit() {
-  claude -p --verbose --output-format stream-json "/commit $*" | jq -rj '
+  rcfile=$(mktemp) || return 1
+  {
+    claude -p --verbose --output-format stream-json "/commit $*"
+    printf '%s' "$?" >"$rcfile"
+  } | jq -rj '
     if .type == "assistant" then
       (.message.content[]? | select(.type == "tool_use")
         | "→ " + .name + ": " + (.input.description // .input.command // (.input | tostring)) + "\n")
@@ -419,6 +429,15 @@ commit() {
       "\n✔ " + .result + "\n"
     else empty end
   '
+  jq_st=$?
+  claude_st=$(cat "$rcfile")
+  rm -f "$rcfile"
+
+  # claude's failure is the one worth reporting; jq's only means we mangled its output.
+  # An empty file means the subshell died before it could write, which is also a failure.
+  claude_st=${claude_st:-1}
+  [ "$claude_st" -eq 0 ] || return "$claude_st"
+  return "$jq_st"
 }
 
 # ─── Dispatch ────────────────────────────────────────────────────────────────
