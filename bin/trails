@@ -4,7 +4,8 @@
 #
 #   aigent                  pick a running session to rejoin, or an agent to start
 #   aigent new              skip the running sessions, start a fresh one
-#   aigent status           every agent session on the box, TSV, for a notifier to read
+#   aigent status           every agent session on the box — a table on a terminal, TSV
+#                           when piped, for a notifier to read
 #   aigent commit [ctx...]  stage + commit via the /commit skill, no session
 #
 # Env:
@@ -214,14 +215,58 @@ classify() {
   done
 }
 
-# `aigent status` — every agent session on this machine, TSV: state, session, agent, task.
+# `aigent status` — every agent session on this machine: state, session, agent, task.
 # Deliberately not scoped to $PWD: the picker answers "what's running *here*", this
 # answers "what did I leave running while I walked away" — the question a notifier asks
 # (the SwiftBar plugin swiftbar/.config/swiftbar/plugins/agents.10s.sh is the only caller).
 # blocked < idle < working alphabetically is also most-wants-you first, so plain sort. The
 # coincidence is load-bearing: renaming a state re-rolls it, and a name that sorts wrong
 # re-orders the notifier's rows quietly rather than failing.
-status() { sessions | classify | sort; }
+#
+# Two audiences, so two views. The TSV is a contract — the plugin reads it back with
+# `IFS=$'\t' read -r state name agent task` — but a tab is not a column: it jumps to the
+# terminal's next 8-stop, so the moment one session name is longer than another the fields
+# stop lining up and you are reading a ragged grid. A person wants columns; a notifier
+# wants fields. `[ -t 1 ]` separates them, and needs no flag to do it: the plugin's own
+# `$(...)` is a pipe, so it goes on getting the TSV whether or not it ever asks.
+status() {
+  rows=$(sessions | classify | sort)
+  [ -n "$rows" ] || return 0
+  [ -t 1 ] || {
+    printf '%s\n' "$rows"
+    return 0
+  }
+
+  # Widths measured off the widest cell rather than fixed, so nothing truncates and
+  # nothing is padded further than this particular set of sessions needs.
+  #
+  # The name sheds $PREFIX and nothing else. Splitting a trailing -2 off as a `#2` badge
+  # is what the picker does, and it can: is_ours has already established every row there
+  # is the same project, so the suffix is an ordinal. Here the rows are the whole box,
+  # where `aigent-foo-2` is equally foo's second agent and project foo-2's only one — the
+  # same ambiguity is_ours stopped guessing at. So print the name and let it be read.
+  printf '%s\n' "$rows" | awk -F"$TAB" \
+    -v pfx="$PREFIX" -v red="$RED" -v yel="$YEL" -v dim="$DIM" -v rst="$RST" '
+    {
+      st[NR] = $1; ag[NR] = $3; tk[NR] = $4
+      nm[NR] = $2
+      if (index(nm[NR], pfx) == 1) nm[NR] = substr(nm[NR], length(pfx) + 1)
+      if (length(st[NR]) > w1) w1 = length(st[NR])
+      if (length(nm[NR]) > w2) w2 = length(nm[NR])
+      if (length(ag[NR]) > w3) w3 = length(ag[NR])
+    }
+    END {
+      for (i = 1; i <= NR; i++) {
+        c = st[i] == "blocked" ? red : (st[i] == "idle" ? yel : dim)
+        # Built whole then trimmed: a session with no task would otherwise leave the
+        # agent column padded out to nothing.
+        line = sprintf("%-*s  %-*s  %-*s  %s", w1, st[i], w2, nm[i], w3, ag[i], tk[i])
+        sub(/ +$/, "", line)
+        printf "%s●%s %s\n", c, rst, line
+      }
+    }
+  '
+}
 
 # Menu lines are TAB-delimited; fzf draws only field 3 on (--with-nth). Fields 1-2 are
 # carried but never drawn: field 1 (verb) is what the dispatch matches for attach-vs-launch,
