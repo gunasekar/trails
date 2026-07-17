@@ -6,6 +6,12 @@
 #   aigent new              skip the running sessions, start a fresh one
 #   aigent status           every agent session on the box — a table on a terminal, TSV
 #                           when piped, for a notifier to read
+#   aigent cockpit [N]      several agents at once in one window. Pick them, or take the
+#                           N that most want you. Inside, all stock tmux: C-b ←↑↓→ move,
+#                           C-b z zoom one full-screen, C-b Space cycle layout, C-b d
+#                           detach. C-b C-b s re-points one pane at a different agent —
+#                           C-b C-b is send-prefix, so the key lands on the pane's own
+#                           (inner) client rather than on the cockpit.
 #
 # Env:
 #   AGENT_SETTLE           seconds between the two screen samples (default 0.35)
@@ -219,6 +225,25 @@ classify() {
   done
 }
 
+# state → sort rank and colour: blocked first and red, idle next and yellow, working last
+# and dim. Both shell menus (live_sessions, cockpit_menu) draw the same rows in the same
+# order, so they read the mapping from here rather than each carrying a copy — a fourth
+# state added to classify() lands in one place, not two.
+#
+# status() keeps its own copy in awk, and has to: it draws a padded table, so it is already
+# in awk by the time it needs a colour, and a shell callout per row to fetch one would be
+# absurd. That is why the state *names* are the contract between the two (see status()).
+#
+# Sets $rank and $dot rather than printing them: two values, and sh gives a function one
+# stdout. Both callers consume them on the next line, so the reach is a line long.
+rank_dot() {
+  case $1 in
+    blocked) rank=0 dot=$RED ;;
+    idle) rank=1 dot=$YEL ;;
+    *) rank=2 dot=$DIM ;;
+  esac
+}
+
 # `aigent status` — every agent session on this machine: state, session, agent, task.
 # Deliberately not scoped to $PWD: the picker answers "what's running *here*", this
 # answers "what did I leave running while I walked away" — the question a notifier asks
@@ -285,11 +310,7 @@ live_sessions() {
     is_ours "$name" || continue
     printf '%s\t%s\t%s\n' "$name" "$label" "$task"
   done | classify | while IFS="$TAB" read -r state name label task; do
-    case $state in
-      blocked) rank=0 dot=$RED ;;
-      idle) rank=1 dot=$YEL ;;
-      *) rank=2 dot=$DIM ;;
-    esac
+    rank_dot "$state"
 
     # The -N suffix, and only that: is_ours admits any aigent- session started here, so a
     # name that isn't $SESSION-<digits> (one you made by hand) would otherwise badge
@@ -458,6 +479,268 @@ launch() {
   exec tmux attach-session -t "=$SESSION"
 }
 
+# ─── Cockpit ─────────────────────────────────────────────────────────────────
+# Several agents at once, in one window. The picker answers "what do I open here" and
+# status() answers "who wants me"; this is the third question — watch four of them work,
+# and answer whichever one stops, without leaving the window.
+#
+# Every pane is a tmux client attached to a live agent session: the cockpit *borrows* the
+# view, it does not take the pane. That is the whole design, and the reason to prefer it
+# over join-pane, which is the obvious other way to get four agents into one window.
+# join-pane *moves* a pane, so aigent-foo would stop being a session — and sessions are
+# what is_ours, status() and the SwiftBar plugin all ask tmux about, so all three would go
+# blind at once. A cockpit that died mid-flight would leave the agents merged into a
+# session none of them chose, with no way back but hand-run break-pane.
+#
+# Borrowed, the cockpit owns nothing, so it can lose nothing: kill it, close the window,
+# crash it, and every agent is where it was — still running, still attached to whatever
+# else was viewing it. That is also why this never reuses a cockpit. Rebuilding is free
+# when there is no state to keep, so `aigent cockpit` always builds a fresh one rather
+# than reconciling an old one against a new pick.
+#
+# Not $PWD-scoped, for status()'s reason: the picker asks what is running *here*, the
+# cockpit asks what is running *at all*.
+#
+# What it costs, and it is not nothing. A tmux window has one grid, so a session two
+# clients of different shapes are watching cannot be right for both — that is not a thing
+# to fix, only a thing to point somewhere. window-size is left at its default `latest`,
+# which points it at the most recently *used* client, not the newest one: whichever client
+# you last typed in wins, so the view you are working in is always the correct one and the
+# other is the one that pays. That is the behaviour worth having, and it is why no attempt
+# is made to be cleverer here.
+#
+# What the other one pays is a re-flow, and two consequences follow. Any *other* window
+# viewing that agent — a Zed thread, an nvim panel — draws it small in the corner until
+# you press a key there, which re-elects it and snaps it back (measured: 200x49 ↔ 180x44
+# across a keypress, either way). And a re-flow is a screen change, so the `aigent status`
+# poll that straddles an attach reads those agents as `working` — classify() calls a
+# changed screen working by construction — and the SwiftBar plugin re-announces them once
+# as they settle. That is the one place the cockpit dents the notifier's one-sided error:
+# a still screen can never read as working, and a resize is a still screen that moves
+# (measured: capture-pane's content hash does change across a resize). AGENT_NOTIFY_AFTER
+# is the existing dial for it, for the same reason it exists at all.
+#
+# `-f ignore-size` on the pane clients is the other end of the lever and was measured too:
+# it holds the agent at the other client's size, keeps typing (it is not read-only, which
+# is a separate flag), and falls back to the cockpit's own size when nothing else is
+# looking. It is not used because it only moves the dead space into the cockpit pane —
+# a session Zed holds at 114x84 renders into a 181x45 pane as 114 columns of agent and 67
+# of nothing. Neither end is free, and the active view is the better one to keep whole.
+
+# Outside $PREFIX on purpose, and load-bearing rather than taste: sessions() calls
+# anything named aigent-* an agent session, so an `aigent-cockpit` would be listed by
+# `aigent status` and counted by the notifier as one more agent — a viewer reported as a
+# thing to watch, permanently "working" because its panes always repaint. The prefix
+# means "an agent lives here", and no agent lives here.
+COCKPIT=cockpit
+
+# This is the one session the script kills without asking, so be sure it is ours first.
+# @cockpit is the marker, stamped at build; a session you named `cockpit` yourself has no
+# marker and gets refused rather than reaped. display-message rather than show-options -t,
+# and no "=": the same trap is_ours() documents.
+is_cockpit() {
+  [ "$(tmux display-message -pt "$COCKPIT" '#{@cockpit}' 2>/dev/null)" = 1 ]
+}
+
+# fzf's preview: the agent's own screen. It is what makes a name pickable — "aigent-foundry"
+# is a name, the screen tells you it is sat on a permission prompt. -e keeps the colours.
+peek() { tmux capture-pane -pet "$1" 2>/dev/null; }
+
+# What a cockpit pane runs: one tmux client, attached to one agent session. Written once
+# because both callers (new-session for the first pane, split-window for the rest) need the
+# same two non-obvious things, and either one missed is silent.
+#
+# The quotes around the '=' are for zsh, not tmux. tmux runs a pane's command through
+# $SHELL, where a bare leading `=` expands to a command path — the same trap that made the
+# picker internals above subcommands. Unquoted, every pane dies on arrival with
+# "=aigent-foo not found" and the cockpit comes up empty.
+#
+# env -u TMUX because tmux sets $TMUX in every pane it creates and refuses to nest while it
+# is set. Clearing it is the supported way in: the inner client is an ordinary client that
+# happens to have a pane for a terminal. Truecolor and CSI-u both survive the nest and need
+# nothing added to tmux.conf — tmux negotiates RGB with the outer tmux at runtime rather
+# than trusting tmux-256color's terminfo (which declares neither), and extended-keys is a
+# server option, so it is already true of the inner client and Shift+Enter reaches the agent.
+view_cmd() { printf "env -u TMUX tmux attach -t '=%s'" "$1"; }
+
+# Every agent on the box, ranked most-wants-you first. The rank is the same blocked/idle/
+# working sort status() and live_sessions() use, so pane 1 of the grid is always the one
+# to look at first.
+#
+# The name keeps its -N suffix here, for the reason status() spells out and live_sessions()
+# is exempt from: box-wide, `aigent-foo-2` is equally foo's second agent and project
+# foo-2's only one, so the `#2` badge would be a guess. Print the name and let it be read.
+cockpit_menu() {
+  sessions | classify | while IFS="$TAB" read -r state name label task; do
+    rank_dot "$state"
+    [ -n "$task" ] && task="  $task"
+    # Sort key up front, stripped after — leaving name, then what fzf draws.
+    printf '%s\t%s\t%s●%s [%s · %s] %s%s\n' \
+      "$rank" "$name" "$dot" "$RST" "$state" "$label" "${name#"$PREFIX"}" "$task"
+  done | sort | cut -f2-
+}
+
+cockpit() {
+  command -v tmux >/dev/null 2>&1 || {
+    echo "aigent: cockpit needs tmux" >&2
+    exit 1
+  }
+  if tmux has-session -t "=$COCKPIT" 2>/dev/null && ! is_cockpit; then
+    echo "aigent: a tmux session named '$COCKPIT' is already here and is not ours" >&2
+    echo "        rename it (tmux rename-session -t $COCKPIT <name>) and retry" >&2
+    exit 1
+  fi
+
+  rows=$(cockpit_menu)
+  [ -n "$rows" ] || {
+    echo "aigent: no agent sessions running" >&2
+    exit 1
+  }
+
+  # `aigent cockpit N` takes the N that most want you and skips the picker — the rows are
+  # already sorted blocked, idle, working, so "the top N" is "the N worth looking at".
+  # Bare `aigent cockpit` opens the picker instead; both arrive at the same list of names,
+  # and fzf --multi returns them in list order, so the grid stays in wants-you order too.
+  case ${1:-} in
+    '')
+      choice=$(printf '%s\n' "$rows" | fzf --multi --reverse --no-info --ansi \
+        --prompt='Cockpit: ' --delimiter='\t' --with-nth='2..' --height=~80% \
+        --header='tab: pick an agent   enter: open the cockpit' \
+        --preview="$0 --peek {1}" --preview-window='right,60%,border-left') || exit 0
+      names=$(printf '%s\n' "$choice" | cut -f1)
+      ;;
+    *[!0-9]*)
+      echo "aigent: cockpit takes a number of agents, not '$1'" >&2
+      exit 1
+      ;;
+    *)
+      # 0 reaches head as `head -n 0`, which refuses with "illegal line count" and leaves
+      # you reading coreutils' opinion of your typo rather than ours.
+      [ "$1" -ge 1 ] || {
+        echo "aigent: cockpit needs at least one agent, not '$1'" >&2
+        exit 1
+      }
+      names=$(printf '%s\n' "$rows" | cut -f1 | head -n "$1")
+      ;;
+  esac
+  [ -n "$names" ] || exit 0
+
+  # Drop anything that died between the pick and here. The gap is real: cockpit_menu ran
+  # before fzf opened, so a name can be minutes stale by the time you press enter, and an
+  # agent that finished and exited in the meantime is gone.
+  #
+  # It is worth a pass of its own because the first name failing is not survivable. tmux
+  # creates the session, its command exits at once, tmux reaps the session — and
+  # new-session still returns 0, so the `|| exit 1` below never fires and every call after
+  # it ("no such session: cockpit", an empty pane_id, a failed attach) fails in a heap.
+  # A dead name later in the list is milder — the pane opens and closes and the grid is
+  # quietly one short — but it is the same bug, so it goes the same way.
+  #
+  # This narrows the window to microseconds rather than closing it; a session dying between
+  # this check and the attach still lands in the old behaviour. Nothing can close it — the
+  # agent is another process — and narrowing is the whole of the available win.
+  names=$(printf '%s\n' "$names" | while read -r n; do
+    tmux has-session -t "=$n" 2>/dev/null && printf '%s\n' "$n"
+  done)
+  [ -n "$names" ] || {
+    echo "aigent: the agents you picked are gone" >&2
+    exit 1
+  }
+  count=$(printf '%s\n' "$names" | wc -l | tr -d ' ')
+
+  # Build at the size of the terminal you are standing in, because the layout below is
+  # decided on width. A session made without -x/-y sits at tmux's default 80x24 until a
+  # client attaches, so the two-pane rule would be judged against a width that is not
+  # yours. Inside tmux the client is the window, not the pane, so ask tmux rather than tput.
+  if [ -n "$TMUX" ]; then
+    size=$(tmux display-message -p '#{client_width} #{client_height}' 2>/dev/null)
+  else
+    size="$(tput cols 2>/dev/null) $(tput lines 2>/dev/null)"
+  fi
+  w=${size% *}
+  h=${size#* }
+
+  # Fall back to tmux's own default for a client-less session. Neither source is guaranteed
+  # to answer: tput says nothing with no TERM or with stdout redirected, and client_width is
+  # empty for a $TMUX set with no client attached. Either way the empty string reaches
+  # new-session as -x '' and tmux refuses the whole cockpit with a bare "width invalid" —
+  # a real answer to a question nobody asked. 80x24 builds something you can look at, and
+  # the client that attaches a moment later resizes it to the truth anyway; only the
+  # two-pane rule below reads the guess, and it degrades to "stacked".
+  case $w in
+    '' | *[!0-9]*) w=80 ;;
+    *) ;; # a real width, from a real terminal
+  esac
+  case $h in
+    '' | *[!0-9]*) h=24 ;;
+    *) ;; # likewise
+  esac
+
+  # Three or more is a grid and there is nothing to decide. Two is the case worth thinking
+  # about, and it turns on width rather than taste: side by side gives each agent a
+  # full-height column, the better shape for reading a conversation — but only if the
+  # halves are wide enough to read. Under ~80 columns an agent TUI starts wrapping its own
+  # boxes, so a 114-column window (a half-screen Ghostty) is better served stacked: 114
+  # wide and short beats 57 wide and tall. Hence 160, which is that 80 doubled. C-b Space
+  # cycles if a particular window disagrees.
+  if [ "$count" -eq 2 ] && [ "$w" -lt 160 ]; then
+    layout=even-vertical
+  elif [ "$count" -eq 2 ]; then
+    layout=even-horizontal
+  else
+    layout=tiled
+  fi
+
+  tmux kill-session -t "=$COCKPIT" 2>/dev/null
+  first=$(printf '%s\n' "$names" | head -n1)
+
+  tmux new-session -d -s "$COCKPIT" -x "$w" -y "$h" "$(view_cmd "$first")" || exit 1
+
+  # new-session's exit status only says the session was created, not that its command
+  # lived: a pane whose command exits immediately takes the session down with it and
+  # new-session still returns 0. The filter above makes that unlikely, not impossible, and
+  # unnoticed it turns every line below into a "no such session" — so ask.
+  tmux has-session -t "=$COCKPIT" 2>/dev/null || {
+    echo "aigent: $first went away as the cockpit opened it" >&2
+    exit 1
+  }
+  tmux set-option -t "$COCKPIT" @cockpit 1
+  home=$(tmux display-message -pt "$COCKPIT" '#{pane_id}')
+
+  # Re-tile after every split rather than once at the end, because split-window halves the
+  # *current* pane and the halves get small fast: measured in an 80x24 window, the fifth
+  # agent fails with "no space for new pane" and the cockpit comes up with four and no
+  # complaint (the error lands on tmux's stderr, not in the grid you are looking at).
+  # Tiling as we go re-spreads the panes each round so the next split has room — the same
+  # window then takes six. Four fits either way, which is exactly why this is worth doing
+  # up front rather than after the first time a cockpit quietly drops an agent.
+  printf '%s\n' "$names" | tail -n +2 | while read -r n; do
+    [ -n "$n" ] || continue
+    tmux split-window -t "$COCKPIT" "$(view_cmd "$n")"
+    tmux select-layout -t "$COCKPIT" tiled >/dev/null
+  done
+  tmux select-layout -t "$COCKPIT" "$layout" >/dev/null
+
+  # The border label, free and always current: the inner client emits its session's title
+  # (tmux.conf's set-titles-string — "claude · what it is working on") to its terminal,
+  # which *is* this pane, so the cockpit reads it straight off #{pane_title}. No poll and
+  # no bookkeeping, and it follows the agent's own title as the task changes. The global
+  # format is no use here — every pane in a cockpit runs `tmux`, so #{pane_current_command}
+  # would label all four "tmux". Set rather than inherited because the global exists for
+  # other windows' reasons and apply_policy turns it off for agent sessions.
+  tmux set-option -w -t "$COCKPIT" pane-border-status top
+  tmux set-option -w -t "$COCKPIT" pane-border-format ' #{pane_title} '
+
+  # Land on the one that most wants you. By pane id, which cannot be re-numbered out from
+  # under us by the re-tiling above the way an index can.
+  tmux select-pane -t "$home"
+
+  # Already inside tmux (opened from an agent session, or from your own window): attach
+  # would refuse to nest, and switch-client is what "go there" means to a client already here.
+  [ -z "$TMUX" ] || exec tmux switch-client -t "=$COCKPIT"
+  exec tmux attach-session -t "=$COCKPIT"
+}
+
 # ─── Where an agent may not be opened ────────────────────────────────────────
 # An agent takes the directory you are standing in to be the project: it reads and edits
 # from there, and launch() freezes it as the session root with -c "$PWD". Two directories
@@ -497,8 +780,19 @@ case $1 in
     status
     exit 0
     ;;
+  # Above refuse_bad_cwd with status, and for the same reason: it opens no agent, so
+  # where you are standing is not its business. You are most likely to want a cockpit
+  # from wherever you happened to walk back to.
+  cockpit)
+    cockpit "$2"
+    exit 0
+    ;;
   --print-menu)
     print_menu
+    exit 0
+    ;;
+  --peek)
+    peek "$2"
     exit 0
     ;;
   --kill)
