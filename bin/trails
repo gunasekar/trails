@@ -527,6 +527,27 @@ launch() {
 # a session Zed holds at 114x84 renders into a 181x45 pane as 114 columns of agent and 67
 # of nothing. Neither end is free, and the active view is the better one to keep whole.
 
+# One name, so exactly one cockpit — a decision, not an oversight, and the difference
+# matters because the fix for it is sitting right there in this file. next_free() gives
+# agent sessions their -2 because each holds a live conversation that cannot be recreated:
+# ~/a/foo and ~/b/foo both want aigent-foo, neither can yield, so they coexist. A cockpit
+# holds nothing, so that pressure has no counterpart here — nothing collides, because
+# there is nothing to lose. Reaching for next_free() when a second cockpit "collides"
+# would be solving a problem the design does not have, and would cost the thing a fixed
+# name buys: the cockpit is a *place*. `tmux a -t cockpit` finds it forever, and re-running
+# builds over it. Two of them and you are tracking which is which, which is bookkeeping —
+# for the one thing here whose whole point is that it needs none.
+#
+# The axis that scales is panes, not cockpits: eight agents is `aigent cockpit 8`, not two
+# cockpits of four. Two monitors would be the honest reason to want a second, and a cockpit
+# you keep *while* building another would be a better one — but that second is a saved view,
+# which is state, and state is exactly what this does not have and should not grow lightly.
+#
+# The cost lands on kill-session in cockpit(): a window already sitting in the old cockpit
+# has its `tmux attach` exit under it and drops back to a shell. Measured, and in the README,
+# because it is the one part of "re-running is free" that is not free. The agents are
+# untouched — they always are.
+#
 # Outside $PREFIX on purpose, and load-bearing rather than taste: sessions() calls
 # anything named aigent-* an agent session, so an `aigent-cockpit` would be listed by
 # `aigent status` and counted by the notifier as one more agent — a viewer reported as a
@@ -691,6 +712,11 @@ cockpit() {
     layout=tiled
   fi
 
+  # Unconditional, and this is the line that makes "one cockpit" true (see COCKPIT above).
+  # A window sitting in the old one loses it here: detach-on-destroy sends its client home,
+  # its `tmux attach` exits, and it lands back on a shell. That is the whole cost of asking
+  # for a cockpit while one is already open, and it is bounded — the agents never notice,
+  # because none of them live here.
   tmux kill-session -t "=$COCKPIT" 2>/dev/null
   first=$(printf '%s\n' "$names" | head -n1)
 
