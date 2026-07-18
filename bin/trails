@@ -7,11 +7,13 @@
 #   aigent status           every agent session on the box — a table on a terminal, TSV
 #                           when piped, for a notifier to read
 #   aigent cockpit [N]      several agents at once in one window. Pick them, or take the
-#                           N that most want you. Inside, all stock tmux: C-b ←↑↓→ move,
-#                           C-b z zoom one full-screen, C-b Space cycle layout, C-b d
-#                           detach. C-b C-b s re-points one pane at a different agent —
-#                           C-b C-b is send-prefix, so the key lands on the pane's own
-#                           (inner) client rather than on the cockpit.
+#                           N that most want you. Bare `cockpit` re-attaches to a cockpit
+#                           already up rather than rebuilding; `cockpit new` forces a fresh
+#                           pick. Inside, all stock tmux: C-b ←↑↓→ move, C-b z zoom one
+#                           full-screen, C-b Space cycle layout, C-b d detach. C-b C-b s
+#                           re-points one pane at a different agent — C-b C-b is send-prefix,
+#                           so the key lands on the pane's own (inner) client rather than on
+#                           the cockpit.
 #
 # Env:
 #   AGENT_SETTLE           seconds between the two screen samples (default 0.35)
@@ -720,6 +722,18 @@ cockpit() {
     exit 1
   fi
 
+  # Bare `aigent cockpit` means "take me to my cockpit": if one is already up, go there
+  # rather than making you re-pick and rebuilding it. The guard above has established that
+  # any session named $COCKPIT is ours, so has-session alone is enough here. `aigent cockpit
+  # new` skips this to force a fresh pick (it is non-empty, so the -z test is false), and
+  # `aigent cockpit N` likewise rebuilds — both keep the stateless "re-running is free"
+  # contract; this only spares you the rebuild when you did not ask for one. switch-client
+  # inside tmux, attach outside — the same fork the build path ends on.
+  if [ -z "${1:-}" ] && tmux has-session -t "=$COCKPIT" 2>/dev/null; then
+    [ -z "$TMUX" ] || exec tmux switch-client -t "=$COCKPIT"
+    exec tmux attach-session -t "=$COCKPIT"
+  fi
+
   rows=$(cockpit_menu)
   [ -n "$rows" ] || {
     echo "aigent: no agent sessions running" >&2
@@ -728,10 +742,12 @@ cockpit() {
 
   # `aigent cockpit N` takes the N that most want you and skips the picker — the rows are
   # already sorted blocked, idle, working, so "the top N" is "the N worth looking at".
-  # Bare `aigent cockpit` opens the picker instead; both arrive at the same list of names,
-  # and fzf --multi returns them in list order, so the grid stays in wants-you order too.
+  # `aigent cockpit new` opens the picker; bare `aigent cockpit` only reaches here when no
+  # cockpit was up to attach to (the block above returns otherwise), so it opens the picker
+  # too. Both arrive at the same list of names, and fzf --multi returns them in list order,
+  # so the grid stays in wants-you order.
   case ${1:-} in
-    '')
+    '' | new)
       choice=$(printf '%s\n' "$rows" | fzf --multi --reverse --no-info --ansi \
         --prompt='Cockpit: ' --delimiter='\t' --with-nth='2..' --height=~80% \
         --header='tab: pick an agent   enter: open the cockpit' \
@@ -739,7 +755,7 @@ cockpit() {
       names=$(printf '%s\n' "$choice" | cut -f1)
       ;;
     *[!0-9]*)
-      echo "aigent: cockpit takes a number of agents, not '$1'" >&2
+      echo "aigent: cockpit takes a number of agents or 'new', not '$1'" >&2
       exit 1
       ;;
     *)
