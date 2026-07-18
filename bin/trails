@@ -671,6 +671,27 @@ peek() { tmux capture-pane -pet "$1" 2>/dev/null; }
 # server option, so it is already true of the inner client and Shift+Enter reaches the agent.
 view_cmd() { printf "env -u TMUX tmux attach -t '=%s'" "$1"; }
 
+# The directory a cockpit pane's agent works in — its session_path basename, frozen at
+# launch by launch()'s -c "$PWD". Stamped onto the pane as @dir so the border can lead
+# with it (see the pane-border-format below). Not folded into tmux.conf's set-titles-string,
+# which is where "claude · <task>" comes from: that string is also the Ghostty tab title and
+# the normal agent session's title, and the directory is wanted in the cockpit grid only.
+# Static, unlike the task half — a session's directory cannot change — so it is set once at
+# build and never goes stale, where #{pane_title} stays live for the task.
+# No "=" on the -t: display-message silently answers nothing for an =exact target (the
+# trap is_ours() documents), so "=$1" would hand basename an empty string and every pane
+# would get a blank @dir. The name comes straight from a live list, so an unanchored match
+# still lands on it exactly.
+cockpit_dir() { basename "$(tmux display-message -pt "$1" '#{session_path}' 2>/dev/null)"; }
+
+# The agent name for a cockpit pane, stamped as @ag so the border can tell a real task from
+# the title-less fallback. Before an agent publishes a task, tmux.conf's set-titles-string
+# falls back to "#{@agent} · #{b:pane_current_path}" — i.e. "claude · <dir>" — so the border
+# would read "<dir> · claude · <dir>", the directory twice. The border composes that same
+# fallback string from @ag and @dir and, on a match, drops the task half (see below). Same
+# no-"=" rule as cockpit_dir, and same source, so @agent is the value launch() wrote.
+cockpit_agent() { tmux display-message -pt "$1" '#{@agent}' 2>/dev/null; }
+
 # Every agent on the box, ranked most-wants-you first. The rank is the same blocked/idle/
 # working sort status() and live_sessions() use, so pane 1 of the grid is always the one
 # to look at first.
@@ -819,6 +840,8 @@ cockpit() {
   }
   tmux set-option -t "$COCKPIT" @cockpit 1
   home=$(tmux display-message -pt "$COCKPIT" '#{pane_id}')
+  tmux set-option -pt "$home" @dir "$(cockpit_dir "$first")"
+  tmux set-option -pt "$home" @ag "$(cockpit_agent "$first")"
 
   # Re-tile after every split rather than once at the end, because split-window halves the
   # *current* pane and the halves get small fast: measured in an 80x24 window, the fifth
@@ -829,7 +852,12 @@ cockpit() {
   # up front rather than after the first time a cockpit quietly drops an agent.
   printf '%s\n' "$names" | tail -n +2 | while read -r n; do
     [ -n "$n" ] || continue
-    tmux split-window -t "$COCKPIT" "$(view_cmd "$n")"
+    # -P -F to get the new pane's id back, so @dir lands on this split and not whichever
+    # pane happened to be current — split-window makes the new pane active, but reading it
+    # back by id is exact and does not assume that.
+    pane=$(tmux split-window -t "$COCKPIT" -P -F '#{pane_id}' "$(view_cmd "$n")")
+    tmux set-option -pt "$pane" @dir "$(cockpit_dir "$n")"
+    tmux set-option -pt "$pane" @ag "$(cockpit_agent "$n")"
     tmux select-layout -t "$COCKPIT" tiled >/dev/null
   done
   tmux select-layout -t "$COCKPIT" "$layout" >/dev/null
@@ -841,8 +869,22 @@ cockpit() {
   # format is no use here — every pane in a cockpit runs `tmux`, so #{pane_current_command}
   # would label all four "tmux". Set rather than inherited because the global exists for
   # other windows' reasons and apply_policy turns it off for agent sessions.
+  #
+  # Led with #{@dir}, the per-pane directory stamped above, so the border reads
+  # "<dir> · claude · <task>": directory, then agent and task from the agent's own title.
+  # @dir resolves at the pane scope, so each border shows its own agent's directory; the
+  # ' · ' matches set-titles-string's separator so the three read as one string.
+  #
+  # The conditional drops the task half when it *is* the directory. Before an agent
+  # publishes a task, set-titles-string falls back to "#{@agent} · #{b:pane_current_path}",
+  # so pane_title is "claude · <dir>" and the naive form doubled the directory
+  # ("<dir> · claude · <dir>"). Composing that fallback from the stamped @ag and @dir and
+  # comparing pane_title to it catches exactly that state and shows "<dir> · claude"; any
+  # real task fails the match and prints whole. Transient either way — it self-corrects the
+  # moment the agent sets a title — but the doubling is avoided rather than blinked through.
   tmux set-option -w -t "$COCKPIT" pane-border-status top
-  tmux set-option -w -t "$COCKPIT" pane-border-format ' #{pane_title} '
+  tmux set-option -w -t "$COCKPIT" pane-border-format \
+    ' #{@dir} · #{?#{==:#{pane_title},#{@ag} · #{@dir}},#{@ag},#{pane_title}} '
 
   # Land on the one that most wants you. By pane id, which cannot be re-numbered out from
   # under us by the re-tiling above the way an index can.
