@@ -38,21 +38,42 @@
 # name|command|args — the single source of truth. Drives the menu, the PATH filter
 # and the launch, so adding an agent is one line here and nothing else.
 #
-# A variant earns a row only if it cannot be reached from inside a running session.
-# Claude Code switches agent and model on demand, so a claude/plan or claude/explore
-# entry was a second way to do what the default session already does when asked — every
-# session started as plain `claude` anyway, and the rows were noise in a menu whose job
-# is to be scanned. --dangerously-skip-permissions is the opposite: it is fixed at exec
-# time and there is no asking for it later, so it stays.
-AGENTS='claude|claude|
-cursor|cursor-agent|
-antigravity|agy|
-opencode|opencode|
-pi|pi|
-claude/yolo|claude|--dangerously-skip-permissions'
+# Every agent starts in its normal, permission-prompting mode. The 4th field is the flag that
+# turns that agent's "run every command unconfirmed" mode on, and it is opt-in per launch:
+# Tab in the picker arms the highlighted row (it relabels to "(YOLO)"), and Enter then starts
+# that one session with the flag appended. Nothing is armed unless you Tab it, so a stray
+# Enter is always the safe mode. The flag lives here rather than baked into the command
+# because the mode is a pick-time choice now — not a fixed property of a row.
+#
+# Each CLI spells the flag differently, which is the whole reason it is a per-agent field:
+#   claude       --dangerously-skip-permissions
+#   cursor       --force   (alias --yolo — allow every command unless explicitly denied)
+#   opencode     --auto    (auto-approve permissions not explicitly denied)
+#   antigravity  --dangerously-skip-permissions   (agy — Google reused claude's flag name)
+# pi is the exception that needs no flag: it has no permission gating at all — "no permission
+# popups" by design (its README) — so the plain "new  pi" row already runs tools unconfirmed and
+# there is nothing for a flag to switch on. Its field is empty like a flagless agent's, so Tab is
+# a no-op, but the reason is the opposite — pi is *always* in the mode YOLO would grant, not
+# missing it. (pi's own --approve only trusts project-local config files, never tool calls.)
+# agy is not installed on this box, so its flag comes from Google's CLI docs, not a live --help.
+# launch() refuses a YOLO launch as root when the flag is --dangerously-skip-permissions (claude
+# and agy): that flag also auto-approves the sandbox-bypass prompt, so skip-permissions plus root
+# is the one combination catastrophic enough to guard (see there); plain, prompting mode needs none.
+AGENTS='claude|claude||--dangerously-skip-permissions
+cursor|cursor-agent||--force
+antigravity|agy||--dangerously-skip-permissions
+opencode|opencode||--auto
+pi|pi||'
 
 agent_row() {
   printf '%s\n' "$AGENTS" | awk -F'|' -v n="$1" '$1 == n { print; exit }'
+}
+
+# The flag that turns on an agent's YOLO (run-everything-unconfirmed) mode — the 4th field,
+# empty for an agent that has none. toggle_yolo and launch both ask through here, so "which
+# agents can be armed" has a single answer and a session name (an attach row) simply misses.
+yolo_flag() {
+  agent_row "$1" | awk -F'|' '{ print $4 }'
 }
 
 # Only offer an agent whose command actually exists here.
@@ -112,7 +133,7 @@ TAB=$(printf '\t')
 # indistinguishable from here, so show what's running and let you choose.)
 #
 # Three labels answering three questions:
-#   @agent      what is running (claude, cursor, claude/yolo). launch() wrote it down;
+#   @agent      what is running (claude, cursor, opencode). launch() wrote it down;
 #               falls back to the process name for a session we did not start.
 #   $TASK_FMT   what it's working on — the agent's own session name, published as the
 #               terminal title (OSC 2) and exposed by tmux as pane_title. Claude Code
@@ -376,6 +397,29 @@ next_free() {
 kill_session() {
   is_ours "$1" || return 0
   tmux kill-session -t "=$1" 2>/dev/null
+  # Recompute the cached running block so the reload that follows drops the killed row (and
+  # re-reads the survivors' state). Guarded on the cache path so a bare `aigent --kill x` (no
+  # picker, path unset) skips it. This is the one reload that pays classify's settle sleep, and
+  # it should: a kill is rare and wants fresh state — unlike a Tab, which only relabels.
+  [ -n "$AIGENT_MENU_CACHE" ] && live_sessions >"$AIGENT_MENU_CACHE"
+}
+
+# tab: arm the highlighted agent for YOLO, or disarm it if it was already armed. Exactly one
+# agent can be armed at a time — arming a second replaces the first — so the state is a single
+# name in a file, not a set. Only an agent with a YOLO flag can be armed; Tab on an attach row
+# (a session name) or a flagless agent (pi, antigravity) finds no flag and is a no-op. The
+# file is $AIGENT_YOLO_STATE, exported by the dispatch below and so inherited by this
+# subprocess fzf spawns. print_menu reads the same file to relabel the row and set its verb.
+toggle_yolo() {
+  [ -n "$AIGENT_YOLO_STATE" ] || return 0
+  [ -n "$(yolo_flag "$1")" ] || return 0
+  cur=
+  [ -s "$AIGENT_YOLO_STATE" ] && cur=$(cat "$AIGENT_YOLO_STATE")
+  if [ "$cur" = "$1" ]; then
+    : >"$AIGENT_YOLO_STATE"
+  else
+    printf '%s' "$1" >"$AIGENT_YOLO_STATE"
+  fi
 }
 
 # Sessions already running here, then the agents you can start. `aigent new` skips to the
@@ -386,13 +430,29 @@ print_menu() {
     echo "aigent: no agent CLIs found on PATH" >&2
     exit 1
   }
+  # The running sessions come from the cache the dispatch classified once, not a fresh
+  # live_sessions() here. classify() sleeps AGENT_SETTLE to sample each screen twice, and
+  # print_menu is re-run on every Tab and ctrl-x reload — paying that sleep per keystroke is
+  # what made the Tab relabel lag. The snapshot is fixed for the picker's life anyway (fzf never
+  # live-refreshes it), so caching loses no freshness. An empty cache means no running rows,
+  # which is also how `aigent new` and no-tmux reach here — the dispatch reads FORCE_NEW and
+  # leaves the file empty, so print_menu need not (and its reload subprocess cannot) see it.
   running=
-  [ -n "$USE_TMUX" ] && [ -z "$FORCE_NEW" ] && running=$(live_sessions)
+  [ -n "$AIGENT_MENU_CACHE" ] && [ -s "$AIGENT_MENU_CACHE" ] && running=$(cat "$AIGENT_MENU_CACHE")
   # `$(...)` eats trailing newlines, so re-add one or the last session line welds
   # itself onto the first agent line.
   [ -n "$running" ] && printf '%s\n' "$running"
+
+  # The one agent armed for YOLO (toggle_yolo wrote it); empty if none. Its row carries the
+  # verb "yolo" so the dispatch launches it with the flag, and draws "(YOLO)" in yellow so you
+  # can see what Enter will do. Every other agent is a plain "new" row.
+  armed=
+  [ -n "$AIGENT_YOLO_STATE" ] && [ -s "$AIGENT_YOLO_STATE" ] && armed=$(cat "$AIGENT_YOLO_STATE")
   # Same three fields: verb, target, what's drawn.
-  printf '%s\n' "$agents" | awk -v OFS='\t' '{ print "new", $0, "new     " $0 }'
+  printf '%s\n' "$agents" | awk -v OFS='\t' -v armed="$armed" -v yel="$YEL" -v rst="$RST" '
+    $0 == armed { print "yolo", $0, "new     " $0 "  " yel "(YOLO)" rst; next }
+    { print "new", $0, "new     " $0 }
+  '
 }
 
 # ─── Launch ──────────────────────────────────────────────────────────────────
@@ -423,17 +483,42 @@ launch() {
     echo "aigent: unknown agent '$1'" >&2
     exit 1
   }
-  cmd=${row#*|}
-  args=${cmd#*|}
-  cmd=${cmd%%|*}
+  # name|command|args|yolo — pull the three we launch with. args is normally empty; the yolo
+  # flag is appended only when this launch was armed (see mode below).
+  rest=${row#*|}
+  cmd=${rest%%|*}
+  rest=${rest#*|}
+  args=${rest%%|*}
+  yolo=${rest#*|}
+
+  # $2 is "yolo" when the picker row was Tab-armed, empty otherwise. A row can only be armed
+  # if it has a flag (toggle_yolo enforces it), so the empty-flag branch is belt-and-braces
+  # rather than a path the picker can reach.
+  if [ "$2" = yolo ]; then
+    [ -n "$yolo" ] || {
+      echo "aigent: $1 has no YOLO mode" >&2
+      exit 1
+    }
+    args="${args:+$args }$yolo"
+  fi
 
   # Skip-permissions mode runs any command unconfirmed, so refuse the one place left where
   # that is catastrophic rather than merely unwise. $HOME was refused here too until
   # refuse_bad_cwd started refusing it — and / — for every agent before the picker opens,
-  # which is both wider and resolves symlinks this never did.
-  if [ "$1" = claude/yolo ] && [ "$(id -u)" -eq 0 ]; then
-    echo "aigent: refusing yolo as root" >&2
-    exit 1
+  # which is both wider and resolves symlinks this never did. Only the yolo launch is refused:
+  # plain, prompting mode is merely ordinary as root.
+  #
+  # Keyed on the flag, not the agent name, so every agent whose YOLO flag is
+  # --dangerously-skip-permissions is covered without a list to keep in sync — today claude and
+  # antigravity's agy, which reused the name. That flag also auto-approves the sandbox-bypass
+  # prompt, which is what makes it (and not --force or --auto) the one worth refusing as root.
+  if [ "$2" = yolo ] && [ "$(id -u)" -eq 0 ]; then
+    case $yolo in
+      *--dangerously-skip-permissions*)
+        echo "aigent: refusing $1 --dangerously-skip-permissions as root" >&2
+        exit 1
+        ;;
+    esac
   fi
 
   # $args is a controlled, space-separated field from the table above; splitting it into
@@ -455,7 +540,9 @@ launch() {
   tmux new-session -d -s "$SESSION" -c "$PWD" "$cmd" $args \
     \; set-option -w -t "$SESSION" remain-on-exit on \
     \; set-option -w -t "$SESSION" remain-on-exit-format '' || exit 1
-  tmux set-option -t "$SESSION" @agent "$1"
+  # The picked entry, tagged (YOLO) when armed, so the picker and status table can label the
+  # session without inspecting the process. ${2:+ (YOLO)} adds the tag only for a yolo launch.
+  tmux set-option -t "$SESSION" @agent "$1${2:+ (YOLO)}"
 
   # Dead on arrival. tmux drops a session the moment its command exits and the error goes
   # with it, so an agent that can't start (bad token, no keychain) made aigent look like it
@@ -825,6 +912,10 @@ case $1 in
     kill_session "$2"
     exit 0
     ;;
+  --toggle-yolo)
+    toggle_yolo "$2"
+    exit 0
+    ;;
   '') ;;
   *)
     echo "aigent: unknown argument '$1'" >&2
@@ -833,20 +924,56 @@ case $1 in
 esac
 
 refuse_bad_cwd
+
+# Two per-invocation temp files, exported so the fzf-spawned --toggle-yolo / --print-menu /
+# --kill subprocesses all share them. Both are removed the moment fzf returns and on
+# Esc/interrupt via the trap, since the exec paths below never run to an EXIT trap of their own.
+#
+# AIGENT_YOLO_STATE — which agent (if any) you armed for YOLO with Tab. The chosen row's verb
+#                     already carries the mode by the time fzf returns, so nothing reads it after.
+# AIGENT_MENU_CACHE — the running-sessions block, classified once here rather than on every
+#                     reload. print_menu is re-run for each Tab and ctrl-x; live_sessions() sleeps
+#                     AGENT_SETTLE to sample screens twice, so recomputing it per keystroke is
+#                     what delayed the Tab relabel. The snapshot does not change over the picker's
+#                     life (fzf never refreshes it on its own), so caching loses no freshness.
+AIGENT_YOLO_STATE="${TMPDIR:-/tmp}/aigent-yolo.$$"
+AIGENT_MENU_CACHE="${TMPDIR:-/tmp}/aigent-menu.$$"
+export AIGENT_YOLO_STATE AIGENT_MENU_CACHE
+rm -f "$AIGENT_YOLO_STATE"
+trap 'rm -f "$AIGENT_YOLO_STATE" "$AIGENT_MENU_CACHE"' EXIT INT TERM
+
+# Classify the running sessions once, up front — the only place that pays classify's settle
+# sleep on the picker's happy path. Empty (not absent) for `aigent new` or no tmux: print_menu
+# reads this file, not FORCE_NEW, so the new-mode intent survives into the reload subprocesses,
+# where $1 is --print-menu and FORCE_NEW is unset.
+if [ -n "$USE_TMUX" ] && [ -z "$FORCE_NEW" ]; then
+  live_sessions >"$AIGENT_MENU_CACHE"
+else
+  : >"$AIGENT_MENU_CACHE"
+fi
+
 MENU=$(print_menu) || exit 1
 
 # --height=~80%: hug the content, capped at 80%, so three sessions don't open a
 # full-screen box. --wrap because a task is a sentence and a narrow pane (Zed's terminal,
 # nvim's right panel) can run past the edge — wrapping costs a row and shows all of it,
 # where truncating would hide the field that tells two sessions of one project apart.
+#
+# tab arms the highlighted row for YOLO (toggle_yolo) and reloads so print_menu can relabel
+# it; the reload keeps the cursor on the row, so Tab-then-Enter lands on what you armed.
 set -- --prompt='Agent: ' --reverse --no-info --ansi --wrap \
-  --delimiter='\t' --with-nth='3..' --height=~80%
+  --delimiter='\t' --with-nth='3..' --height=~80% \
+  --bind="tab:execute-silent($0 --toggle-yolo {2})+reload($0 --print-menu)"
 if printf '%s\n' "$MENU" | grep -q '^attach'; then
-  set -- "$@" --header='enter: attach/start   ctrl-x: kill session' \
+  set -- "$@" --header='enter: start/attach   tab: YOLO   ctrl-x: kill' \
     --bind="ctrl-x:execute-silent($0 --kill {2})+reload($0 --print-menu)"
+else
+  set -- "$@" --header='enter: start   tab: YOLO'
 fi
 
 choice=$(printf '%s\n' "$MENU" | fzf "$@") || exit 0
+rm -f "$AIGENT_YOLO_STATE" "$AIGENT_MENU_CACHE"
+trap - EXIT INT TERM
 
 # Field 2 is the target either way — a session name to attach to, or an agent to start.
 # cut splits on TAB by default, the delimiter the menu is built with.
@@ -857,5 +984,6 @@ case $choice in
     apply_policy "$target"
     exec tmux attach-session -t "=$target"
     ;;
+  yolo*) launch "$target" yolo ;;
   *) launch "$target" ;;
 esac
