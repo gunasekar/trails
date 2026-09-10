@@ -15,6 +15,10 @@
 #                           so the key lands on the pane's own (inner) client rather than on
 #                           the cockpit.
 #
+# In the picker: tab arms the highlighted agent for YOLO, ctrl-a arms any row to hold this
+# Mac awake for as long as that session lives (for the run you start and walk away from —
+# see toggle_awake), ctrl-x kills the highlighted session.
+#
 # Env:
 #   AGENT_SETTLE           seconds between the two screen samples (default 0.35)
 #   AGENT_ASK_RE           regex meaning "the agent is asking you something"
@@ -195,6 +199,7 @@ ASK_RE=${AGENT_ASK_RE:-'Do you want|Would you like|Allow |Approve|\[y/[nN]\]|\(y
 
 RED=$(printf '\033[31m')
 YEL=$(printf '\033[33m')
+CYN=$(printf '\033[36m')
 DIM=$(printf '\033[2m')
 RST=$(printf '\033[0m')
 
@@ -424,6 +429,47 @@ toggle_yolo() {
   fi
 }
 
+# ctrl-a: hold the Mac awake for as long as the highlighted row's session lives. Same
+# one-name-in-a-file shape as toggle_yolo, and for the same reason — you launch one thing,
+# so "which row is armed" is a name, not a set.
+#
+# Unlike YOLO it refuses nothing, because it applies to every row there is. YOLO is a
+# property of an *agent* (its flag, or the absence of one, is in the AGENTS table), so Tab
+# on an attach row has nothing to arm. Staying awake is a property of a *session*, and an
+# already-running one wants it as much as a new one does — arguably more, since a session
+# you are re-joining is one you walked away from and left working.
+#
+# Why this is opt-in per launch rather than a setting: most agent sessions are you sitting
+# in front of the machine, where sleep is not in play and holding an assertion is just a
+# warmer laptop. The ones that want it are the ones you start and walk away from, and only
+# you know which those are at the moment you press Enter.
+toggle_awake() {
+  [ -n "$AIGENT_AWAKE_STATE" ] || return 0
+  cur=
+  [ -s "$AIGENT_AWAKE_STATE" ] && cur=$(cat "$AIGENT_AWAKE_STATE")
+  if [ "$cur" = "$1" ]; then
+    : >"$AIGENT_AWAKE_STATE"
+  else
+    printf '%s' "$1" >"$AIGENT_AWAKE_STATE"
+  fi
+}
+
+# ctrl-a on an attach row. The session already exists, so there is nothing left to wrap the
+# way launch() does — hold the assertion against its pid instead and let caffeinate drop it
+# when the agent exits. Same lifetime, reached from the other end.
+#
+# Not routed through `keepawake`: that owns exactly one hold, the manual timed one you
+# start from the menu bar, and an agent quietly cancelling your six-hour hold by attaching
+# would be a genuinely bad surprise. This is a second, independently-scoped assertion, and
+# `keepawake status` reports it as one more holder — named for the agent, not for caffeinate.
+hold_awake() {
+  pid=$(tmux display-message -pt "$1" '#{pane_pid}' 2>/dev/null)
+  case $pid in
+    '' | *[!0-9]*) return 0 ;;
+  esac
+  nohup caffeinate -ims -w "$pid" >/dev/null 2>&1 &
+}
+
 # Sessions already running here, then the agents you can start. `aigent new` skips to the
 # new-session half. Re-run by fzf after a kill, hence a subcommand.
 print_menu() {
@@ -441,9 +487,21 @@ print_menu() {
   # leaves the file empty, so print_menu need not (and its reload subprocess cannot) see it.
   running=
   [ -n "$AIGENT_MENU_CACHE" ] && [ -s "$AIGENT_MENU_CACHE" ] && running=$(cat "$AIGENT_MENU_CACHE")
+  # The one row armed to keep the Mac awake (toggle_awake wrote it); empty if none. Unlike
+  # $armed below it is not carried in the verb: staying awake is orthogonal to how you
+  # launch, so folding it in would need a "yolo-awake" verb and a "new-awake" beside it —
+  # two more spellings of the same two facts. The dispatch reads this file directly instead
+  # and compares it against whatever row Enter returned, which stays one fact either way.
+  awake=
+  [ -n "$AIGENT_AWAKE_STATE" ] && [ -s "$AIGENT_AWAKE_STATE" ] && awake=$(cat "$AIGENT_AWAKE_STATE")
+
   # `$(...)` eats trailing newlines, so re-add one or the last session line welds
-  # itself onto the first agent line.
-  [ -n "$running" ] && printf '%s\n' "$running"
+  # itself onto the first agent line. The cached block is already three finished fields, so
+  # the badge is appended to the drawn one rather than rebuilt — awk with the tab as both
+  # input and output separator puts the row back exactly as it found it.
+  [ -n "$running" ] && printf '%s\n' "$running" |
+    awk -F"$TAB" -v OFS="$TAB" -v awake="$awake" -v cyn="$CYN" -v rst="$RST" \
+      '$2 == awake { $3 = $3 "  " cyn "(awake)" rst } 1'
 
   # The one agent armed for YOLO (toggle_yolo wrote it); empty if none. Its row carries the
   # verb "yolo" so the dispatch launches it with the flag, and draws "(YOLO)" in yellow so you
@@ -451,9 +509,11 @@ print_menu() {
   armed=
   [ -n "$AIGENT_YOLO_STATE" ] && [ -s "$AIGENT_YOLO_STATE" ] && armed=$(cat "$AIGENT_YOLO_STATE")
   # Same three fields: verb, target, what's drawn.
-  printf '%s\n' "$agents" | awk -v OFS='\t' -v armed="$armed" -v yel="$YEL" -v rst="$RST" '
-    $0 == armed { print "yolo", $0, "new     " $0 "  " yel "(YOLO)" rst; next }
-    { print "new", $0, "new     " $0 }
+  printf '%s\n' "$agents" | awk -v OFS='\t' -v armed="$armed" -v awake="$awake" \
+    -v yel="$YEL" -v cyn="$CYN" -v rst="$RST" '
+    { tag = ($0 == awake) ? "  " cyn "(awake)" rst : "" }
+    $0 == armed { print "yolo", $0, "new     " $0 "  " yel "(YOLO)" rst tag; next }
+    { print "new", $0, "new     " $0 tag }
   '
 }
 
@@ -523,10 +583,30 @@ launch() {
     esac
   fi
 
+  # $3 is set when the picker row was ctrl-a armed: run the agent *under* caffeinate rather
+  # than starting an assertion beside it. `caffeinate -i make` is the documented idiom (see
+  # its man page) and it is the whole reason to prefer wrapping — the assertion's lifetime
+  # becomes the agent's by construction, so there is no pid to record, nothing to reap, and
+  # no way to leave the machine pinned awake by an agent that died an hour ago.
+  #
+  # It costs the rest of this file nothing, which is not luck but the shape of caffeinate:
+  # it forks a *helper* to hold the assertion and execs the utility in the original process,
+  # so the agent keeps the pid tmux spawned. #{pane_pid} is still the agent, #{pane_dead_status}
+  # is still the agent's own exit code (the dead-on-arrival guard below reads it unchanged),
+  # and #{pane_current_command} — sessions()' fallback when @agent is unset — still names the
+  # agent rather than a wrapper. Measured, because the tree reads backwards from what you
+  # would guess: keepawake's owner_of() has the ps output.
+  #
+  # -ims, not -d: see bin/.local/bin/keepawake, which picks the same set for the same
+  # reasons. An agent running unattended has no business lighting the display.
+  awake_cmd=
+  [ -n "$3" ] && awake_cmd='caffeinate -ims'
+
   # $args is a controlled, space-separated field from the table above; splitting it into
-  # separate arguments is the point.
+  # separate arguments is the point. $awake_cmd is unquoted for the same reason and one
+  # more: empty, it has to vanish rather than become an argument.
   # shellcheck disable=SC2086
-  [ -n "$USE_TMUX" ] || exec "$cmd" $args
+  [ -n "$USE_TMUX" ] || exec $awake_cmd "$cmd" $args
 
   SESSION=$(next_free)
   # No "=" prefix on set-option: it does not accept one and fails with `no such session:
@@ -539,7 +619,7 @@ launch() {
   # the exact case worth catching. remain-on-exit-format '' drops tmux's own "Pane is
   # dead" banner, leaving the capture to be the agent's words and nothing else.
   # shellcheck disable=SC2086
-  tmux new-session -d -s "$SESSION" -c "$PWD" "$cmd" $args \
+  tmux new-session -d -s "$SESSION" -c "$PWD" $awake_cmd "$cmd" $args \
     \; set-option -w -t "$SESSION" remain-on-exit on \
     \; set-option -w -t "$SESSION" remain-on-exit-format '' || exit 1
   # The picked entry, tagged (YOLO) when armed, so the picker and status table can label the
@@ -974,6 +1054,10 @@ case $1 in
     toggle_yolo "$2"
     exit 0
     ;;
+  --toggle-awake)
+    toggle_awake "$2"
+    exit 0
+    ;;
   '') ;;
   *)
     echo "aigent: unknown argument '$1'" >&2
@@ -989,16 +1073,22 @@ refuse_bad_cwd
 #
 # AIGENT_YOLO_STATE — which agent (if any) you armed for YOLO with Tab. The chosen row's verb
 #                     already carries the mode by the time fzf returns, so nothing reads it after.
+# AIGENT_AWAKE_STATE — which row (if any) you armed with ctrl-a to hold the Mac awake. This one
+#                     *is* read after fzf returns, unlike the YOLO file, because keeping the
+#                     machine awake is orthogonal to how you launch and so was deliberately not
+#                     folded into the verb (see print_menu). Hence the read below sits above the
+#                     rm rather than after it.
 # AIGENT_MENU_CACHE — the running-sessions block, classified once here rather than on every
 #                     reload. print_menu is re-run for each Tab and ctrl-x; live_sessions() sleeps
 #                     AGENT_SETTLE to sample screens twice, so recomputing it per keystroke is
 #                     what delayed the Tab relabel. The snapshot does not change over the picker's
 #                     life (fzf never refreshes it on its own), so caching loses no freshness.
 AIGENT_YOLO_STATE="${TMPDIR:-/tmp}/aigent-yolo.$$"
+AIGENT_AWAKE_STATE="${TMPDIR:-/tmp}/aigent-awake.$$"
 AIGENT_MENU_CACHE="${TMPDIR:-/tmp}/aigent-menu.$$"
-export AIGENT_YOLO_STATE AIGENT_MENU_CACHE
-rm -f "$AIGENT_YOLO_STATE"
-trap 'rm -f "$AIGENT_YOLO_STATE" "$AIGENT_MENU_CACHE"' EXIT INT TERM
+export AIGENT_YOLO_STATE AIGENT_AWAKE_STATE AIGENT_MENU_CACHE
+rm -f "$AIGENT_YOLO_STATE" "$AIGENT_AWAKE_STATE"
+trap 'rm -f "$AIGENT_YOLO_STATE" "$AIGENT_AWAKE_STATE" "$AIGENT_MENU_CACHE"' EXIT INT TERM
 
 # Classify the running sessions once, up front — the only place that pays classify's settle
 # sleep on the picker's happy path. Empty (not absent) for `aigent new` or no tmux: print_menu
@@ -1019,29 +1109,44 @@ MENU=$(print_menu) || exit 1
 #
 # tab arms the highlighted row for YOLO (toggle_yolo) and reloads so print_menu can relabel
 # it; the reload keeps the cursor on the row, so Tab-then-Enter lands on what you armed.
+# ctrl-a arms the highlighted row to hold the Mac awake, and reloads for the same reason Tab
+# does — print_menu is what draws the badge. Not ctrl-s, the obvious mnemonic for "stay
+# awake": ctrl-s is XOFF, and a terminal with flow control still on swallows it before fzf
+# ever sees it. ctrl-a's own default binding here is beginning-of-line, which costs nothing
+# in a picker whose longest query is four letters.
 set -- --prompt='Agent: ' --reverse --no-info --ansi --wrap \
   --delimiter='\t' --with-nth='3..' --height=~80% \
-  --bind="tab:execute-silent($0 --toggle-yolo {2})+reload($0 --print-menu)"
+  --bind="tab:execute-silent($0 --toggle-yolo {2})+reload($0 --print-menu)" \
+  --bind="ctrl-a:execute-silent($0 --toggle-awake {2})+reload($0 --print-menu)"
 if printf '%s\n' "$MENU" | grep -q '^attach'; then
-  set -- "$@" --header='enter: start/attach   tab: YOLO   ctrl-x: kill' \
+  set -- "$@" --header='enter: start/attach   tab: YOLO   ctrl-a: keep awake   ctrl-x: kill' \
     --bind="ctrl-x:execute-silent($0 --kill {2})+reload($0 --print-menu)"
 else
-  set -- "$@" --header='enter: start   tab: YOLO'
+  set -- "$@" --header='enter: start   tab: YOLO   ctrl-a: keep awake'
 fi
 
 choice=$(printf '%s\n' "$MENU" | fzf "$@") || exit 0
-rm -f "$AIGENT_YOLO_STATE" "$AIGENT_MENU_CACHE"
-trap - EXIT INT TERM
 
 # Field 2 is the target either way — a session name to attach to, or an agent to start.
 # cut splits on TAB by default, the delimiter the menu is built with.
 target=$(printf '%s' "$choice" | cut -f2)
 
+# Read before the rm below, not after: the ctrl-a arming is the one picker state that
+# outlives fzf (print_menu explains why it is not carried in the verb). Compared against the
+# row actually chosen, so arming one row and pressing Enter on another does what it looks
+# like it does — nothing.
+awake=
+[ -s "$AIGENT_AWAKE_STATE" ] && [ "$(cat "$AIGENT_AWAKE_STATE")" = "$target" ] && awake=1
+
+rm -f "$AIGENT_YOLO_STATE" "$AIGENT_AWAKE_STATE" "$AIGENT_MENU_CACHE"
+trap - EXIT INT TERM
+
 case $choice in
   attach*)
     apply_policy "$target"
+    [ -n "$awake" ] && hold_awake "$target"
     exec tmux attach-session -t "=$target"
     ;;
-  yolo*) launch "$target" yolo ;;
-  *) launch "$target" ;;
+  yolo*) launch "$target" yolo "$awake" ;;
+  *) launch "$target" '' "$awake" ;;
 esac
