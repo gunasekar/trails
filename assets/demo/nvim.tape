@@ -9,6 +9,7 @@
 Output assets/nvim.gif
 
 Require nvim
+Require claude
 Require tmux
 Require fzf
 Require jq
@@ -44,7 +45,8 @@ Sleep 2.5s
 
 # Start claude in the panel.
 Enter
-Sleep 6.5s
+Wait+Screen@30s /bypass permissions/
+Sleep 3s
 
 Hide
 Ctrl+B

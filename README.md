@@ -340,10 +340,8 @@ editor and every shell shares one set of sessions.
   alive across disconnects.
 
   ![A Zed agent thread running claude in a trails session](assets/zed.png)
-- **Neovim:** open a terminal running `trails` in a side panel:
-
-  ![Neovim in Ghostty with claude running in a trails agents panel](assets/nvim.png)
-
+- **Neovim:** open a terminal running `trails` in a side panel, like the second
+  demo at the top.
 - **Anything else:** run `trails` wherever the editor opens a terminal.
 
 ## How it works

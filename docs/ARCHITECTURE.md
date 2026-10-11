@@ -304,13 +304,17 @@ still gets its own session, and that pane becomes a viewer of it.
 ## The README demos
 
 `assets/demo.gif` and `assets/nvim.gif` are recorded with
-[VHS](https://github.com/charmbracelet/vhs) from `assets/demo/*.tape`. Each tape
-first sources `assets/demo/sandbox.sh`, which gives the recording its own HOME
-and tmux server, a sample project, two ended claude conversations, and stand-in
-`claude` and `codex` agents (`assets/demo/agent`) that need no login or API. The
-repo's own `bin/trails` comes first on `PATH`, so a re-record shows the version
-being released. After a change to what the picker or `ls` shows, re-record from
-the repo root:
+[VHS](https://github.com/charmbracelet/vhs) from `assets/demo/*.tape`, with the real
+Claude Code: the main demo gives it a small task, so a recording costs a few cents
+of your plan. Each tape first sources `assets/demo/sandbox.sh`, which gives trails
+its own config, records and tmux server, and a sample Go project at
+`~/code/checkout` (refused if that exists, removed afterwards). trails reads a
+sandboxed Claude history holding only two example conversations, so `trails ls`
+never lists the machine's own projects; a wrapper drops that setting before running
+the real `claude`, whose demo conversation is removed afterwards too. The repo's own
+`bin/trails` comes first on `PATH`, so a re-record shows the version being released.
+After a change to what the picker or `ls` shows, re-record from the repo root, with
+`claude` logged in:
 
 ```console
 vhs assets/demo/demo.tape
