@@ -1,0 +1,21 @@
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  shell:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Parse as POSIX sh
+        run: sh -n bin/trails
+      - name: ShellCheck
+        run: shellcheck --severity=warning bin/trails
+      - name: Smoke test
+        run: |
+          ./bin/trails help | grep -q '^usage: trails'
+          ./bin/trails ls
+          ./bin/trails recent

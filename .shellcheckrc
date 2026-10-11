@@ -1,0 +1,60 @@
+# ShellCheck configuration file
+# Documentation: https://github.com/koalaman/shellcheck/wiki
+
+# Disable specific checks that are intentional in this codebase
+
+# SC1090: Can't follow non-constant source
+# We dynamically source files, which is intentional
+disable=SC1090
+
+# SC1091: Not following sourced files
+# We source files that may not exist in all environments
+disable=SC1091
+
+# SC2034: Variable appears unused
+# Some exports are used by child processes
+disable=SC2034
+
+# SC2154: Variable is referenced but not assigned
+# Some variables come from sourced files
+disable=SC2154
+
+# SC2155: Declare and assign separately to avoid masking return values
+# Our simple variable declarations don't need this
+disable=SC2155
+
+# SC1083: Literal closing brace in one-liner conditionals
+# Pattern like: [[ condition ]] && { echo "error"; return }
+# This is intentional and works correctly
+disable=SC1083
+
+# SC2046: Quote command substitutions to prevent word splitting
+# Common pattern throughout codebase: $(whoami), $(pass key), etc.
+# While best practice is to quote, these are safe in our context
+disable=SC2046
+
+# SC2250: Prefer putting braces around variable references
+# Style preference - ${var} vs $var
+disable=SC2250
+
+# SC2001: Prefer parameter expansion over sed
+# Style suggestion - sometimes sed is clearer
+disable=SC2001
+
+# SC2292: Prefer [[ ]] over [ ] for tests
+# Style preference - both work fine in bash
+disable=SC2292
+
+# SC2312: Consider invoking command separately to avoid masking return value
+# Informational - acceptable in most cases
+disable=SC2312
+
+# Enable all optional checks
+enable=all
+
+# Set shell dialect (can be overridden per-file with shebang)
+shell=bash
+
+# Additional directives
+# - Warn about unquoted variables (already default, but emphasizing)
+# - Check for deprecated syntax
