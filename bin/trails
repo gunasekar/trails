@@ -4,8 +4,11 @@
 #
 #   aigent                  pick a running session to rejoin, or an agent to start
 #   aigent new              skip the running sessions, start a fresh one
-#   aigent status           every agent session on the box — a table on a terminal, TSV
+#   aigent ls               every agent session on the box — a table on a terminal, TSV
 #                           when piped, for a notifier to read
+#   aigent restore [-n]     bring back every session that died with tmux (a reboot, a
+#                           crash, kill-server), each resuming its conversation, detached.
+#                           -n lists them instead. See "Surviving tmux" below.
 #   aigent cockpit [N]      several agents at once in one window. Pick them, or take the
 #                           N that most want you. Bare `cockpit` re-attaches to a cockpit
 #                           already up rather than rebuilding; `cockpit new` forces a fresh
@@ -19,7 +22,8 @@
 #
 # In the picker: tab arms the highlighted agent for YOLO, ctrl-a arms any row to hold this
 # Mac awake for as long as that session lives (for the run you start and walk away from —
-# see toggle_awake), ctrl-x kills the highlighted session.
+# see toggle_awake), ctrl-x kills the highlighted session. A ↻ row is a session that died with
+# tmux: enter brings it back on its old conversation, ctrl-x forgets it.
 #
 # Env:
 #   AGENT_SETTLE           seconds between the two screen samples (default 0.35)
@@ -43,7 +47,7 @@
 # from a plain terminal with `tmux a -t aigent-<project>`.
 
 # ─── Agent registry ──────────────────────────────────────────────────────────
-# name|command|args — the single source of truth. Drives the menu, the PATH filter
+# name|command|args|yolo|pin|resume|idform — the single source of truth. Drives the menu, the PATH filter
 # and the launch, so adding an agent is one line here and nothing else.
 #
 # Every agent starts in its normal, permission-prompting mode. The 4th field is the flag that
@@ -67,11 +71,23 @@
 # launch() refuses a YOLO launch as root when the flag is --dangerously-skip-permissions (claude
 # and agy): that flag also auto-approves the sandbox-bypass prompt, so skip-permissions plus root
 # is the one combination catastrophic enough to guard (see there); plain, prompting mode needs none.
-AGENTS='claude|claude||--dangerously-skip-permissions
-cursor|cursor-agent||--force
-antigravity|agy||--dangerously-skip-permissions
-opencode|opencode||--auto
-pi|pi||'
+#
+# Fields 5-7 make a session restorable after tmux dies (see "Surviving tmux"): the flag that
+# starts a conversation under an ID we choose, the flag that resumes one by ID, and the shape
+# of that ID. Choosing the ID up front is the point — `--continue` means "the latest in this
+# directory", so aigent-foo and aigent-foo-2 would both resume the same one. Empty fields mean
+# the agent is not restorable, and launch() simply writes no record for it. Checked against
+# each CLI's --help (claude 2.1.296, opencode 2.0.25) and a live create-then-resume:
+#   claude    --session-id <uuid> / --resume <uuid>
+#   opencode  --session <id> for both — it creates the session if the ID is new. It refuses
+#             an ID not starting "ses" ('Expected a string starting with "ses"'), hence ses_hex.
+# cursor-agent can do it too, but only by asking `cursor-agent create-chat` for an ID before
+# every launch rather than choosing one, so it is left out of the first cut.
+AGENTS='claude|claude||--dangerously-skip-permissions|--session-id|--resume|uuid
+cursor|cursor-agent||--force|||
+antigravity|agy||--dangerously-skip-permissions|||
+opencode|opencode||--auto|--session|--session|ses_hex
+pi|pi|||||'
 
 agent_row() {
   printf '%s\n' "$AGENTS" | awk -F'|' -v n="$1" '$1 == n { print; exit }'
@@ -100,7 +116,9 @@ PREFIX=aigent-
 # tmux forbids '.' and ':' in session names (both are target separators), and spaces
 # make `tmux a -t <name>` a quoting chore. Two projects sharing a basename both want
 # this name; the loser lands on an -N sibling and is_ours tells them apart by path.
-SESSION=$PREFIX$(basename "$PWD" | tr ':. ' '___')
+# A function because restore re-derives it after cd'ing into each session's directory.
+session_base() { printf '%s%s' "$PREFIX" "$(basename "$PWD" | tr ':. ' '___')"; }
+SESSION=$(session_base)
 
 # One definition of "a session of ours": an aigent- session started in this directory.
 # The menu and the kill both ask through here.
@@ -218,13 +236,21 @@ screen_of() { tmux capture-pane -pt "$1" 2>/dev/null; }
 screen_hash() { printf '%s\n' "$1" | cksum; }
 
 # Every agent session on the box, TSV: name, agent, task. Unclassified and unfiltered —
-# is_ours narrows it to this project for the picker, `aigent status` keeps the lot.
+# is_ours narrows it to this project for the picker, `aigent ls` keeps the lot.
+#
+# Also the one place a session's record learns what it is working on (rec_note_task): the
+# task is only ever on screen, and a session that dies takes its screen with it. This runs
+# every time anything asks — the SwiftBar plugin polls `aigent ls` every 10s — so the
+# record is never more than a poll behind, and a ↻ row can say what it was doing.
 sessions() {
   tmux list-sessions -F \
     "#{session_name}|#{?@agent,#{@agent},#{pane_current_command}}|$TASK_FMT" 2>/dev/null |
     while IFS='|' read -r name label task; do
       case $name in
-        "$PREFIX"*) printf '%s\t%s\t%s\n' "$name" "$label" "$task" ;;
+        "$PREFIX"*)
+          rec_note_task "$name" "$task"
+          printf '%s\t%s\t%s\n' "$name" "$label" "$task"
+          ;;
         *) ;; # a tmux session you started yourself — not ours to report on
       esac
     done
@@ -261,9 +287,9 @@ classify() {
 # order, so they read the mapping from here rather than each carrying a copy — a fourth
 # state added to classify() lands in one place, not two.
 #
-# status() keeps its own copy in awk, and has to: it draws a padded table, so it is already
+# list_sessions() keeps its own copy in awk, and has to: it draws a padded table, so it is already
 # in awk by the time it needs a colour, and a shell callout per row to fetch one would be
-# absurd. That is why the state *names* are the contract between the two (see status()).
+# absurd. That is why the state *names* are the contract between the two (see list_sessions()).
 #
 # Sets $rank and $dot rather than printing them: two values, and sh gives a function one
 # stdout. Both callers consume them on the next line, so the reach is a line long.
@@ -275,7 +301,7 @@ rank_dot() {
   esac
 }
 
-# `aigent status` — every agent session on this machine: state, session, agent, task.
+# `aigent ls` — every agent session on this machine: state, session, agent, task.
 # Deliberately not scoped to $PWD: the picker answers "what's running *here*", this
 # answers "what did I leave running while I walked away" — the question a notifier asks
 # (the SwiftBar plugin swiftbar/.config/swiftbar/plugins/agents.10s.sh is the only caller).
@@ -289,11 +315,10 @@ rank_dot() {
 # stop lining up and you are reading a ragged grid. A person wants columns; a notifier
 # wants fields. `[ -t 1 ]` separates them, and needs no flag to do it: the plugin's own
 # `$(...)` is a pipe, so it goes on getting the TSV whether or not it ever asks.
-status() {
+list_sessions() {
   rows=$(sessions | classify | sort)
-  [ -n "$rows" ] || return 0
   [ -t 1 ] || {
-    printf '%s\n' "$rows"
+    [ -z "$rows" ] || printf '%s\n' "$rows"
     return 0
   }
 
@@ -305,7 +330,7 @@ status() {
   # is the same project, so the suffix is an ordinal. Here the rows are the whole box,
   # where `aigent-foo-2` is equally foo's second agent and project foo-2's only one — the
   # same ambiguity is_ours stopped guessing at. So print the name and let it be read.
-  printf '%s\n' "$rows" | awk -F"$TAB" \
+  [ -n "$rows" ] && printf '%s\n' "$rows" | awk -F"$TAB" \
     -v pfx="$PREFIX" -v red="$RED" -v yel="$YEL" -v dim="$DIM" -v rst="$RST" '
     {
       st[NR] = $1; ag[NR] = $3; tk[NR] = $4
@@ -326,6 +351,7 @@ status() {
       }
     }
   '
+  restore_hint
 }
 
 # Menu lines are TAB-delimited; fzf draws only field 3 on (--with-nth). Fields 1-2 are
@@ -383,13 +409,19 @@ apply_policy() {
   tmux set-option -t "$1" pane-border-status off
 }
 
+# Taken means running, or recorded: a session that died with tmux keeps its name reserved
+# until it is restored or forgotten. Otherwise a fresh agent started in that project after a
+# reboot would land on the dead one's name and its new record would overwrite the old — the
+# one pointer to the conversation you meant to come back to.
+name_taken() { tmux has-session -t "=$1" 2>/dev/null || [ -f "$(rec_path "$1")" ]; }
+
 next_free() {
-  tmux has-session -t "=$SESSION" 2>/dev/null || {
+  name_taken "$SESSION" || {
     printf '%s' "$SESSION"
     return
   }
   n=2
-  while tmux has-session -t "=$SESSION-$n" 2>/dev/null; do
+  while name_taken "$SESSION-$n"; do
     n=$((n + 1))
   done
   printf '%s-%s' "$SESSION" "$n"
@@ -404,9 +436,21 @@ next_free() {
 # ctrl-x: kill the highlighted session. Sessions outlive the terminal that started them,
 # so nothing else ever reaps them. is_ours guards it: a "new  default" row would otherwise
 # hand us the agent name and try to kill a session literally called "default".
+#
+# On a ↻ row it forgets instead: there is no process to kill, only the record that would
+# bring one back. restorable_here guards that half the way is_ours guards the other.
+#
+# A kill is on purpose, so it forgets the record too. The agent's wrapper would forget it
+# anyway were it allowed to finish, but kill-session hangs up on the wrapper along with the
+# agent — which is exactly what keeps a record alive when tmux dies — so it never gets to.
 kill_session() {
+  if restorable_here "$1"; then
+    rec_forget "$1"
+    return 0
+  fi
   is_ours "$1" || return 0
   tmux kill-session -t "=$1" 2>/dev/null
+  rec_forget "$1"
   # Recompute the cached running block so the reload that follows drops the killed row (and
   # re-reads the survivors' state). Guarded on the cache path so a bare `aigent --kill x` (no
   # picker, path unset) skips it. This is the one reload that pays classify's settle sleep, and
@@ -506,6 +550,24 @@ print_menu() {
     awk -F"$TAB" -v OFS="$TAB" -v awake="$awake" -v cyn="$CYN" -v rst="$RST" \
       '$2 == awake { $3 = $3 "  " cyn "(awake)" rst } 1'
 
+  # Sessions that died with tmux, between the live ones and the new ones: below what is
+  # running because they want nothing from you yet, above "new" because bringing back the
+  # work you had beats starting over. Read fresh on every reload, not cached: it is a few
+  # small files, no settle sleep, and ctrl-x on one of these rows has to see it gone.
+  #
+  # AIGENT_RESTORE_OK is the dispatch's verdict, exported because this also runs as fzf's
+  # reload subprocess, which can see neither FORCE_NEW nor the cockpit's USE_TMUX override.
+  if [ -n "$AIGENT_RESTORE_OK" ]; then
+    rec_dead | while read -r name; do
+      [ "$(rec_get "$name" dir)" = "$PWD" ] || continue
+      task=$(rec_get "$name" task)
+      tag=
+      [ "$name" = "$awake" ] && tag="  $CYN(awake)$RST"
+      printf 'restore\t%s\t↻ [restore · %s]%s%s\n' \
+        "$name" "$(rec_get "$name" agent)" "${task:+  $task}" "$tag"
+    done
+  fi
+
   # The one agent armed for YOLO (toggle_yolo wrote it); empty if none. Its row carries the
   # verb "yolo" so the dispatch launches it with the flag, and draws "(YOLO)" in yellow so you
   # can see what Enter will do. Every other agent is a plain "new" row.
@@ -542,19 +604,24 @@ BOOT=1.5
 # would exec away before we could set the option. @agent records which entry you picked so
 # the picker can label the session without inspecting it: claude reports `claude.exe`,
 # cursor-agent reports bare `node`, only opencode sets a pane title.
+#
+#   launch AGENT [yolo] [AWAKE] [RESUME_ID] [NAME]
+#
+# The last two are restore's: RESUME_ID picks up that conversation instead of starting one,
+# and NAME is the session name to come back under if it is still free. With LAUNCH_DETACHED
+# set, it prints the session name and returns instead of attaching — restore needs the name
+# back, and `aigent restore` brings back several without sitting in any of them.
 launch() {
   row=$(agent_row "$1")
   [ -n "$row" ] || {
     echo "aigent: unknown agent '$1'" >&2
     exit 1
   }
-  # name|command|args|yolo — pull the three we launch with. args is normally empty; the yolo
-  # flag is appended only when this launch was armed (see mode below).
-  rest=${row#*|}
-  cmd=${rest%%|*}
-  rest=${rest#*|}
-  args=${rest%%|*}
-  yolo=${rest#*|}
+  # args is normally empty; the yolo flag is appended only when this launch was armed (see
+  # mode below), and pin/resume/idform only matter to agents that can be restored.
+  IFS='|' read -r _ cmd args yolo pin resume idform <<EOF
+$row
+EOF
 
   # $2 is "yolo" when the picker row was Tab-armed, empty otherwise. A row can only be armed
   # if it has a flag (toggle_yolo enforces it), so the empty-flag branch is belt-and-braces
@@ -590,13 +657,10 @@ launch() {
   # becomes the agent's by construction, so there is no pid to record, nothing to reap, and
   # no way to leave the machine pinned awake by an agent that died an hour ago.
   #
-  # It costs the rest of this file nothing, which is not luck but the shape of caffeinate:
-  # it forks a *helper* to hold the assertion and execs the utility in the original process,
-  # so the agent keeps the pid tmux spawned. #{pane_pid} is still the agent, #{pane_dead_status}
-  # is still the agent's own exit code (the dead-on-arrival guard below reads it unchanged),
-  # and #{pane_current_command} — sessions()' fallback when @agent is unset — still names the
-  # agent rather than a wrapper. Measured, because the tree reads backwards from what you
-  # would guess: keepawake's owner_of() has the ps output.
+  # caffeinate forks a *helper* to hold the assertion and execs the utility in the original
+  # process, so it adds no process of its own between the wrapper below and the agent.
+  # Measured, because the tree reads backwards from what you would guess: keepawake's
+  # owner_of() has the ps output.
   #
   # -ims, not -d: see bin/.local/bin/keepawake, which picks the same set for the same
   # reasons. An agent running unattended has no business lighting the display.
@@ -609,7 +673,32 @@ launch() {
   # shellcheck disable=SC2086
   [ -n "$USE_TMUX" ] || exec $awake_cmd "$cmd" $args
 
-  SESSION=$(next_free)
+  # The conversation ID: the one being resumed, or a fresh one chosen here so this session
+  # can be resumed later. Neither for an agent with no pin flag, which gets no record.
+  id=
+  if [ -n "$4" ]; then
+    id=$4
+    args="${args:+$args }$resume $id"
+  elif [ -n "$pin" ]; then
+    id=$(new_id "$idform")
+    args="${args:+$args }$pin $id"
+  fi
+
+  # Restore asks for its old name back, and gets it unless something has since taken it —
+  # a fresh agent you started in that project after the reboot, say. Then it lands on the
+  # next free -N like any second agent would, and the old name's record goes with it below.
+  if [ -n "$5" ] && ! tmux has-session -t "=$5" 2>/dev/null; then
+    SESSION=$5
+  else
+    SESSION=$(next_free)
+  fi
+
+  # Written before the agent starts, not after it survives BOOT: the wrapper's --forget is
+  # what clears it, and that only works if the record is already there when the agent exits.
+  # An agent that dies at 1.6s would otherwise outrun its own record and leave a ↻ row for a
+  # session that never was.
+  [ -n "$id" ] && rec_write "$SESSION" "$1" "$PWD" "$id" "$2"
+  [ -n "$5" ] && [ "$5" != "$SESSION" ] && rec_forget "$5"
   # No "=" prefix on set-option: it does not accept one and fails with `no such session:
   # =name` (attach-session and has-session do accept it). Safe anyway — we just created
   # this exact name.
@@ -619,13 +708,20 @@ launch() {
   # agent that dies in milliseconds is reaped before a follow-up call can land, which is
   # the exact case worth catching. remain-on-exit-format '' drops tmux's own "Pane is
   # dead" banner, leaving the capture to be the agent's words and nothing else.
+  #
+  # The agent runs under $WRAP (see "Surviving tmux"), which forgets the record when the
+  # agent exits by itself and is killed alongside it when tmux goes.
   # shellcheck disable=SC2086
-  tmux new-session -d -s "$SESSION" -c "$PWD" $awake_cmd "$cmd" $args \
+  tmux new-session -d -s "$SESSION" -c "$PWD" \
+    sh -c "$WRAP" aigent-wrap "$SELF" "$SESSION" $awake_cmd "$cmd" $args \
     \; set-option -w -t "$SESSION" remain-on-exit on \
     \; set-option -w -t "$SESSION" remain-on-exit-format '' || exit 1
   # The picked entry, tagged (YOLO) when armed, so the picker and status table can label the
   # session without inspecting the process. ${2:+ (YOLO)} adds the tag only for a yolo launch.
   tmux set-option -t "$SESSION" @agent "$1${2:+ (YOLO)}"
+  # Which conversation this is, so rec_is_dead can tell this session from a stranger that
+  # happens to share its name.
+  [ -n "$id" ] && tmux set-option -t "$SESSION" @aigent_id "$id"
 
   # Dead on arrival. tmux drops a session the moment its command exits and the error goes
   # with it, so an agent that can't start (bad token, no keychain) made aigent look like it
@@ -639,6 +735,7 @@ launch() {
     echo "aigent: $1 exited immediately (status $(tmux display-message -pt "$SESSION" '#{pane_dead_status}' 2>/dev/null))" >&2
     tmux capture-pane -pS- -t "$SESSION" 2>/dev/null | awk 'NF' | tail -n 15 >&2
     tmux kill-session -t "=$SESSION" 2>/dev/null
+    rec_forget "$SESSION"
     exit 1
   fi
   # Survived, so back to the default: quitting the agent should close the session, not
@@ -646,6 +743,10 @@ launch() {
   tmux set-option -w -t "$SESSION" remain-on-exit off
 
   apply_policy "$SESSION"
+  if [ -n "$LAUNCH_DETACHED" ]; then
+    printf '%s\n' "$SESSION"
+    return 0
+  fi
   attach_to "$SESSION"
 }
 
@@ -664,16 +765,214 @@ attach_to() {
   exec tmux attach-session -t "=$1"
 }
 
+# ─── Surviving tmux ──────────────────────────────────────────────────────────
+# Every agent lives inside the tmux server, so when the server goes — a reboot, a crash,
+# kill-server — every agent goes with it. The conversations survive (each CLI keeps its
+# transcripts on disk); what dies is the knowledge of which conversation was which session,
+# because that lived only in tmux. So write it down outside tmux, one small file per session:
+#
+#   ~/.local/state/aigent/sessions/aigent-foo     agent= dir= id= yolo= task=
+#
+# and bring sessions back from it: ↻ rows in the picker, or `aigent restore` for the lot.
+#
+# The hard part is not writing records but knowing when to delete one. A session you quit
+# is over; a session tmux took down is the whole point. Both look identical from outside —
+# the session is gone — so the deletion has to happen at a moment only one of them reaches.
+#
+# tmux's own hooks cannot tell them apart, and both were measured. session-closed fires for
+# kill-server as well, and only for whichever sessions it tears down before the server
+# exits, so it deletes some records in exactly the case they exist for. pane-exited reports
+# the wrong session name and does not fire at all when the last session quits.
+#
+# So the agent runs under a small sh wrapper, and the moment is "the agent exited and the
+# wrapper is still alive to notice". An agent that quits — /exit, ctrl-c, a crash — returns
+# to the wrapper, which forgets the record and exits with the agent's status. When tmux
+# dies it hangs up on the pane's whole process group, and sh's default for SIGHUP is to die
+# where it stands, so the wrapper goes down with the agent and the forget never runs. A
+# reboot runs nothing at all. Measured on an isolated server: own exit and ctrl-c forget,
+# kill-server keeps every record.
+#
+# What the wrapper costs: it is now the pane's process, so #{pane_pid} is sh's (hold_awake's
+# caffeinate -w on it still ends with the agent, since sh exits the moment the agent does)
+# and #{pane_current_command} reads sh — which matters only as sessions()' fallback label,
+# and every session launch() makes has @agent. The exit status is passed through, so the
+# dead-on-arrival guard still reads the agent's own.
+#
+# trap : INT QUIT keeps the wrapper alive through a ctrl-c meant for the agent. It is a
+# no-op *handler*, not an ignore, so the agent execs with default dispositions and handles
+# ctrl-c itself as usual; an inherited ignore would not be reset. HUP is left alone, since
+# dying to it is the entire mechanism.
+#
+# Records begin with this version: a session started before it has none, and so cannot be
+# brought back.
+STATE_DIR=${XDG_STATE_HOME:-$HOME/.local/state}/aigent/sessions
+
+# The wrapper calls back into this script by absolute path, because it runs long after
+# whatever relative path or PATH lookup started us.
+case $0 in
+  /*) SELF=$0 ;;
+  *) SELF=$(cd "$(dirname "$0")" && pwd)/$(basename "$0") ;;
+esac
+
+# shellcheck disable=SC2016 # expanded by the wrapper's sh, not here
+WRAP='self=$1 name=$2; shift 2; trap : INT QUIT; "$@"; s=$?; "$self" --forget "$name"; exit $s'
+
+# A conversation ID in the shape the agent's pin flag wants (AGENTS, field 7).
+new_id() {
+  if command -v uuidgen >/dev/null 2>&1; then
+    u=$(uuidgen | tr '[:upper:]' '[:lower:]')
+  else
+    u=$(cat /proc/sys/kernel/random/uuid)
+  fi
+  case $1 in
+    ses_hex) printf 'ses_%s' "$(printf '%s' "$u" | tr -d -)" ;;
+    *) printf '%s' "$u" ;;
+  esac
+}
+
+rec_path() { printf '%s/%s' "$STATE_DIR" "$1"; }
+rec_get() { sed -n "s/^$2=//p" "$(rec_path "$1")" 2>/dev/null | head -n 1; }
+rec_forget() { [ -n "$1" ] && rm -f "$(rec_path "$1")"; }
+
+# name agent dir id yolo. Through a temp file and mv, so a reader never sees half a record.
+rec_write() {
+  mkdir -p "$STATE_DIR" || return 0
+  printf 'agent=%s\ndir=%s\nid=%s\nyolo=%s\ntask=\n' "$2" "$3" "$4" "$5" >"$(rec_path "$1").tmp" &&
+    mv -f "$(rec_path "$1").tmp" "$(rec_path "$1")"
+}
+
+# Called for every live session on every sessions() pass, so it touches the disk only when a
+# record exists and its task actually changed.
+rec_note_task() {
+  [ -n "$2" ] && [ -f "$(rec_path "$1")" ] || return 0
+  [ "$(rec_get "$1" task)" = "$2" ] && return 0
+  awk -v t="$2" '/^task=/ { print "task=" t; next } 1' "$(rec_path "$1")" >"$(rec_path "$1").tmp" &&
+    mv -f "$(rec_path "$1").tmp" "$(rec_path "$1")"
+}
+
+# Is this record's session gone? Not "is a session of that name running": a name can be
+# taken by something else (a `tmux new -s aigent-foo` of your own), and that would hide the
+# dead record from every ↻ row and from restore. launch() stamps each session with its
+# conversation ID as @aigent_id, and a record is alive only while a session carries its ID.
+# No "=" on -t, the display-message trap is_ours() documents; a prefix match onto a
+# neighbour reads back the neighbour's ID, which does not match, so it still says dead.
+rec_is_dead() {
+  [ -f "$(rec_path "$1")" ] || return 1
+  [ "$(tmux display-message -pt "$1" '#{@aigent_id}' 2>/dev/null)" != "$(rec_get "$1" id)" ]
+}
+
+# Every record whose session is not running: what died with tmux. Names only.
+rec_dead() {
+  for f in "$STATE_DIR"/"$PREFIX"*; do
+    [ -f "$f" ] || continue
+    name=${f##*/}
+    case $name in
+      *.tmp) continue ;;
+      *) ;; # a record
+    esac
+    rec_is_dead "$name" && printf '%s\n' "$name"
+  done
+}
+
+# The ↻ half of is_ours: a dead session started in this directory.
+restorable_here() {
+  rec_is_dead "$1" && [ "$(rec_get "$1" dir)" = "$PWD" ]
+}
+
+# Bring one dead session back, detached, from its record; prints the name it came back
+# under. Run from the session's own directory.
+#
+# Resuming can fail where starting would not: claude refuses an ID that never got a message
+# ("No conversation found with session ID"), which is what an agent you opened and never
+# typed into leaves behind. There is nothing to resume then, so start fresh in its place.
+# If that fails too the agent itself is broken (a bad token, no keychain), and the record is
+# put back — it is the only pointer to the conversation, and a failed restore must not cost it.
+restore_one() {
+  agent=$(rec_get "$1" agent)
+  id=$(rec_get "$1" id)
+  mode=$(rec_get "$1" yolo)
+  saved=$(cat "$(rec_path "$1")")
+  SESSION=$(session_base)
+
+  # Subshells because launch() exits on failure, which would take the fallback with it.
+  (LAUNCH_DETACHED=1 launch "$agent" "$mode" "$2" "$id" "$1") && return 0
+  echo "aigent: nothing to resume for ${1#"$PREFIX"} — starting $agent fresh in its place" >&2
+  (LAUNCH_DETACHED=1 launch "$agent" "$mode" "$2" "" "$1") && return 0
+  mkdir -p "$STATE_DIR" && printf '%s\n' "$saved" >"$(rec_path "$1")"
+  echo "aigent: could not bring ${1#"$PREFIX"} back — its record is kept, try again once $agent starts" >&2
+  return 1
+}
+
+# `aigent restore [-n]` — every dead session on the box, each in its own directory. Detached,
+# because there may be several and you can only sit in one: attach afterwards with the
+# picker or the cockpit, which already know how to find them.
+restore_all() {
+  case ${1:-} in
+    '' | -n) ;;
+    *)
+      echo "aigent: restore takes -n (list only), not '$1'" >&2
+      exit 1
+      ;;
+  esac
+  command -v tmux >/dev/null 2>&1 || {
+    echo "aigent: restore needs tmux" >&2
+    exit 1
+  }
+  names=$(rec_dead)
+  [ -n "$names" ] || {
+    echo "aigent: nothing to restore"
+    return 0
+  }
+
+  if [ "$1" = -n ]; then
+    for name in $names; do
+      printf '%s\t%s\t%s\t%s\n' "${name#"$PREFIX"}" "$(rec_get "$name" agent)" \
+        "$(rec_get "$name" dir | sed "s|^$HOME|~|")" "$(rec_get "$name" task)"
+    done | awk -F"$TAB" '
+      { for (i = 1; i <= 3; i++) { c[NR, i] = $i; if (length($i) > w[i]) w[i] = length($i) }; t[NR] = $4 }
+      END { for (r = 1; r <= NR; r++) {
+              line = sprintf("↻ %-*s  %-*s  %-*s  %s", w[1], c[r, 1], w[2], c[r, 2], w[3], c[r, 3], t[r])
+              sub(/ +$/, "", line); print line } }'
+    return 0
+  fi
+
+  # Each in a subshell: restore_one cds, and launch exits on failure — neither may leak into
+  # the next one. USE_TMUX forced on, since run from inside tmux it would otherwise mean
+  # "run the agent bare in this pane", and there is no pane here to run it in.
+  for name in $names; do
+    dir=$(rec_get "$name" dir)
+    if [ ! -d "$dir" ]; then
+      echo "aigent: skipping ${name#"$PREFIX"} — $dir is gone (ctrl-x its ↻ row, or rm $(rec_path "$name"))" >&2
+      continue
+    fi
+    new=$(cd "$dir" && USE_TMUX=1 restore_one "$name" "") || continue
+    if [ "$new" = "$name" ]; then
+      echo "restored ${name#"$PREFIX"}"
+    else
+      echo "restored ${name#"$PREFIX"} as ${new#"$PREFIX"}"
+    fi
+  done
+}
+
+# One dim line under `aigent ls` on a terminal, so a reboot's casualties are not silent.
+# Terminal only: the TSV is the notifier's contract and a dead session is not a row in it.
+restore_hint() {
+  n=$(rec_dead | wc -l | tr -d ' ')
+  [ "$n" -gt 0 ] || return 0
+  printf '%s↻ %s can be restored — aigent restore -n%s\n' "$DIM" \
+    "$([ "$n" -eq 1 ] && echo "1 session" || echo "$n sessions")" "$RST"
+}
+
 # ─── Cockpit ─────────────────────────────────────────────────────────────────
 # Several agents at once, in one window. The picker answers "what do I open here" and
-# status() answers "who wants me"; this is the third question — watch four of them work,
+# `aigent ls` answers "who wants me"; this is the third question — watch four of them work,
 # and answer whichever one stops, without leaving the window.
 #
 # Every pane is a tmux client attached to a live agent session: the cockpit *borrows* the
 # view, it does not take the pane. That is the whole design, and the reason to prefer it
 # over join-pane, which is the obvious other way to get four agents into one window.
 # join-pane *moves* a pane, so aigent-foo would stop being a session — and sessions are
-# what is_ours, status() and the SwiftBar plugin all ask tmux about, so all three would go
+# what is_ours, list_sessions() and the SwiftBar plugin all ask tmux about, so all three would go
 # blind at once. A cockpit that died mid-flight would leave the agents merged into a
 # session none of them chose, with no way back but hand-run break-pane.
 #
@@ -683,7 +982,7 @@ attach_to() {
 # when there is no state to keep, so `aigent cockpit` always builds a fresh one rather
 # than reconciling an old one against a new pick.
 #
-# Not $PWD-scoped, for status()'s reason: the picker asks what is running *here*, the
+# Not $PWD-scoped, for list_sessions()'s reason: the picker asks what is running *here*, the
 # cockpit asks what is running *at all*.
 #
 # What it costs, and it is not nothing. A tmux window has one grid, so a session two
@@ -697,7 +996,7 @@ attach_to() {
 # What the other one pays is a re-flow, and two consequences follow. Any *other* window
 # viewing that agent — a Zed thread, an nvim panel — draws it small in the corner until
 # you press a key there, which re-elects it and snaps it back (measured: 200x49 ↔ 180x44
-# across a keypress, either way). And a re-flow is a screen change, so the `aigent status`
+# across a keypress, either way). And a re-flow is a screen change, so the `aigent ls`
 # poll that straddles an attach reads those agents as `working` — classify() calls a
 # changed screen working by construction — and the SwiftBar plugin re-announces them once
 # as they settle. That is the one place the cockpit dents the notifier's one-sided error:
@@ -735,7 +1034,7 @@ attach_to() {
 #
 # Outside $PREFIX on purpose, and load-bearing rather than taste: sessions() calls
 # anything named aigent-* an agent session, so an `aigent-cockpit` would be listed by
-# `aigent status` and counted by the notifier as one more agent — a viewer reported as a
+# `aigent ls` and counted by the notifier as one more agent — a viewer reported as a
 # thing to watch, permanently "working" because its panes always repaint. The prefix
 # means "an agent lives here", and no agent lives here.
 COCKPIT=cockpit
@@ -808,10 +1107,10 @@ cockpit_dir() { basename "$(tmux display-message -pt "$1" '#{session_path}' 2>/d
 cockpit_agent() { tmux display-message -pt "$1" '#{@agent}' 2>/dev/null; }
 
 # Every agent on the box, ranked most-wants-you first. The rank is the same blocked/idle/
-# working sort status() and live_sessions() use, so pane 1 of the grid is always the one
+# working sort list_sessions() and live_sessions() use, so pane 1 of the grid is always the one
 # to look at first.
 #
-# The name keeps its -N suffix here, for the reason status() spells out and live_sessions()
+# The name keeps its -N suffix here, for the reason list_sessions() spells out and live_sessions()
 # is exempt from: box-wide, `aigent-foo-2` is equally foo's second agent and project
 # foo-2's only one, so the `#2` badge would be a guess. Print the name and let it be read.
 cockpit_menu() {
@@ -1041,7 +1340,7 @@ cockpit() {
 # Measured with `pwd -P` rather than $PWD, which keeps whatever path you walked in by: a
 # symlink pointing at / is the same directory and reads as a different string.
 #
-# Only starting is refused, never reporting: `aigent status` answers for the whole box and
+# Only starting is refused, never reporting: `aigent ls` answers for the whole box and
 # is read-only, so it works from anywhere, and the fzf internals run from a picker that has
 # already passed through here.
 refuse_bad_cwd() {
@@ -1054,15 +1353,26 @@ refuse_bad_cwd() {
 FORCE_NEW=
 case $1 in
   new) FORCE_NEW=1 ;;
-  status)
-    status
+  ls)
+    list_sessions
     exit 0
     ;;
-  # Above refuse_bad_cwd with status, and for the same reason: it opens no agent, so
+  # Above refuse_bad_cwd with ls, and for the same reason: it opens no agent, so
   # where you are standing is not its business. You are most likely to want a cockpit
   # from wherever you happened to walk back to.
   cockpit)
     cockpit "$2"
+    exit 0
+    ;;
+  # Box-wide like ls: each session comes back in its own recorded directory, so where you
+  # stand does not matter.
+  restore)
+    restore_all "$2"
+    exit 0
+    ;;
+  # Called by the wrapper launch() puts around every agent, when the agent exits.
+  --forget)
+    rec_forget "$2"
     exit 0
     ;;
   --print-menu)
@@ -1133,6 +1443,14 @@ else
   : >"$AIGENT_MENU_CACHE"
 fi
 
+# ↻ rows on the same terms as the running ones: not for `aigent new`, and not where there is
+# no tmux to restore into (inside plain tmux the agent would run bare, with nothing to hold
+# its record). print_menu reads the verdict rather than re-deriving it, for the reason the
+# cache comment above gives.
+AIGENT_RESTORE_OK=
+[ -n "$USE_TMUX" ] && [ -z "$FORCE_NEW" ] && AIGENT_RESTORE_OK=1
+export AIGENT_RESTORE_OK
+
 MENU=$(print_menu) || exit 1
 
 # --height=~80%: hug the content, capped at 80%, so three sessions don't open a
@@ -1151,8 +1469,8 @@ set -- --prompt='Agent: ' --reverse --no-info --ansi --wrap \
   --delimiter='\t' --with-nth='3..' --height=~80% \
   --bind="tab:execute-silent($0 --toggle-yolo {2})+reload($0 --print-menu)" \
   --bind="ctrl-a:execute-silent($0 --toggle-awake {2})+reload($0 --print-menu)"
-if printf '%s\n' "$MENU" | grep -q '^attach'; then
-  set -- "$@" --header='enter: start/attach   tab: YOLO   ctrl-a: keep awake   ctrl-x: kill' \
+if printf '%s\n' "$MENU" | grep -Eq '^(attach|restore)'; then
+  set -- "$@" --header='enter: start/attach/restore   tab: YOLO   ctrl-a: keep awake   ctrl-x: kill/forget' \
     --bind="ctrl-x:execute-silent($0 --kill {2})+reload($0 --print-menu)"
 else
   set -- "$@" --header='enter: start   tab: YOLO   ctrl-a: keep awake'
@@ -1179,6 +1497,10 @@ case $choice in
     apply_policy "$target"
     [ -n "$awake" ] && hold_awake "$target"
     attach_to "$target"
+    ;;
+  restore*)
+    new=$(restore_one "$target" "$awake") || exit 1
+    attach_to "$new"
     ;;
   yolo*) launch "$target" yolo "$awake" ;;
   *) launch "$target" '' "$awake" ;;
