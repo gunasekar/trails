@@ -303,7 +303,8 @@ still gets its own session, and that pane becomes a viewer of it.
 
 ## The README demos
 
-`assets/demo.gif` and `assets/nvim.gif` are recorded with
+`assets/nvim.gif` and `assets/map.gif` (the two in the README) and `assets/demo.gif` are
+recorded with
 [VHS](https://github.com/charmbracelet/vhs) from `assets/demo/*.tape`, with the real
 Claude Code: the main demo gives it a small task, so a recording costs a few cents
 of your plan. Each tape first sources `assets/demo/sandbox.sh`, which gives trails
@@ -319,4 +320,5 @@ After a change to what the picker or `ls` shows, re-record from the repo root, w
 ```console
 vhs assets/demo/demo.tape
 vhs assets/demo/nvim.tape
+vhs assets/demo/map.tape
 ```

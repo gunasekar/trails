@@ -7,9 +7,9 @@
 
 **Never lose an AI coding agent again. Claude Code, Codex and the rest run in tmux, and drop into any terminal or editor.**
 
-![Start a Claude trail, lose it to a reboot, and bring it back with Enter](assets/demo.gif)
-
 ![Picking a new trail in a Neovim side panel](assets/nvim.gif)
+
+![Four Claude Code sessions in four projects, side by side in trails map](assets/map.gif)
 
 trails starts Claude Code, Codex, Gemini, Copilot, Cursor, opencode or any other
 agent CLI in a tmux session of its own, then helps you find it again, resume it,
@@ -200,8 +200,6 @@ window, across projects. Each pane is a live view of a real session, labelled wi
 its directory, its agent and what it's working on; type into any of them, and
 detach (`C-b d`) to leave them all running. `trails map` re-attaches to the map
 already up, or lets you pick a set.
-
-![Four Claude Code sessions in four projects, side by side in trails map](assets/map.gif)
 
 ### Menu bar (macOS)
 
