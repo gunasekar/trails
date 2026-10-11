@@ -21,9 +21,10 @@ a `name` and the `program` it runs, plus two optional fields of trails' own:
   that let trails choose a conversation ID and bring it back after tmux dies
 
 Two top-level keys sit beside the list: `default_agent`, listed first, and
-`default_mode`, `normal` or `yolo`, the mode a new launch starts in. Tab flips a
+`mode`, `default` (the agent's own, prompting mode) or `yolo`, the mode a new
+launch starts in. Tab flips a
 row from that default rather than always meaning "arm". A value other than those
-two reads as `normal`: a typo must never decide to run every agent unconfirmed.
+two reads as `default`: a typo must never decide to run every agent unconfirmed.
 
 The built-in agents are the same JSON, inside the script, and apply until the
 file exists. `trails config` writes them out as a starting point. Agents whose

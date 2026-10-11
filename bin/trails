@@ -58,7 +58,7 @@
 #
 #   ~/.config/trails/config.json
 #   {
-#     "default_mode": "normal",
+#     "mode": "default",
 #     "default_agent": "claude",
 #     "agents": [
 #       { "name": "claude", "program": "claude",
@@ -80,10 +80,10 @@
 #             what opencode insists on). Without it the agent still runs, it just isn't
 #             brought back after a reboot.
 #   default_agent  listed first in the picker.
-#   default_mode   "normal" (the default) or "yolo": which mode a "+ new" row starts in. Tab
-#                  flips a row from it, so with "yolo" Tab is how you start one safely. Rows
-#                  to resume (◷) come back in the mode they last ran in either way, and an
-#                  agent with no yolo flag is always normal.
+#   mode           "default" (the agent's own, prompting mode) or "yolo": which a "+ new" row
+#                  starts in. Tab flips a row from it, so with "yolo" Tab is how you start one
+#                  in default mode. Rows to resume (◷) come back in the mode they last ran in
+#                  either way, and an agent with no yolo flag always runs in default mode.
 #
 # Without a file, the built-in agents below apply; `trails config` writes them out as a
 # starting point. Only agents whose command is on PATH are offered, so listing an agent you
@@ -97,7 +97,7 @@
 CONFIG=${XDG_CONFIG_HOME:-$HOME/.config}/trails/config.json
 
 DEFAULT_CONFIG='{
-  "default_mode": "normal",
+  "mode": "default",
   "default_agent": "claude",
   "agents": [
     {
@@ -183,19 +183,19 @@ agent_row() {
   printf '%s\n' "$AGENTS" | awk -F'|' -v n="$1" '$1 == n { print; exit }'
 }
 
-# default_mode, as "normal" or "yolo". Anything else is a typo, and a typo must not decide to
-# run every agent unconfirmed, so it reads as normal with a warning.
+# The config's mode, as "default" or "yolo". Anything else is a typo, and a typo must not
+# decide to run every agent unconfirmed, so it reads as default with a warning.
 load_mode() {
   if [ -f "$CONFIG" ]; then
-    m=$(jq -r '.default_mode // "normal"' "$CONFIG" 2>/dev/null) || m=normal
+    m=$(jq -r '.mode // "default"' "$CONFIG" 2>/dev/null) || m=default
   else
-    m=$(printf '%s' "$DEFAULT_CONFIG" | jq -r '.default_mode // "normal"')
+    m=$(printf '%s' "$DEFAULT_CONFIG" | jq -r '.mode // "default"')
   fi
   case $m in
-    normal | yolo) printf '%s' "$m" ;;
+    default | yolo) printf '%s' "$m" ;;
     *)
-      echo "trails: default_mode is \"$m\" in $CONFIG — it takes \"normal\" or \"yolo\"; using normal" >&2
-      printf normal
+      echo "trails: mode is \"$m\" in $CONFIG — it takes \"default\" or \"yolo\"; using default" >&2
+      printf default
       ;;
   esac
 }
@@ -692,8 +692,8 @@ kill_session() {
   [ -n "$TRAILS_MENU_CACHE" ] && live_sessions >"$TRAILS_MENU_CACHE"
 }
 
-# tab: flip the highlighted row from default_mode — arm it for YOLO, or under "default_mode":
-# "yolo" take a "+ new" row back to normal — and flip it back on a second Tab. Exactly one
+# tab: flip the highlighted row from the config's mode — arm it for YOLO, or under "mode":
+# "yolo" take a "+ new" row back to default mode — and flip it back on a second Tab. Exactly one
 # agent can be armed at a time — arming a second replaces the first — so the state is a single
 # name in a file, not a set. Only an agent with a YOLO flag can be armed; Tab on an attach row
 # (a session name) or a flagless agent (pi, antigravity) finds no flag and is a no-op. A ◷ row
@@ -746,7 +746,7 @@ print_menu() {
     done)
   fi
   # The one row Tab flipped (toggle_yolo wrote it); empty if none. An agent's row is YOLO when
-  # default_mode says so or Tab flipped it, not both — and only if the agent has a flag at all.
+  # the config's mode says so or Tab flipped it, not both — and only if the agent has a flag at all.
   # Then it carries the verb "yolo", so the dispatch launches it with the flag, and draws
   # "(YOLO)" in yellow so you can see what Enter will do; a ◷ row does the same as
   # "resume-yolo". Every other agent is a plain "new" row.
@@ -1756,7 +1756,7 @@ usage: trails [command]
 In the picker (each agent, with its sessions for this project beneath it):
   enter             start the agent, or attach to / restore / resume the session
   tab               toggle YOLO (run everything unconfirmed) on the highlighted agent or ◷
-                    row; "default_mode": "yolo" in the config starts new rows armed
+                    row; "mode": "yolo" in the config starts new rows armed
   ctrl-x            kill the highlighted session, or forget a ↻ row
 
   ↻ died with tmux, comes back on its own conversation
@@ -1780,7 +1780,7 @@ case $1 in
   ls) AGENTS=$(load_agents) || AGENTS= ;;
   *) AGENTS=$(load_agents) || exit 1 ;;
 esac
-MODE=normal
+MODE=default
 case $1 in
   '' | --print-menu) MODE=$(load_mode) ;;
   *) ;; # only the picker draws "+ new" rows

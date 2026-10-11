@@ -46,7 +46,7 @@ reads it once per run with `jq` and turns each agent into one line,
 else asks through `agent_row`. A bar, not a tab, separates the fields, because
 most agents leave some empty and tab counts as whitespace to `read`.
 
-`default_mode` is read alongside, by `load_mode`, and only the picker uses it: a
+The config's `mode` is read alongside, by `load_mode`, and only the picker uses it: a
 `+ new` row is YOLO when the mode says so or Tab flipped it, not both, and only
 if its agent has a `yolo` flag.
 
