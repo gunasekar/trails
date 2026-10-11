@@ -24,8 +24,10 @@ Every session shows two signals. The glyph says whether its tmux session exists:
 
 One `STATES` table in the script defines glyph, colour, word, legend and order,
 and every view reads it. `trails ls` pipes a `life` column (`running`/`stopped`)
-ahead of the state. The picker lists this directory's sessions first, then a
-*start new* group with one row per agent, instead of a tree.
+ahead of the state. The picker lists this directory's running and lost sessions,
+then one *new trail* row per agent, then *resume old trails*, which opens the
+ended conversations as a second list. Every row does something on Enter; there
+are no label rows, which fzf can't make unselectable.
 
 ## Consequences
 

@@ -745,9 +745,15 @@ toggle_yolo() {
   fi
 }
 
-# The picker: this directory's sessions first — what you usually came for — then the agents
-# you can start, under a "start new" rule. Re-run by fzf after every Tab and ctrl-x, hence a
-# subcommand.
+# The picker, as two lists, every row of which does something on Enter.
+#
+#   main  this directory's running sessions and lost ones — what you usually came for — then
+#         one "<agent> · new trail" row per agent, then "↩ resume old trails" when there
+#         are ended conversations to resume
+#   old   those ended conversations (closed, elsewhere), reached from that last row;
+#         TRAILS_PICKER=old, which the reload subprocesses inherit
+#
+# Re-run by fzf after every Tab and ctrl-x, hence a subcommand.
 #
 # Every row is three tab-separated fields: verb, target, what's drawn. fzf draws only the
 # third (--with-nth); the verb is what the dispatch matches on Enter, the target what Tab and
@@ -822,9 +828,12 @@ print_menu() {
   )
 
   # Drawn in state order (the STATES table's), keeping each state's own order — closed ones
-  # newest first. Widths off the widest cell, the agent column measured on an ASCII stand-in:
-  # awk counts bytes, and the · in "claude · yolo" is two of them.
-  [ -n "$rows" ] && printf '%s\n' "$rows" | awk -F"$TAB" -v OFS="$TAB" -v states="$STATES_FLAT" \
+  # newest first — and all at once, so the columns line up across both groups below. Widths
+  # off the widest cell, the agent column measured on an ASCII stand-in: awk counts bytes, and
+  # the · in "claude · yolo" is two of them. Each line comes out tagged M (main list: running
+  # and lost) or O (old list: closed and elsewhere), for the split that follows.
+  drawn=
+  [ -n "$rows" ] && drawn=$(printf '%s\n' "$rows" | awk -F"$TAB" -v OFS="$TAB" -v states="$STATES_FLAT" \
     -v red="$RED" -v yel="$YEL" -v dim="$DIM" -v rst="$RST" "$STATES_AWK"'
     NF >= 8 {
       n++; st[n] = $1; vb[n] = $2; tg[n] = $3; ag[n] = $4; yo[n] = $5; ti[n] = $8
@@ -839,13 +848,18 @@ print_menu() {
         if (w3) line = line "  " sprintf("%-*s", w3, c3[i])
         line = line "  " ti[i]
         sub(/ +$/, "", line)
-        print vb[i], tg[i], line
+        # By state name, never by glyph: macOS awk compares strings by locale collation,
+        # which ranks ● and ○ equal.
+        print (st[i] ~ /^(needs-you|your-turn|working|lost)$/ ? "M" : "O"), vb[i], tg[i], line
       }
-    }'
+    }')
 
-  # Then the agents you can start. The rule above them is a row like any other to fzf, so it
-  # carries a verb the dispatch reads as "nothing chosen" and reopens the picker on.
-  [ -n "$rows" ] && printf 'none\t-\t%s─── start new ──────────────────────────%s\n' "$DIM" "$RST"
+  if [ "${TRAILS_PICKER:-}" = old ]; then
+    printf '%s\n' "$drawn" | awk -F"$TAB" -v OFS="$TAB" '$1 == "O" { print $2, $3, $4 }'
+    return 0
+  fi
+
+  printf '%s\n' "$drawn" | awk -F"$TAB" -v OFS="$TAB" '$1 == "M" { print $2, $3, $4 }'
   # An agent's row is YOLO when the config's mode says so or Tab flipped it, not both — and
   # only if the agent has a flag at all. Then its verb is "yolo" and it says so in yellow.
   for a in $agents; do
@@ -856,11 +870,16 @@ print_menu() {
       [ "$a" = "$armed" ] && y=1
     fi
     if [ -n "$y" ] && [ -n "$(yolo_flag "$a")" ]; then
-      printf 'yolo\t%s\t▸ %s  %s(YOLO)%s\n' "$a" "$a" "$YEL" "$RST"
+      printf 'yolo\t%s\t%s · new trail  %s(YOLO)%s\n' "$a" "$a" "$YEL" "$RST"
     else
-      printf 'new\t%s\t▸ %s\n' "$a" "$a"
+      printf 'new\t%s\t%s %s· new trail%s\n' "$a" "$a" "$DIM" "$RST"
     fi
   done
+  # The way into the old list, with what's in it.
+  old=$(printf '%s\n' "$drawn" | awk -F"$TAB" '$1 == "O" { n++ } END { print n + 0 }')
+  [ "$old" -gt 0 ] && printf 'more\t-\t↩ resume old trails  %s(%s)%s\n' "$DIM" \
+    "$([ "$old" -eq 1 ] && echo "1 ended" || echo "$old ended")" "$RST"
+  return 0
 }
 
 # ─── Launch ──────────────────────────────────────────────────────────────────
@@ -1983,7 +2002,8 @@ usage: trails [command]
                     time, then opened in $EDITOR (~/.config/trails/config.json)
   help              this
 
-In the picker:
+In the picker — running and lost sessions, then "<agent> · new trail" rows, then
+"↩ resume old trails", which lists the ones that ended here (esc comes back):
   enter             open it: attach, restore, resume, or start the agent
   tab               toggle YOLO (run everything unconfirmed) on an agent to start or a
                     closed session; "mode": "yolo" in the config starts new rows armed
@@ -2106,7 +2126,7 @@ trap 'rm -f "$TRAILS_YOLO_STATE" "$TRAILS_MENU_CACHE" "$TRAILS_RECENT_CACHE"' EX
 
 # Classify the running sessions once, up front — the only place that pays classify's settle
 # sleep on the picker's happy path. Empty (not absent) with no tmux to look in.
-if [ -n "$USE_TMUX" ]; then
+if [ -n "$USE_TMUX" ] && [ "${TRAILS_PICKER:-}" != old ]; then
   live_sessions >"$TRAILS_MENU_CACHE"
 else
   : >"$TRAILS_MENU_CACHE"
@@ -2131,29 +2151,52 @@ MENU=$(print_menu) || exit 1
 #
 # tab arms the highlighted row for YOLO (toggle_yolo) and reloads so print_menu can relabel
 # it; the reload keeps the cursor on the row, so Tab-then-Enter lands on what you armed.
-set -- --prompt='Pick a trail: ' --reverse --no-info --ansi --wrap \
+# The keys are a dim `# …` right after the prompt rather than a header line of their own, and
+# there is no rule under the prompt: two rows back for sessions in a short panel. fzf's info
+# area is what sits there (--info=inline), and --info-command swaps its match count for the
+# hint. Beside the prompt rather than pinned to the right edge, where a wide terminal left it
+# far from where you type; a pane too narrow for it cuts the hint, never the rows.
+set -- --reverse --ansi --wrap --no-separator \
+  --info='inline:   ' --color='info:dim' \
   --delimiter='\t' --with-nth='3..' --height=~80% \
   --bind="tab:execute-silent($0 --toggle-yolo {2})+reload($0 --print-menu)"
-# Sessions sit under their agents now, so the one that wants you is no longer row one. Start
-# the cursor on it instead — the first blocked, else the first idle — so Enter still rejoins it.
-# On the first `load`, then unbound: not `start`, which fires before fzf has read a row (it
-# takes input asynchronously) so pos() lands on nothing; and not a standing `load`, which
-# fires on every Tab reload too and would yank the cursor off the row you just armed.
-want=$(printf '%s\n' "$MENU" | awk -F"$TAB" '
-  $1 != "attach" { next }
-  { s = $3; gsub("\033\\[[0-9;]*m", "", s) } # the glyph and word are coloured
-  !b && index(s, "● needs you") { b = NR }
-  !i && index(s, "● your turn") { i = NR }
-  END { print b ? b : i }')
-[ -n "$want" ] && set -- "$@" --bind="load:pos($want)+unbind(load)"
-if printf '%s\n' "$MENU" | grep -Eq '^(attach|restore)'; then
-  set -- "$@" --header='enter: open   tab: toggle YOLO   ctrl-x: end a running one, forget a lost one' \
-    --bind="ctrl-x:execute-silent($0 --kill {2})+reload($0 --print-menu)"
+
+if [ "${TRAILS_PICKER:-}" = old ]; then
+  set -- "$@" --prompt='Resume a trail: ' \
+    --info-command="echo '# enter: resume · tab: toggle YOLO · esc: back'"
 else
-  set -- "$@" --header='enter: open   tab: toggle YOLO'
+  # Start the cursor on the session that most wants you — the first "needs you", else the
+  # first "your turn" — else on the first row, whatever it is.
+  # On the first `load`, then unbound: not `start`, which fires before fzf has read a row (it
+  # takes input asynchronously) so pos() lands on nothing; and not a standing `load`, which
+  # fires on every Tab reload too and would yank the cursor off the row you just armed.
+  want=$(printf '%s\n' "$MENU" | awk -F"$TAB" '
+    $1 != "attach" { next }
+    { s = $3; gsub("\033\\[[0-9;]*m", "", s) } # the glyph and word are coloured
+    !b && index(s, "● needs you") { b = NR }
+    !i && index(s, "● your turn") { i = NR }
+    END { print b ? b : i }')
+  set -- "$@" --prompt='Pick a trail: '
+  [ -n "$want" ] && set -- "$@" --bind="load:pos($want)+unbind(load)"
+  # ctrl-x ends a running session and forgets a lost one, and the hint names only what this
+  # list has: "end", "forget", both, or — with neither — no ctrl-x at all.
+  x=
+  printf '%s\n' "$MENU" | grep -q '^attach' && x=end
+  printf '%s\n' "$MENU" | grep -q '^restore' && x=${x:+$x or }forget
+  if [ -n "$x" ]; then
+    set -- "$@" --info-command="echo '# enter: open · tab: toggle YOLO · ctrl-x: $x'" \
+      --bind="ctrl-x:execute-silent($0 --kill {2})+reload($0 --print-menu)"
+  else
+    set -- "$@" --info-command="echo '# enter: open · tab: toggle YOLO'"
+  fi
 fi
 
-choice=$(printf '%s\n' "$MENU" | fzf "$@") || exit 0
+# Esc leaves the main list, and takes the old list back to the main one.
+choice=$(printf '%s\n' "$MENU" | fzf "$@") || {
+  [ "${TRAILS_PICKER:-}" = old ] || exit 0
+  rm -f "$TRAILS_YOLO_STATE" "$TRAILS_MENU_CACHE" "$TRAILS_RECENT_CACHE"
+  TRAILS_PICKER='' exec "$SELF"
+}
 
 # Field 2 is the target either way — a session name to attach to, or an agent to start.
 # cut splits on TAB by default, the delimiter the menu is built with.
@@ -2163,8 +2206,8 @@ rm -f "$TRAILS_YOLO_STATE" "$TRAILS_MENU_CACHE" "$TRAILS_RECENT_CACHE"
 trap - EXIT INT TERM
 
 case $choice in
-  # The "start new" rule: nothing was chosen, so ask again.
-  none*) exec "$SELF" ;;
+  # "↩ resume old trails": the same picker, on the old list.
+  more*) TRAILS_PICKER=old exec "$SELF" ;;
   attach*)
     apply_policy "$target"
     attach_to "$target"

@@ -83,9 +83,16 @@ the picker, `trails ls` and its legend, the map, and the TSV's `state` column.
 | closed | no | an agent's own history, with nothing running it |
 | elsewhere | no | the same, but held open by a `claude` trails didn't start |
 
-The README has the lifecycle diagram. The picker lists this directory's sessions in
-`STATES` order, then a *start new* rule and one row per agent; the rule's verb is
-`none`, and Enter on it reopens the picker.
+The README has the lifecycle diagram. The picker is two lists, and every row in
+either does something on Enter — fzf has no row it won't select, so there are no
+label lines to step over. The main list has this directory's running and lost
+sessions, one `<agent> · new trail` row per agent, and `↩ resume old trails`
+(verb `more`) when anything ended here. That row re-runs trails with
+`TRAILS_PICKER=old`, which lists the closed and elsewhere conversations; Esc there
+re-runs it without, back to the main list. The reload subprocesses inherit the
+variable, so Tab and ctrl-x redraw the list they were pressed in. Running versus stopped is decided by
+state name, never by glyph: macOS awk compares strings by locale collation, which
+ranks `●` and `○` equal.
 
 ## Who wants you: working, your turn, needs you
 

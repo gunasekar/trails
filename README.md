@@ -5,32 +5,63 @@
   </picture>
 </h1>
 
-A launcher for AI coding agents that live in tmux. Start Claude Code, Codex,
-Gemini, Copilot, Cursor, opencode or any other agent CLI in a tmux session of its
-own, come back to it from any terminal or editor, see where every session is, and
-resume the ones you closed.
+**Your AI coding agents, in plain tmux sessions. No new interface to learn.**
 
-Once an agent is running, trails gets out of the way: the session is plain tmux.
+trails starts Claude Code, Codex, Gemini, Copilot, Cursor, opencode or any other
+agent CLI in a tmux session of its own, then helps you find it again, resume it,
+or end it. That's all it does. There's no TUI or GUI of its own: the sessions are
+tmux, and once an agent is running trails gets out of the way.
+
+Because it's just a command, it plugs into whatever you already use:
+
+- **any editor with a terminal**: VS Code, Zed's agent threads, a Neovim side
+  panel, or anything else that can run a command in a pane
+- **any terminal** (Ghostty, iTerm, Terminal), in the project you're working on
+- **the macOS menu bar**, which shows the agents waiting on you
+
+Every one of them lands on the same sessions: start an agent in VS Code, check on
+it from a terminal, pick it up in Neovim. And `trails map` puts several in one
+window, a tmux session of tmux sessions, so you can watch them all and answer
+whichever one stops.
 
 ```console
-$ trails
-Pick a trail: █
-─────────────────────────────────────────────────────────────────
-  enter: open   tab: toggle YOLO   ctrl-x: end a running one, forget a lost one
-▌ ● needs you  claude · yolo          Rework the retry budget
-  ● your turn  claude         #2      Fix the flaky auth test
-  ● working    codex                  Migrate the schema
-  ○ lost       claude                 Old spike
-  ○ closed     claude · yolo  2d ago  Tidy the release notes
-  ─── start new ──────────────────────────
-  ▸ claude
-  ▸ codex
-  ▸ cursor
+~/code/checkout $ trails
+Pick a trail: █   # enter: open · tab: toggle YOLO · ctrl-x: end or forget
+▌ ● needs you  claude · yolo  Add idempotency keys to payment retries
+  ● your turn  claude    #2   Fix the flaky cart-total test
+  ● working    codex          Migrate orders to Postgres 17
+  ○ lost       claude         Spike: replay Stripe webhooks
+  claude · new trail
+  codex · new trail
+  cursor · new trail
+  ↩ resume old trails  (3 ended)
 ```
 
-`●` running, `○` not: *needs you* is asking you something, *your turn* finished
-its turn, *lost* is a session tmux took down, and *closed* ended but can be
-resumed. Type to filter, Enter to open.
+Enter on **↩ resume old trails** opens the conversations that ended here, and Esc
+comes back:
+
+```console
+Resume a trail: █   # enter: resume · tab: toggle YOLO · esc: back
+▌ ○ closed     claude · yolo  2d ago  Release notes for v2.3
+  ○ closed     claude         4d ago  Tighten the refund window
+  ○ closed     codex          6d ago  Bump the payment SDK
+```
+
+`trails` shows the sessions for the directory you're in, running (`●`) and lost
+(`○`) ones, then the agents you can start, then a way into the ones that ended.
+*needs you* is asking you something, *your turn* finished its turn, and *lost* is
+a session tmux took down. Every row does something on Enter; type to filter.
+`trails ls` shows every directory:
+
+```console
+~ $ trails ls
+● needs you  claude · yolo  ~/code/checkout              Add idempotency keys to payment retries
+● your turn  claude         ~/code/checkout #2           Fix the flaky cart-total test
+● working    codex          ~/code/checkout              Migrate orders to Postgres 17
+● working    claude         ~/code/storefront            Lazy-load product images
+○ lost       claude         ~/code/checkout              Spike: replay Stripe webhooks
+○ closed     claude · yolo  ~/code/checkout      2d ago  Release notes for v2.3
+```
 
 Because each agent runs inside tmux, it outlives the terminal that started it.
 Close the laptop, drop Wi-Fi or quit the terminal, and the conversation is still
@@ -75,8 +106,10 @@ trails map 4        # the four that most want you, side by side in one window
 
 ### The picker
 
-`trails` shows this directory's sessions first, then the agents you can start.
-The cursor starts on the session that most wants you.
+`trails` shows this directory's running and lost sessions first, then one
+*new trail* row per agent, then **↩ resume old trails**, which opens a second
+list of the conversations that ended here (Esc goes back). The cursor starts on
+the session that most wants you.
 
 Every session has two signals. The glyph says whether its tmux session is
 running (`●`) or not (`○`); the word says what's going on:
@@ -221,7 +254,7 @@ Which agents trails can start, and how, is a list in
 | `yolo` | *(optional)* the flag Tab adds to run everything unconfirmed |
 | `session` | *(optional)* how trails learns which conversation a session is in, so it can come back after tmux dies. See below. |
 | `default_agent` | *(optional)* listed first in the picker |
-| `mode` | *(optional)* `default` (the agent's own, prompting mode) or `yolo`: the mode an agent row under *start new* starts in. Tab flips a row from it, so with `yolo` Tab is how you start one in default mode. Closed sessions come back in the mode they last ran in, and an agent with no `yolo` flag always runs in default mode. |
+| `mode` | *(optional)* `default` (the agent's own, prompting mode) or `yolo`: the mode a *new trail* row starts in. Tab flips a row from it, so with `yolo` Tab is how you start one in default mode. Closed sessions come back in the mode they last ran in, and an agent with no `yolo` flag always runs in default mode. |
 
 Only agents whose command is on `PATH` are offered. Recent conversations are
 read from claude's and opencode's own history, and are filed under the first
@@ -274,13 +307,35 @@ trails refuses a YOLO launch as root for the two flags that also bypass a sandbo
 
 ### From an editor
 
-Point the editor's agent terminal at `trails`, and every editor and every shell
-shares one set of sessions.
+Any editor that can run a command in a terminal pane can run `trails`, and every
+editor and every shell shares one set of sessions.
+
+- **VS Code:** add a terminal profile, then pick **trails** from the new-terminal
+  menu. A login shell, so `trails` is found on your usual `PATH`:
+
+  ```json
+  "terminal.integrated.profiles.osx": {
+    "trails": { "path": "/bin/zsh", "args": ["-lc", "exec trails"] }
+  }
+  ```
+
+  To open it as an editor tab with a key, add to `keybindings.json`:
+
+  ```json
+  {
+    "key": "cmd+alt+t",
+    "command": "workbench.action.terminal.newWithProfile",
+    "args": { "profileName": "trails", "location": "editor" }
+  }
+  ```
+
+  The same works in Cursor and other VS Code-based editors.
 
 - **Zed:** in `settings.json`, set `"terminal_init_command": "exec trails"` under
   `agent`. In remote mode it runs on the ssh host, where tmux keeps the agent
   alive across disconnects.
 - **Neovim:** open a terminal running `trails` in a side panel.
+- **Anything else:** run `trails` wherever the editor opens a terminal.
 
 ## How it works
 
