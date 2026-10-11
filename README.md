@@ -1,4 +1,9 @@
-# trails
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.png">
+    <img alt="trails" src="assets/logo-light.png" width="240">
+  </picture>
+</h1>
 
 A launcher for AI coding agents that live in tmux. Start Claude Code, Codex,
 Gemini, Copilot, Cursor, opencode or any other agent CLI in a tmux session of its own, come back to it from any

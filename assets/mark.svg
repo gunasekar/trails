@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="128" height="128">
+  <!-- The trails mark: a t whose crossbar and foot each end in a status dot.
+       Same geometry as render.swift. -->
+  <rect width="24" height="24" rx="5.25" fill="#0E1412"/>
+  <g transform="translate(4.125 4.125) scale(0.656)">
+    <path d="M6 2.5V15Q6 20 10.5 20H13M6 9H13" fill="none" stroke="#ECE8E0" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="18" cy="9" r="2.9" fill="#F5A524"/>
+    <circle cx="18" cy="20" r="2.9" fill="#2BD47F"/>
+  </g>
+</svg>

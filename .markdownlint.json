@@ -1,4 +1,12 @@
 {
   "MD013": false,
-  "MD060": false
+  "MD060": false,
+  "MD033": {
+    "allowed_elements": [
+      "h1",
+      "picture",
+      "source",
+      "img"
+    ]
+  }
 }
