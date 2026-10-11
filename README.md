@@ -72,7 +72,7 @@ beneath it. The cursor starts on the session that most wants you.
 | Key | Does |
 |---|---|
 | `enter` | start, attach, restore or resume |
-| `tab` | arm the highlighted agent or `◷` row for YOLO (run everything unconfirmed) |
+| `tab` | toggle YOLO (run everything unconfirmed) on the highlighted agent or `◷` row — flipping it from `default_mode` |
 | `ctrl-x` | kill the highlighted session, or forget a `↻` row |
 
 `trails` refuses to open an agent in `/`. `$HOME` is fine.
@@ -126,6 +126,7 @@ Which agents trails can start, and how, is a list in
 
 ```json
 {
+  "default_mode": "normal",
   "default_agent": "claude",
   "agents": [
     {
@@ -147,6 +148,7 @@ Which agents trails can start, and how, is a list in
 | `yolo` | *(optional)* the flag Tab adds to run everything unconfirmed |
 | `session` | *(optional)* how to start a conversation under an ID trails chooses (`start`) and resume it (`resume`); `{id}` marks where the ID goes, and `id` is `uuid` or `ses_hex`. This is what lets a session come back after tmux dies. |
 | `default_agent` | *(optional)* listed first in the picker |
+| `default_mode` | *(optional)* `normal` (the default) or `yolo`: the mode a `+ new` row starts in. Tab flips a row from it, so with `yolo` Tab is how you start one safely. Rows to resume (`◷`) come back in the mode they last ran in, and an agent with no `yolo` flag always runs normal. |
 
 Only agents whose command is on `PATH` are offered. Recent conversations are
 read from claude's and opencode's own history, and are filed under the first
