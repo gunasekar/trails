@@ -54,6 +54,11 @@
 # resume. Every frontend goes through this one script; the same session is reachable
 # from a plain terminal with `tmux a -t trails-<project>`.
 
+# LAUNCH_DETACHED belongs to restore_one alone (see there). One inherited from the
+# environment is a leak from a trails before 0.4.2, which exported it into tmux; clear it so it
+# can't stop this run from attaching.
+unset LAUNCH_DETACHED
+
 # ─── Agents ──────────────────────────────────────────────────────────────────
 # Which agents trails can start, and how, come from a JSON file you edit — never from this
 # script. The shape follows claude-squad's, so an agent is a name and the command it runs:
@@ -1328,9 +1333,21 @@ restore_one() {
   SESSION=$(session_base)
 
   # Subshells because launch() exits on failure, which would take the fallback with it.
-  (LAUNCH_DETACHED=1 launch "$agent" "$mode" "$id" "$1") && return 0
+  #
+  # LAUNCH_DETACHED is set as its own statement, never as a `VAR=1 launch` prefix: a prefix
+  # on a function exports the variable to everything the function runs, tmux included, so
+  # the restored agent inherited it — and a tmux server started by the restore copied it into
+  # its global environment, where every later pane had it and any trails run there printed
+  # the session name instead of attaching.
+  (
+    LAUNCH_DETACHED=1
+    launch "$agent" "$mode" "$id" "$1"
+  ) && return 0
   echo "trails: nothing to resume for ${1#"$PREFIX"} — starting $agent fresh in its place" >&2
-  (LAUNCH_DETACHED=1 launch "$agent" "$mode" "" "$1") && return 0
+  (
+    LAUNCH_DETACHED=1
+    launch "$agent" "$mode" "" "$1"
+  ) && return 0
   mkdir -p "$STATE_DIR" && printf '%s\n' "$saved" >"$(rec_path "$1")"
   echo "trails: could not bring ${1#"$PREFIX"} back — its record is kept, try again once $agent starts" >&2
   return 1

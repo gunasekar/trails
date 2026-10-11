@@ -1,0 +1,29 @@
+#!/bin/sh
+# A stand-in coding agent for the README demo: it looks like one working, then waiting for
+# you, and needs no login, network or API. Installed as `claude` and `codex` in the demo's
+# sandbox (see sandbox.sh); trails starts it like any agent, flags and all, and it ignores them.
+name=$(basename "$0")
+task="Add idempotency keys to payment retries"
+printf '\033]2;%s\007' "$task" # the terminal title, which trails shows as the session's task
+clear
+printf '\n  \033[1m✳ %s\033[0m  (demo agent)\n  ~/code/checkout\n\n' "$name"
+# Brought back by trails (it passes --resume <id>): the conversation is already done, so show
+# it where it was left rather than working through it again.
+case " $* " in
+  *" --resume "*)
+    printf '  \033[36m↺ resumed\033[0m %s\n\n' "$task"
+    printf '  Done: retries now send an Idempotency-Key, and the tests pass.\n\n  > '
+    exec cat >/dev/null
+    ;;
+esac
+printf '  > %s\n\n' "$task"
+for step in "Reading src/payments/retry.go" "Adding an idempotency key per attempt" \
+  "Updating the retry tests" "Running go test ./payments/..."; do
+  for f in ⠋ ⠙ ⠹ ⠸ ⠼ ⠴; do
+    printf '\r  \033[33m%s\033[0m %s…   ' "$f" "$step"
+    sleep 0.12
+  done
+  printf '\r  \033[32m✔\033[0m %s     \n' "$step"
+done
+printf '\n  Done: retries now send an Idempotency-Key, and the tests pass.\n\n  > '
+exec cat >/dev/null # wait for you, like an agent between turns

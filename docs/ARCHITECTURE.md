@@ -300,3 +300,19 @@ press a key there.
 
 Inside the map, a shell you split off (`C-b |`) can run `trails`. The agent
 still gets its own session, and that pane becomes a viewer of it.
+
+## The README demos
+
+`assets/demo.gif` and `assets/nvim.gif` are recorded with
+[VHS](https://github.com/charmbracelet/vhs) from `assets/demo/*.tape`. Each tape
+first sources `assets/demo/sandbox.sh`, which gives the recording its own HOME
+and tmux server, a sample project, two ended claude conversations, and stand-in
+`claude` and `codex` agents (`assets/demo/agent`) that need no login or API. The
+repo's own `bin/trails` comes first on `PATH`, so a re-record shows the version
+being released. After a change to what the picker or `ls` shows, re-record from
+the repo root:
+
+```console
+vhs assets/demo/demo.tape
+vhs assets/demo/nvim.tape
+```

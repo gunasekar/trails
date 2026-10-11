@@ -5,7 +5,9 @@
   </picture>
 </h1>
 
-**Your AI coding agents, in plain tmux sessions. No new interface to learn.**
+**Never lose an AI coding agent again. Claude Code, Codex and the rest run in tmux, and drop into any terminal or editor.**
+
+![Start a Claude trail, lose it to a reboot, and bring it back with Enter](assets/demo.gif)
 
 trails starts Claude Code, Codex, Gemini, Copilot, Cursor, opencode or any other
 agent CLI in a tmux session of its own, then helps you find it again, resume it,
@@ -334,7 +336,16 @@ editor and every shell shares one set of sessions.
 - **Zed:** in `settings.json`, set `"terminal_init_command": "exec trails"` under
   `agent`. In remote mode it runs on the ssh host, where tmux keeps the agent
   alive across disconnects.
-- **Neovim:** open a terminal running `trails` in a side panel.
+
+  ![A Zed agent thread running claude in a trails session](assets/zed.png)
+
+  ![A Zed agent thread running claude in a trails session](assets/zed.png)
+- **Neovim:** open a terminal running `trails` in a side panel:
+
+  ![Neovim in Ghostty with claude running in a trails agents panel](assets/nvim.png)
+
+  ![Picking a new trail in a Neovim side panel](assets/nvim.gif)
+
 - **Anything else:** run `trails` wherever the editor opens a terminal.
 
 ## How it works
