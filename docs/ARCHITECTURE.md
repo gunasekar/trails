@@ -227,6 +227,30 @@ keychain) would otherwise take its error with it and look like nothing happened.
 Inside tmux, outside a map, it runs the agent bare in the current pane
 instead of nesting.
 
+## The menu-bar plugin
+
+`extras/swiftbar/trails.10s.sh` is a SwiftBar plugin, installed into
+`share/trails/swiftbar/` with its icons. It is a reader of `trails ls`, not part
+of trails: every 10 seconds it runs `TRAILS_RECENT_MAX=0 trails ls`, keeps the
+running rows, and draws them.
+
+- **Icon:** twelve pre-drawn PNGs in `icons/` (three top-dot states, two bottom,
+  for a light and a dark bar), made by `assets/render.swift --menubar`. A
+  coloured image can't be a template image, so the plugin picks the light or dark
+  set from the system appearance.
+- **Notifications:** it remembers each session's state between polls in
+  `~/.cache/trails/swiftbar-state` and speaks on the working → stopped edge, once,
+  after `TRAILS_NOTIFY_AFTER` seconds. Nothing can tell whether you're looking at
+  a session, so the wait is what keeps the one you're working in quiet.
+- **Resume** runs `tmux attach-session` as the command of a new tab, through the
+  chosen terminal's AppleScript. The choice is stored in
+  `$SWIFTBAR_PLUGIN_DATA_PATH/terminal`.
+
+`trails swiftbar` links the plugin into SwiftBar's plugin folder (read from
+`defaults read com.ameba.SwiftBar PluginDirectory`). It links through the path the
+script was invoked by, `/opt/homebrew/bin/../share/…`, not the resolved Cellar
+path, so the link survives `brew upgrade`. It never replaces a real file.
+
 ## The map
 
 `trails map` is a tmux session named `trails_map` whose panes are each a tmux

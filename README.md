@@ -59,6 +59,7 @@ trails map 4        # the four that most want you, side by side in one window
 | `trails ls` | where every agent session is: running, lost when tmux died, or finished in the last 10 days |
 | `trails restore` | bring back every session lost when tmux died, each on its own conversation, detached |
 | `trails map [N]` | several running agents side by side in one window: re-attach to the map already up, pick a set, or take the `N` that most want you (`map new` forces a fresh pick) |
+| `trails swiftbar` | put the menu-bar plugin into SwiftBar (macOS); `--remove` takes it out |
 | `trails config` | open the agents file in `$EDITOR`, writing the built-ins first if there isn't one |
 | `trails help` | the commands and picker keys (also `-h`, `--help`) |
 
@@ -109,9 +110,34 @@ state  session  agent  yolo  dir  id  when  pid  title
 | `when` | when a finished conversation was last active (Unix time), else `-` |
 | `pid` | the process holding an `open` one, else `-` |
 
-That makes it easy to drive a menu-bar item (SwiftBar, xbar) that counts the
-agents waiting on you. Set `TRAILS_RECENT_MAX=0` for a poll that only wants
-running sessions; it skips reading conversation history.
+That is what the menu-bar plugin below reads, and anything else can too. Set
+`TRAILS_RECENT_MAX=0` for a poll that only wants running sessions; it skips
+reading conversation history.
+
+### Menu bar (macOS)
+
+trails ships a [SwiftBar](https://swiftbar.app) plugin that keeps your agents in
+the menu bar, whether or not you're looking at them:
+
+```console
+brew install --cask swiftbar    # once, then open it and pick a plugin folder
+trails swiftbar                 # link the plugin in; --remove takes it out
+```
+
+- **The icon is the trails mark.** Its top dot turns red when an agent is asking
+  you something and amber when one finished its turn; its bottom dot is green
+  while any agent is working. The number beside it is how many want you.
+- **The menu** lists every running session. Each has *Resume*, which opens it in
+  a new tab of your terminal, and, once it's idle, *End session*.
+- **Open sessions in** at the bottom picks the terminal: Terminal (the default),
+  iTerm or Ghostty.
+- **Notifications:** an agent that stops working and stays stopped for 30 seconds
+  sends one notification. `TRAILS_NOTIFY_AFTER` changes the wait; `0` notifies at
+  once.
+- It hides itself when no agent is running.
+
+The plugin is linked, not copied, so `brew upgrade trails` updates it along with
+the `trails ls` it reads.
 
 ### Environment
 

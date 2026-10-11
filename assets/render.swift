@@ -42,7 +42,9 @@ func png(_ path: String, width: CGFloat, height: CGFloat, scale: CGFloat, _ body
   g.translateBy(x: 0, y: height); g.scaleBy(x: 1, y: -1) // y down, like the mark
   body(g)
   NSGraphicsContext.restoreGraphicsState()
-  try! rep.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: path))
+  let url = URL(fileURLWithPath: path)
+  try! FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+  try! rep.representation(using: .png, properties: [:])!.write(to: url)
   print("wrote \(path)")
 }
 

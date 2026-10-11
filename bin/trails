@@ -11,6 +11,8 @@
 #   trails restore          bring back every session that died with tmux (a reboot, a
 #                           crash, kill-server), each resuming its conversation, detached.
 #                           See "Surviving tmux" below.
+#   trails swiftbar         link the SwiftBar menu-bar plugin that ships with trails. See
+#                           "Menu bar" below.
 #   trails config           the agents file, ~/.config/trails/config.json. See
 #                           "Agents" below.
 #   trails map [N]          several agents at once in one window. Pick them, or take the
@@ -1833,6 +1835,83 @@ map() {
   exec tmux attach-session -t "=$MAP"
 }
 
+# ─── Menu bar ────────────────────────────────────────────────────────────────
+# A SwiftBar plugin ships with trails (extras/swiftbar in the repo, share/trails/swiftbar
+# once installed): the agents that want you, in the macOS menu bar. It reads `trails ls`
+# like any other caller, so it is not part of trails' job — this only puts it where SwiftBar
+# looks, so that installing it is one command and not a path to copy out of `brew info`.
+#
+#   trails swiftbar            link it into SwiftBar's plugin folder and refresh SwiftBar
+#   trails swiftbar --remove   take the link out again
+#
+# A link and not a copy, and to the plugin through Homebrew's unversioned path
+# (/opt/homebrew/share/trails/…), so `brew upgrade trails` updates it with nothing to redo.
+# Found next to this script as it was invoked, not as it resolves: resolving would land in
+# the versioned Cellar directory, which the next upgrade deletes.
+
+# The plugin that came with this copy of trails, as an absolute path, or nothing.
+swiftbar_plugin() {
+  for f in "$(dirname "$SELF")/../share/trails/swiftbar/trails.10s.sh" \
+    "$(dirname "$SELF")/../extras/swiftbar/trails.10s.sh"; do
+    [ -f "$f" ] || continue
+    printf '%s/trails.10s.sh' "$(cd "$(dirname "$f")" && pwd)"
+    return 0
+  done
+  return 1
+}
+
+swiftbar_link() {
+  case ${1:-} in
+    '' | --remove) ;;
+    *)
+      echo "trails: swiftbar takes --remove or nothing, not '$1'" >&2
+      exit 1
+      ;;
+  esac
+  [ "$(uname -s)" = Darwin ] || {
+    echo "trails: the menu-bar plugin is for SwiftBar, which is macOS-only" >&2
+    exit 1
+  }
+  open -Ra SwiftBar 2>/dev/null || {
+    echo "trails: SwiftBar isn't installed — brew install --cask swiftbar, open it once, then run this again" >&2
+    exit 1
+  }
+  dir=$(defaults read com.ameba.SwiftBar PluginDirectory 2>/dev/null)
+  case $dir in
+    '')
+      echo "trails: SwiftBar has no plugin folder yet — open SwiftBar, choose one, then run this again" >&2
+      exit 1
+      ;;
+    \~/*) dir=$HOME/${dir#\~/} ;; # stored with a literal ~, which nothing expands for us
+    *) ;;                         # already absolute
+  esac
+  link=$dir/trails.10s.sh
+
+  if [ "${1:-}" = --remove ]; then
+    if [ -L "$link" ]; then
+      rm "$link" && echo "removed $link"
+    else
+      echo "trails: no plugin link at $link"
+    fi
+    open -g "swiftbar://refreshallplugins" 2>/dev/null
+    return 0
+  fi
+
+  src=$(swiftbar_plugin) || {
+    echo "trails: can't find the plugin that ships with trails (looked next to $SELF)" >&2
+    exit 1
+  }
+  # Never over a real file: that is someone's own plugin, not a link this made.
+  if [ -e "$link" ] && [ ! -L "$link" ]; then
+    echo "trails: $link is a file, not a link — move it aside, then run this again" >&2
+    exit 1
+  fi
+  mkdir -p "$dir" && ln -sfn "$src" "$link" || exit 1
+  echo "linked $link"
+  echo "    -> $src"
+  open -g "swiftbar://refreshallplugins" 2>/dev/null
+}
+
 # ─── Where an agent may not be opened ────────────────────────────────────────
 # An agent takes the directory you are standing in to be the project: it reads and edits
 # from there, and launch() freezes it as the session root with -c "$PWD". / is never the
@@ -1871,6 +1950,7 @@ usage: trails [command]
   map [N|new]       several agents in one window — pick them, or take the N that
                     most want you; `new` rebuilds instead of re-attaching
   restore           bring back every session that died with tmux (the ↻ rows)
+  swiftbar          link the menu-bar plugin into SwiftBar (macOS); --remove unlinks
   config            the agents file: written from the built-ins the first
                     time, then opened in $EDITOR (~/.config/trails/config.json)
   help              this
@@ -1898,7 +1978,7 @@ EOF
 # and the wrapper's --forget, which has to work even when the config is broken. ls carries on
 # without them (only its ◷ rows need them), so a typo in the file can't blank a menu bar.
 case $1 in
-  help | -h | --help | config | --forget | --peek) AGENTS= ;;
+  help | -h | --help | config | swiftbar | --forget | --peek) AGENTS= ;;
   ls) AGENTS=$(load_agents) || AGENTS= ;;
   *) AGENTS=$(load_agents) || exit 1 ;;
 esac
@@ -1926,6 +2006,10 @@ case $1 in
     ;;
   config)
     edit_config
+    exit 0
+    ;;
+  swiftbar)
+    swiftbar_link "$2"
     exit 0
     ;;
   # Box-wide like ls: each session comes back in its own recorded directory, so where you

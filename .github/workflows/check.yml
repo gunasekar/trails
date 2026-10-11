@@ -13,7 +13,9 @@ jobs:
       - name: Parse as POSIX sh
         run: sh -n bin/trails
       - name: ShellCheck
-        run: shellcheck --severity=warning bin/trails
+        run: shellcheck --severity=warning bin/trails extras/swiftbar/trails.10s.sh
+      - name: Parse the plugin as bash
+        run: bash -n extras/swiftbar/trails.10s.sh
       - name: Smoke test
         run: |
           ./bin/trails help | grep -q '^usage: trails'
