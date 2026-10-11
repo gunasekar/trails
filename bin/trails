@@ -5,9 +5,9 @@
 #
 #   trails                  pick a running session to rejoin, or an agent to start
 #   trails help             the commands and picker keys (also -h, --help)
-#   trails ls               where every agent session is: running, lost with tmux (↻), or
-#                           finished in the last 10 days (◷). A table on a terminal, TSV
-#                           when piped, for a notifier to read.
+#   trails ls               where every agent session is: running, lost with tmux, or ended
+#                           in the last 10 days. A table on a terminal, TSV when piped, for
+#                           a notifier to read. See "Session states" below.
 #   trails restore          bring back every session that died with tmux (a reboot, a
 #                           crash, kill-server), each resuming its conversation, detached.
 #                           See "Surviving tmux" below.
@@ -26,14 +26,14 @@
 #                           `trails` there: the agent gets its own session as usual and
 #                           that pane becomes its view.
 #
-# In the picker: tab arms the highlighted agent for YOLO, ctrl-x kills the highlighted session. A ↻ row is a session that died with
-# tmux: enter brings it back on its old conversation, ctrl-x forgets it. A ◷ row is a recent
-# conversation in this directory that nothing is running: enter resumes it, tab arms it for YOLO.
+# In the picker: this directory's sessions — ● running, ○ not — then the agents you can start.
+# Enter opens the highlighted row (attach, restore, resume, start), tab toggles YOLO on an
+# agent or a closed session, ctrl-x ends a running session or forgets a lost one.
 #
 # Env:
 #   AGENT_SETTLE           seconds between the two screen samples (default 0.35)
 #   AGENT_ASK_RE           regex meaning "the agent is asking you something"
-#   TRAILS_RECENT_DAYS     how far back ◷ rows look, in the picker and `trails ls` (default 10)
+#   TRAILS_RECENT_DAYS     how far back closed rows look, in the picker and `trails ls` (default 10)
 #   TRAILS_RECENT_MAX      how many of them to show (default 5)
 #
 # Not `agent`: the bin directories on PATH are a shared namespace, and cursor-agent ships
@@ -88,7 +88,7 @@
 #   default_agent  listed first in the picker.
 #   mode           "default" (the agent's own, prompting mode) or "yolo": which a "+ new" row
 #                  starts in. Tab flips a row from it, so with "yolo" Tab is how you start one
-#                  in default mode. Rows to resume (◷) come back in the mode they last ran in
+#                  in default mode. Closed sessions come back in the mode they last ran in
 #                  either way, and an agent with no yolo flag always runs in default mode.
 #
 # Without a file, the built-in agents below apply; `trails config` writes them out as a
@@ -98,7 +98,7 @@
 # Choosing the conversation ID up front is the point of `session` — `--continue` means "the
 # latest in this directory", so trails-foo and trails-foo-2 would both resume the same one.
 #
-# Recent conversations (◷) are read from claude's and opencode's own stores, and filed under
+# Recent conversations (closed rows) are read from claude's and opencode's own stores, and filed under
 # the first agent that runs that command — the default agent, if it is one of them.
 CONFIG=${XDG_CONFIG_HOME:-$HOME/.config}/trails/config.json
 
@@ -395,7 +395,7 @@ screen_hash() { printf '%s\n' "$1" | cksum; }
 # Also the one place a session's record learns what it is working on (rec_note_task): the
 # task is only ever on screen, and a session that dies takes its screen with it. This runs
 # every time anything asks — the SwiftBar plugin polls `trails ls` every 10s — so the
-# record is never more than a poll behind, and a ↻ row can say what it was doing.
+# record is never more than a poll behind, and a lost row can say what it was doing.
 sessions() {
   tmux list-sessions -F \
     "#{session_name}|#{?@agent,#{@agent},#{pane_current_command}}|$TASK_FMT" 2>/dev/null |
@@ -437,64 +437,109 @@ classify() {
   done
 }
 
-# state → sort rank and colour: blocked first and red, idle next and yellow, working last
-# and dim. Both shell menus (live_sessions, map_menu) draw the same rows in the same
-# order, so they read the mapping from here rather than each carrying a copy — a fourth
-# state added to classify() lands in one place, not two.
+# ─── Session states ───────────────────────────────────────────────────────────
+# Two questions, two signals. Is the tmux session there? The glyph says: ● running, ○ not.
+# If it is, what is the agent doing; if it isn't, why not, and can it come back? The word
+# says, in its colour. Every view — the picker, `trails ls`, their legends, the map — draws
+# a state from this one table, so a state is named and drawn one way everywhere.
 #
-# list_sessions() keeps its own copy in awk, and has to: it draws a padded table, so it is already
-# in awk by the time it needs a colour, and a shell callout per row to fetch one would be
-# absurd. That is why the state *names* are the contract between the two (see list_sessions()).
+#   id|glyph|colour|word|legend, most-wants-you first (the order is the sort order)
 #
-# Sets $rank and $dot rather than printing them: two values, and sh gives a function one
-# stdout. Both callers consume them on the next line, so the reach is a line long.
+# running:  needs you  the agent is asking you something (a permission prompt, a question)
+#           your turn  it finished its turn and is waiting on you
+#           working    it is getting on with it
+# stopped:  lost       tmux died under it (a reboot, a crash); `trails restore` brings it back
+#           closed     it ended, and its conversation can be resumed
+#           elsewhere  its conversation is open in a claude trails did not start
+#
+#   start/resume/restore ──▶ working ⇄ your turn ⇄ needs you ──(you quit)──▶ closed
+#                                         └──────────(tmux dies)──────────▶ lost
+STATES='needs-you|●|red|needs you|running, asking you something
+your-turn|●|yellow|your turn|running, finished its turn
+working|●|dim|working|running, busy
+lost|○|plain|lost|not running: tmux died · trails restore brings it back
+closed|○|dim|closed|not running: it ended · resume it from its directory
+elsewhere|○|dim|elsewhere|not running here: open in a claude trails did not start'
+
+# STATES on one line, `;` between states, for awk: macOS's awk refuses a -v value with a
+# newline in it. No state's text has a `;`.
+STATES_FLAT=$(printf '%s' "$STATES" | tr '\n' ';')
+
+# classify()'s screen verdict (blocked, idle, working) → the state it is shown as.
+state_of() {
+  case $1 in
+    blocked) echo needs-you ;;
+    idle) echo your-turn ;;
+    *) echo working ;;
+  esac
+}
+
+# The awk that turns STATES into lookups: rank[], glyph[], word[], legend[] and paint[], the
+# colour escape. Shared text rather than a function, because every caller is already in awk
+# when it needs it, and a shell callout per row would be absurd.
+STATES_AWK='
+  BEGIN {
+    ns = split(states, L, ";")
+    for (i = 1; i <= ns; i++) {
+      split(L[i], f, "|"); id = f[1]; order[i] = id; rank[id] = i
+      glyph[id] = f[2]; word[id] = f[4]; legend[id] = f[5]
+      paint[id] = f[3] == "red" ? red : (f[3] == "yellow" ? yel : (f[3] == "dim" ? dim : ""))
+    }
+  }
+  function show(id) { return paint[id] glyph[id] " " sprintf("%-9s", word[id]) rst }
+  function key(id) { return paint[id] glyph[id] " " sprintf("%-9s", word[id]) rst "  " legend[id] }
+'
+
+# rank and colour for the map, which draws in shell: sets $rank, $dot and $word. classify()
+# state in, so the map need not translate first.
 rank_dot() {
   case $1 in
-    blocked) rank=0 dot=$RED ;;
-    idle) rank=1 dot=$YEL ;;
-    *) rank=2 dot=$DIM ;;
+    blocked) rank=0 dot=$RED word="needs you" ;;
+    idle) rank=1 dot=$YEL word="your turn" ;;
+    *) rank=2 dot=$DIM word=working ;;
   esac
 }
 
 # `trails ls` — where every agent session on this machine is: running, lost with tmux, or
-# finished recently. Deliberately not scoped to $PWD: the picker answers "what's here", this
-# answers "what did I leave where" — the question a notifier asks too (a SwiftBar menu-bar
-# plugin is the caller the TSV was built for; see docs/ARCHITECTURE.md).
+# ended recently. Deliberately not scoped to $PWD: the picker answers "what's here", this
+# answers "what did I leave where" — the question the menu-bar plugin asks too
+# (extras/swiftbar, the caller the TSV was built for).
 #
 # ls_rows is the one list, TSV, in display order:
 #
-#   state  session  agent  yolo  dir  id  when  pid  title
+#   life  state  session  agent  yolo  dir  id  when  pid  title
 #
-#   state    blocked, idle, working (running) · restore (lost with tmux) · recent, open
-#            (finished; "open" is still held by a claude trails didn't start)
-#   session  the tmux session name, or - for a finished conversation
+#   life     running (the tmux session is there) or stopped (it isn't)
+#   state    a STATES id: needs-you, your-turn, working · lost, closed, elsewhere
+#   session  the tmux session name, or - for a conversation nothing is running
 #   yolo     yolo or -
-#   when     mtime of a finished conversation, - otherwise
-#   pid      the process holding an "open" one, - otherwise
+#   when     when an ended conversation was last active (Unix time), - otherwise
+#   pid      the process holding an "elsewhere" one, - otherwise
 #
 # Never an empty field mid-row, for recent_rows' reason, and the title last since it is free
-# text. Running rows sort most-wants-you first — blocked < idle < working alphabetically, so
-# plain sort, a coincidence that is load-bearing: a renamed state re-orders the notifier's
-# rows quietly rather than failing.
+# text. In STATES order, each state keeping its own: running sessions most-wants-you first,
+# ended ones newest first.
 ls_rows() {
-  sessions | classify | sort | while IFS="$TAB" read -r state name label task; do
+  sessions | classify | while IFS="$TAB" read -r state name label task; do
     agent=${label%% *}
     yolo=-
     case $label in *"(YOLO)"*) yolo=yolo ;; *) ;; esac
     dir=$(tmux display-message -pt "$name" '#{session_path}' 2>/dev/null)
     id=$(tmux display-message -pt "$name" '#{@trails_id}' 2>/dev/null)
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t-\t-\t%s\n' \
-      "$state" "$name" "$agent" "$yolo" "${dir:--}" "${id:--}" "$task"
-  done
+    printf 'running\t%s\t%s\t%s\t%s\t%s\t%s\t-\t-\t%s\n' \
+      "$(state_of "$state")" "$name" "$agent" "$yolo" "${dir:--}" "${id:--}" "$task"
+  done | awk -F"$TAB" -v states="$STATES_FLAT" "$STATES_AWK"'
+    { n++; row[n] = $0; st[n] = $2 }
+    END { for (r = 1; r <= ns; r++) for (i = 1; i <= n; i++) if (rank[st[i]] == r) print row[i] }'
   rec_dead | while read -r name; do
     yolo=$(rec_get "$name" yolo)
-    printf 'restore\t%s\t%s\t%s\t%s\t%s\t-\t-\t%s\n' "$name" "$(rec_get "$name" agent)" \
+    printf 'stopped\tlost\t%s\t%s\t%s\t%s\t%s\t-\t-\t%s\n' "$name" "$(rec_get "$name" agent)" \
       "${yolo:--}" "$(rec_get "$name" dir)" "$(rec_get "$name" id)" "$(rec_get "$name" task)"
   done
   recent_rows "" | while IFS="$TAB" read -r m agent dir id yolo pid title; do
-    state=recent
-    [ "$pid" = - ] || state=open
-    printf '%s\t-\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$state" "$agent" "$yolo" "$dir" "$id" "$m" "$pid" "$title"
+    state=closed
+    [ "$pid" = - ] || state=elsewhere
+    printf 'stopped\t%s\t-\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$state" "$agent" "$yolo" "$dir" "$id" "$m" "$pid" "$title"
   done
 }
 
@@ -502,10 +547,10 @@ ls_rows() {
 # session in columns — a tab jumps to the next 8-stop, so a TSV on screen is a ragged grid.
 # `[ -t 1 ]` tells them apart with no flag: a caller's `$(...)` is a pipe.
 #
-#   ● idle      claude · yolo   ~/.dotfiles #2        Fixing the flaky test
-#   ↻ restore   claude          ~/code/api            Old spike
-#   ◷ 2h ago    claude · yolo   ~/notes               Weekly review
-#   ! 1d ago    claude          ~/scratch             Spike  (open in claude, pid 812)
+#   ● needs you  claude · yolo  ~/code/api                Rework the retry budget
+#   ● your turn  claude         ~/.dotfiles #2            Fix the flaky test
+#   ○ lost       claude · yolo  ~/code/foundry            Improve observability
+#   ○ closed     claude         ~/notes         2h ago    Weekly review
 #
 # The #2 is read off the session name against its directory, and only then: trails-<dir> is
 # the first agent there and trails-<dir>-N the Nth, but the name alone could equally be
@@ -517,14 +562,15 @@ list_sessions() {
     return 0
   }
   [ -n "$rows" ] || {
-    echo "trails: no agent sessions, and none in the last $RECENT_DAYS days"
+    echo "trails: no agent sessions, and none ended in the last $RECENT_DAYS days"
     return 0
   }
 
-  # Widths off the widest cell, measured on an ASCII stand-in for the agent column: awk's
-  # length() counts bytes here, and the · in "claude · yolo" is two of them.
+  # Widths off the widest cell, the agent column measured on an ASCII stand-in: awk counts
+  # bytes, and the · in "claude · yolo" is two of them. A dim legend follows for the states
+  # this listing used, in table order — reference, not news.
   printf '%s\n' "$rows" | awk -F"$TAB" -v now="$(date +%s)" -v home="$HOME" -v pfx="$PREFIX" \
-    -v red="$RED" -v yel="$YEL" -v dim="$DIM" -v rst="$RST" '
+    -v states="$STATES_FLAT" -v red="$RED" -v yel="$YEL" -v dim="$DIM" -v rst="$RST" "$STATES_AWK"'
     function ago(t,   d) {
       d = now - t
       if (d < 3600) return int(d / 60) "m ago"
@@ -532,19 +578,8 @@ list_sessions() {
       return int(d / 86400) "d ago"
     }
     {
-      st = $1; nm = $2; dir = $5
-      if (st == "blocked") g = red "●" rst
-      else if (st == "idle") g = yel "●" rst
-      else if (st == "working") g = dim "●" rst
-      else if (st == "restore") g = "↻"
-      else if (st == "open") g = yel "!" rst
-      else g = "◷"
-      glyph[NR] = g
-      c1[NR] = (st == "recent" || st == "open") ? ago($7) : st
-
-      ag[NR] = $3 ($4 == "yolo" ? " · yolo" : "")
-      aw[NR] = length($3 ($4 == "yolo" ? " - yolo" : ""))
-
+      n++; st[n] = $2; nm = $3; dir = $6
+      ag[n] = $4 ($5 == "yolo" ? " · yolo" : ""); aw[n] = length($4 ($5 == "yolo" ? " - yolo" : ""))
       badge = ""
       if (nm != "-") {
         base = dir; sub(/.*\//, "", base); gsub(/[:. ]/, "_", base); base = pfx base
@@ -552,40 +587,29 @@ list_sessions() {
         if (index(nm, base "-") == 1 && rest ~ /^[0-9]+$/) badge = " #" rest
       }
       if (index(dir, home) == 1) dir = "~" substr(dir, length(home) + 1)
-      c3[NR] = dir badge
-
-      t = $9
-      if (st == "open") t = t "  (open in " $3 ", pid " $8 ")"
-      title[NR] = t
-
-      if (length(c1[NR]) > w1) w1 = length(c1[NR])
-      if (aw[NR] > w2) w2 = aw[NR]
-      if (length(c3[NR]) > w3) w3 = length(c3[NR])
-      seen[st] = 1
+      c3[n] = dir badge
+      c4[n] = $8 != "-" ? ago($8) : ""
+      ti[n] = $10 ($2 == "elsewhere" ? "  (open in " $4 ", pid " $9 ")" : "")
+      if (aw[n] > w2) w2 = aw[n]
+      if (length(c3[n]) > w3) w3 = length(c3[n])
+      if (length(c4[n]) > w4) w4 = length(c4[n])
+      seen[$2] = 1
     }
     END {
-      for (i = 1; i <= NR; i++) {
-        line = sprintf("%s %-*s  %s%*s  %-*s  %s", glyph[i], w1, c1[i], ag[i], w2 - aw[i], "", w3, c3[i], title[i])
+      for (i = 1; i <= n; i++) {
+        line = show(st[i]) "  " ag[i] sprintf("%*s", w2 - aw[i], "") "  " sprintf("%-*s", w3, c3[i])
+        if (w4) line = line "  " sprintf("%-*s", w4, c4[i])
+        line = line "  " ti[i]
         sub(/ +$/, "", line)
         print line
       }
-      # A legend for the icons this listing used, dim, in the order rows appear — reference,
-      # not news, so it stays out of the way and skips anything not on screen.
-      n = split("blocked idle working restore recent open", order, " ")
-      key["blocked"] = "● blocked  running, asking you something"
-      key["idle"] = "● idle     running, finished its turn"
-      key["working"] = "● working  running, busy"
-      key["restore"] = "↻ restore  lost when tmux died · trails restore brings it back"
-      key["recent"] = "◷ recent   finished · run trails in its directory to resume"
-      key["open"] = "! open     finished, but open in a claude trails did not start"
       first = 1
-      for (k = 1; k <= n; k++) {
+      for (k = 1; k <= ns; k++) {
         if (!(order[k] in seen)) continue
         if (first) { print ""; first = 0 }
-        print dim key[order[k]] rst
+        print dim glyph[order[k]] " " sprintf("%-9s", word[order[k]]) "  " legend[order[k]] rst
       }
-    }
-  '
+    }'
 }
 
 # Menu lines are TAB-delimited; fzf draws only field 3 on (--with-nth). Fields 1-2 are
@@ -606,29 +630,27 @@ live_sessions() {
     is_ours "$name" || continue
     printf '%s\t%s\t%s\n' "$name" "$label" "$task"
   done | classify | while IFS="$TAB" read -r state name label task; do
-    rank_dot "$state"
-
-    # The -N suffix, and only that: is_ours admits any trails- session started here, so a
-    # name that isn't $SESSION-<digits> (one you made by hand) would otherwise badge
-    # itself with the whole leftover string.
-    n=${name#"$SESSION"}
-    n=${n#-}
-    case $n in
-      '' | *[!0-9]*) n= ;;
-      *) ;; # a real -N ordinal, worth a badge
-    esac
-    [ -n "$task" ] && task="  $task"
     # launch() writes @agent as "claude (YOLO)" for an armed launch: the first word is the
-    # agent it files under, and the YOLO it ran with stays on the branch's badge.
+    # agent, and the YOLO it ran with goes in its own field.
     agent=${label%% *}
-    mode=${label#"$agent"}
-    mode=${mode# (}
-    mode=${mode%)}
-    mode=${mode:+ · $mode}
-    # Sort key up front, stripped after.
-    printf '%s\t%s\tattach\t%s\t%s●%s [%s%s%s]%s\n' \
-      "$rank" "$agent" "$name" "$dot" "$RST" "$state" "$mode" "${n:+ · #$n}" "$task"
-  done | sort | cut -f2-
+    yolo=-
+    case $label in *"(YOLO)"*) yolo=yolo ;; *) ;; esac
+    printf '%s\tattach\t%s\t%s\t%s\t%s\t-\t%s\n' \
+      "$(state_of "$state")" "$name" "$agent" "$yolo" "$(ordinal "$name")" "$task"
+  done
+}
+
+# The #2 a session's name earns in the picker: the -N on $SESSION-<digits>, and only that.
+# is_ours admits any trails- session started here, so a name that isn't $SESSION-<digits>
+# (one you made by hand) would otherwise badge itself with the whole leftover string. "-"
+# for none: these feed tab-separated rows, where an empty field would collapse.
+ordinal() {
+  n=${1#"$SESSION"}
+  n=${n#-}
+  case $n in
+    '' | *[!0-9]*) echo - ;;
+    *) echo "#$n" ;;
+  esac
 }
 
 # What a session of ours looks like. Everything here is session-scoped, so a tmux
@@ -682,7 +704,7 @@ next_free() {
 # so nothing else ever reaps them. is_ours guards it: a "new  default" row would otherwise
 # hand us the agent name and try to kill a session literally called "default".
 #
-# On a ↻ row it forgets instead: there is no process to kill, only the record that would
+# On a lost row it forgets instead: there is no process to kill, only the record that would
 # bring one back. restorable_here guards that half the way is_ours guards the other.
 #
 # A kill is on purpose, so it forgets the record too. The agent's wrapper would forget it
@@ -707,7 +729,7 @@ kill_session() {
 # "yolo" take a "+ new" row back to default mode — and flip it back on a second Tab. Exactly one
 # agent can be armed at a time — arming a second replaces the first — so the state is a single
 # name in a file, not a set. Only an agent with a YOLO flag can be armed; Tab on an attach row
-# (a session name) or a flagless agent (pi, antigravity) finds no flag and is a no-op. A ◷ row
+# (a session name) or a flagless agent (pi, antigravity) finds no flag and is a no-op. A closed row
 # arms too: its target is agent:id, and the flag is its agent's. The
 # file is $TRAILS_YOLO_STATE, exported by the dispatch below and so inherited by this
 # subprocess fzf spawns. print_menu reads the same file to relabel the row and set its verb.
@@ -723,116 +745,122 @@ toggle_yolo() {
   fi
 }
 
-# Sessions already running here, then the agents you can start. Re-run by fzf after a kill,
-# hence a subcommand.
+# The picker: this directory's sessions first — what you usually came for — then the agents
+# you can start, under a "start new" rule. Re-run by fzf after every Tab and ctrl-x, hence a
+# subcommand.
+#
+# Every row is three tab-separated fields: verb, target, what's drawn. fzf draws only the
+# third (--with-nth); the verb is what the dispatch matches on Enter, the target what Tab and
+# ctrl-x act on. Sessions are gathered first as raw rows —
+#
+#   state  verb  target  agent  yolo  badge  when  title
+#
+# — then drawn together, so their columns line up across running and stopped alike.
 print_menu() {
   agents=$(available_agents)
   [ -n "$agents" ] || {
     echo "trails: no agent CLIs found on PATH" >&2
     exit 1
   }
-  # The running sessions come from the cache the dispatch classified once, not a fresh
-  # live_sessions() here. classify() sleeps AGENT_SETTLE to sample each screen twice, and
-  # print_menu is re-run on every Tab and ctrl-x reload — paying that sleep per keystroke is
-  # what made the Tab relabel lag. The snapshot is fixed for the picker's life anyway (fzf never
-  # live-refreshes it), so caching loses no freshness. An empty cache means no running rows,
-  # which is also how no-tmux reaches here.
+  # Running sessions, from the cache the dispatch classified once. classify() sleeps
+  # AGENT_SETTLE to sample each screen twice, and this runs on every Tab and ctrl-x; the
+  # snapshot is fixed for the picker's life anyway (fzf never live-refreshes it). Empty with
+  # no tmux.
   running=
   [ -n "$TRAILS_MENU_CACHE" ] && [ -s "$TRAILS_MENU_CACHE" ] && running=$(cat "$TRAILS_MENU_CACHE")
-  # Sessions that died with tmux, in the cache's shape (agent first) so they file under their
-  # agent alongside the live ones — below them, because they want nothing from you yet. Read
-  # fresh on every reload, not cached: it is a few small files, no settle sleep, and ctrl-x on
-  # one of these rows has to see it gone.
-  #
-  # TRAILS_RESTORE_OK is the dispatch's verdict, exported because this also runs as fzf's
-  # reload subprocess, which cannot see the map's USE_TMUX override.
-  dead=
-  if [ -n "$TRAILS_RESTORE_OK" ]; then
-    dead=$(rec_dead | while read -r name; do
-      [ "$(rec_get "$name" dir)" = "$PWD" ] || continue
-      task=$(rec_get "$name" task)
-      yolo=$(rec_get "$name" yolo)
-      printf '%s\trestore\t%s\t↻ [restore%s]%s\n' \
-        "$(rec_get "$name" agent)" "$name" "${yolo:+ · YOLO}" "${task:+  $task}"
-    done)
-  fi
-  # The one row Tab flipped (toggle_yolo wrote it); empty if none. An agent's row is YOLO when
-  # the config's mode says so or Tab flipped it, not both — and only if the agent has a flag at all.
-  # Then it carries the verb "yolo", so the dispatch launches it with the flag, and draws
-  # "(YOLO)" in yellow so you can see what Enter will do; a ◷ row does the same as
-  # "resume-yolo". Every other agent is a plain "new" row.
+
+  # The one row Tab flipped (toggle_yolo wrote it); empty if none.
   armed=
   [ -n "$TRAILS_YOLO_STATE" ] && [ -s "$TRAILS_YOLO_STATE" ] && armed=$(cat "$TRAILS_YOLO_STATE")
 
-  # Recent conversations here that nothing is running (see "Recent conversations"), last under
-  # their agent: the furthest from wanting you. From the dispatch's cache, like the running
-  # block: reading them costs ~150ms, which every Tab would pay, and nothing the picker does
-  # changes them. The target is agent:id, which the dispatch splits, and which ctrl-x passes
-  # through harmlessly.
+  # Lost: sessions here that died with tmux. Read fresh on every reload — a few small files,
+  # and ctrl-x on one has to see it gone. TRAILS_RESTORE_OK is the dispatch's verdict,
+  # exported because this also runs as fzf's reload subprocess, which can't see the map's
+  # USE_TMUX override.
+  lost=
+  if [ -n "$TRAILS_RESTORE_OK" ]; then
+    lost=$(rec_dead | while read -r name; do
+      [ "$(rec_get "$name" dir)" = "$PWD" ] || continue
+      yolo=$(rec_get "$name" yolo)
+      printf 'lost\trestore\t%s\t%s\t%s\t%s\t-\t%s\n' "$name" "$(rec_get "$name" agent)" \
+        "${yolo:--}" "$(ordinal "$name")" "$(rec_get "$name" task)"
+    done)
+  fi
+
+  # Closed and elsewhere: recent conversations here that nothing is running, from the
+  # dispatch's cache (reading them costs ~150ms, which every Tab would pay). The target is
+  # agent:id. One that last ran YOLO resumes YOLO, the way a lost one comes back in its
+  # recorded mode; Tab arms one that didn't ("armed" draws its yolo in yellow). One still open
+  # in a claude trails didn't start is shown so you know where it went, under a verb the
+  # dispatch refuses.
   recent=
   if [ -n "$TRAILS_RECENT_CACHE" ] && [ -s "$TRAILS_RECENT_CACHE" ]; then
     now=$(date +%s)
     recent=$(while IFS="$TAB" read -r m agent _ id yolo pid title; do
       if [ "$pid" != - ]; then
-        # Still open in a claude trails did not start: shown so you know where it went, but
-        # the verb is one the dispatch refuses rather than resumes. Tab can't arm it either.
-        printf '%s\topen\t%s:%s\t%s!%s %s[%s · open in %s]%s  %s\n' \
-          "$agent" "$agent" "$id" "$YEL" "$RST" "$DIM" "$(ago "$m" "$now")" "$agent" "$RST" "$title"
+        printf 'elsewhere\topen\t%s:%s\t%s\t%s\t-\t%s\t%s  (open in %s, pid %s)\n' \
+          "$agent" "$id" "$agent" "$yolo" "$(ago "$m" "$now")" "$title" "$agent" "$pid"
         continue
       fi
-      # One that last ran YOLO resumes YOLO, the way a ↻ row comes back in its recorded mode;
-      # Tab arms one that didn't.
-      verb=resume badge='' armed_tag=''
+      verb=resume
       if [ "$yolo" = yolo ]; then
-        verb=resume-yolo badge=" · YOLO"
+        verb='resume-yolo'
       elif [ "$agent:$id" = "$armed" ]; then
-        verb=resume-yolo armed_tag="  $YEL(YOLO)$RST"
+        verb=resume-yolo yolo=armed
       fi
-      printf '%s\t%s\t%s:%s\t%s◷ [%s%s]%s  %s%s\n' \
-        "$agent" "$verb" "$agent" "$id" "$DIM" "$(ago "$m" "$now")" "$badge" "$RST" "$title" "$armed_tag"
+      printf 'closed\t%s\t%s:%s\t%s\t%s\t-\t%s\t%s\n' \
+        "$verb" "$agent" "$id" "$agent" "$yolo" "$(ago "$m" "$now")" "$title"
     done <"$TRAILS_RECENT_CACHE")
   fi
 
   # `$(...)` eats trailing newlines, so each block gets its own back or the last row of one
   # welds onto the first of the next.
-  children=$(
+  rows=$(
     [ -n "$running" ] && printf '%s\n' "$running"
-    [ -n "$dead" ] && printf '%s\n' "$dead"
+    [ -n "$lost" ] && printf '%s\n' "$lost"
     [ -n "$recent" ] && printf '%s\n' "$recent"
   )
 
-  # A tree: each agent's row starts a fresh one, and its sessions hang beneath it as branches.
-  # Same three fields throughout — verb, target, what's drawn — so the selection, Tab and
-  # ctrl-x all work on a branch exactly as they did on a flat row; the indent is only
-  # drawing. A session whose agent has no row here (uninstalled since, or a hand-made trails-
-  # session whose label is a process name) has nowhere to hang, so it trails the tree flat,
-  # carrying its label as the badge the branch would have implied.
-  printf '%s\n' "$children" | awk -F"$TAB" -v OFS="$TAB" \
-    -v agents=" $(printf '%s' "$agents" | tr '\n' ' ') " -v armed="$armed" -v mode="$MODE" \
-    -v flagged=" $(printf '%s\n' "$AGENTS" | awk -F'|' '$4 != "" { printf "%s ", $1 }')" \
-    -v yel="$YEL" -v dim="$DIM" -v rst="$RST" '
-    NF >= 4 {
-      row = $2 OFS $3 OFS $4
-      if (index(agents, " " $1 " ")) kids[$1] = kids[$1] (kids[$1] == "" ? "" : "\n") row
-      else stray[++ns] = $2 OFS $3 OFS $1 "  " $4
+  # Drawn in state order (the STATES table's), keeping each state's own order — closed ones
+  # newest first. Widths off the widest cell, the agent column measured on an ASCII stand-in:
+  # awk counts bytes, and the · in "claude · yolo" is two of them.
+  [ -n "$rows" ] && printf '%s\n' "$rows" | awk -F"$TAB" -v OFS="$TAB" -v states="$STATES_FLAT" \
+    -v red="$RED" -v yel="$YEL" -v dim="$DIM" -v rst="$RST" "$STATES_AWK"'
+    NF >= 8 {
+      n++; st[n] = $1; vb[n] = $2; tg[n] = $3; ag[n] = $4; yo[n] = $5; ti[n] = $8
+      aw[n] = length($4 ($5 == "-" ? "" : " - yolo")); if (aw[n] > w2) w2 = aw[n]
+      c3[n] = ($6 != "-" ? $6 : "") ($7 != "-" ? $7 : ""); if (length(c3[n]) > w3) w3 = length(c3[n])
     }
     END {
-      n = split(substr(agents, 2, length(agents) - 2), list, " ")
-      for (i = 1; i <= n; i++) {
-        a = list[i]
-        y = (mode == "yolo") != (a == armed)
-        if (y && index(flagged, " " a " ")) print "yolo", a, a "  " dim "+ new" rst "  " yel "(YOLO)" rst
-        else print "new", a, a "  " dim "+ new" rst
-        if (kids[a] == "") continue
-        k = split(kids[a], rows, "\n")
-        for (j = 1; j <= k; j++) {
-          split(rows[j], f, OFS)
-          print f[1], f[2], "  " dim (j == k ? "└─" : "├─") rst " " f[3]
-        }
+      for (r = 1; r <= ns; r++) for (i = 1; i <= n; i++) {
+        if (rank[st[i]] != r) continue
+        y = yo[i] == "yolo" ? " · yolo" : (yo[i] == "armed" ? " · " yel "yolo" rst : "")
+        line = show(st[i]) "  " ag[i] y sprintf("%*s", w2 - aw[i], "")
+        if (w3) line = line "  " sprintf("%-*s", w3, c3[i])
+        line = line "  " ti[i]
+        sub(/ +$/, "", line)
+        print vb[i], tg[i], line
       }
-      for (i = 1; i <= ns; i++) print stray[i]
-    }
-  '
+    }'
+
+  # Then the agents you can start. The rule above them is a row like any other to fzf, so it
+  # carries a verb the dispatch reads as "nothing chosen" and reopens the picker on.
+  [ -n "$rows" ] && printf 'none\t-\t%s─── start new ──────────────────────────%s\n' "$DIM" "$RST"
+  # An agent's row is YOLO when the config's mode says so or Tab flipped it, not both — and
+  # only if the agent has a flag at all. Then its verb is "yolo" and it says so in yellow.
+  for a in $agents; do
+    y=
+    if [ "$MODE" = yolo ]; then
+      [ "$a" = "$armed" ] || y=1
+    else
+      [ "$a" = "$armed" ] && y=1
+    fi
+    if [ -n "$y" ] && [ -n "$(yolo_flag "$a")" ]; then
+      printf 'yolo\t%s\t▸ %s  %s(YOLO)%s\n' "$a" "$a" "$YEL" "$RST"
+    else
+      printf 'new\t%s\t▸ %s\n' "$a" "$a"
+    fi
+  done
 }
 
 # ─── Launch ──────────────────────────────────────────────────────────────────
@@ -906,7 +934,7 @@ EOF
   fi
 
   # $args is a controlled, space-separated field from the table above; splitting it into
-  # separate arguments is the point. A ◷ row resumes here too, with nothing to record: there
+  # separate arguments is the point. A closed row resumes here too, with nothing to record: there
   # is no tmux session for a record to bring back.
   # shellcheck disable=SC2086
   [ -n "$USE_TMUX" ] || exec "$cmd" $args ${3:+$(with_id "$resume" "$3")}
@@ -945,7 +973,7 @@ EOF
 
   # Written before the agent starts, not after it survives BOOT: the wrapper's --forget is
   # what clears it, and that only works if the record is already there when the agent exits.
-  # An agent that dies at 1.6s would otherwise outrun its own record and leave a ↻ row for a
+  # An agent that dies at 1.6s would otherwise outrun its own record and leave a lost row for a
   # session that never was.
   [ -n "$id" ] && rec_write "$SESSION" "$1" "$PWD" "$id" "$2"
   [ -n "$4" ] && [ "$4" != "$SESSION" ] && rec_forget "$4"
@@ -1023,7 +1051,7 @@ attach_to() {
 #
 #   ~/.local/state/trails/sessions/trails-foo     agent= dir= id= yolo= task=
 #
-# and bring sessions back from it: ↻ rows in the picker, or `trails restore` for the lot.
+# and bring sessions back from it: lost rows in the picker, or `trails restore` for the lot.
 #
 # The hard part is not writing records but knowing when to delete one. A session you quit
 # is over; a session tmux took down is the whole point. Both look identical from outside —
@@ -1238,7 +1266,7 @@ codex_conv_of() {
 
 # Is this record's session gone? Not "is a session of that name running": a name can be
 # taken by something else (a `tmux new -s trails-foo` of your own), and that would hide the
-# dead record from every ↻ row and from restore. launch() stamps each session with its
+# dead record from every lost row and from restore. launch() stamps each session with its
 # conversation ID as @trails_id, and a record is alive only while a session carries its ID.
 # No "=" on -t, the display-message trap is_ours() documents; a prefix match onto a
 # neighbour reads back the neighbour's ID, which does not match, so it still says dead.
@@ -1260,7 +1288,7 @@ rec_dead() {
   done
 }
 
-# The ↻ half of is_ours: a dead session started in this directory.
+# The lost half of is_ours: a dead session started in this directory.
 restorable_here() {
   rec_is_dead "$1" && [ "$(rec_get "$1" dir)" = "$PWD" ]
 }
@@ -1292,10 +1320,10 @@ restore_one() {
 # `trails restore` — every dead session on the box, each in its own directory. Detached,
 # because there may be several and you can only sit in one: attach afterwards with the
 # picker or the map, which already know how to find them. `trails ls` lists them first,
-# as its ↻ rows.
+# as its lost rows.
 restore_all() {
   [ -z "${1:-}" ] || {
-    echo "trails: restore takes no arguments — trails ls shows what it would bring back (↻)" >&2
+    echo "trails: restore takes no arguments — trails ls shows what it would bring back (lost)" >&2
     exit 1
   }
   command -v tmux >/dev/null 2>&1 || {
@@ -1314,7 +1342,7 @@ restore_all() {
   for name in $names; do
     dir=$(rec_get "$name" dir)
     if [ ! -d "$dir" ]; then
-      echo "trails: skipping ${name#"$PREFIX"} — $dir is gone (ctrl-x its ↻ row, or rm $(rec_path "$name"))" >&2
+      echo "trails: skipping ${name#"$PREFIX"} — $dir is gone (ctrl-x its lost row, or rm $(rec_path "$name"))" >&2
       continue
     fi
     new=$(cd "$dir" && USE_TMUX=1 restore_one "$name") || continue
@@ -1348,7 +1376,7 @@ restore_all() {
 #             not archived, and titled — "New session - <date>" is the placeholder until the
 #             first message.
 #
-# A conversation a record holds is left out, being a live or ↻ row already. One still open in
+# A conversation a record holds is left out, being a live or lost row already. One still open in
 # a claude that trails did not start (a plain `claude` in some terminal) is shown, marked !,
 # and Enter refuses it: resuming would put a second claude on the conversation, each adding
 # turns the other never sees. claude says which are open itself — a file per running process,
@@ -1629,8 +1657,8 @@ map_menu() {
     rank_dot "$state"
     [ -n "$task" ] && task="  $task"
     # Sort key up front, stripped after — leaving name, then what fzf draws.
-    printf '%s\t%s\t%s●%s [%s · %s] %s%s\n' \
-      "$rank" "$name" "$dot" "$RST" "$state" "$label" "${name#"$PREFIX"}" "$task"
+    printf '%s\t%s\t%s● %-9s%s  %s · %s%s\n' \
+      "$rank" "$name" "$dot" "$word" "$RST" "$label" "${name#"$PREFIX"}" "$task"
   done | sort | cut -f2-
 }
 
@@ -1944,39 +1972,42 @@ usage() {
   cat <<'EOF'
 usage: trails [command]
 
-  (none)            pick a running session to rejoin, or an agent to start
-  ls                where every agent session is: running (●), lost with tmux (↻),
-                    finished in the last 10 days (◷) — a table, or TSV when piped
+  (none)            this directory's sessions, then the agents you can start
+  ls                where every agent session is, running or not — a table, or TSV
+                    when piped
   map [N|new]       several agents in one window — pick them, or take the N that
                     most want you; `new` rebuilds instead of re-attaching
-  restore           bring back every session that died with tmux (the ↻ rows)
+  restore           bring back every session that died with tmux (the lost ones)
   swiftbar          link the menu-bar plugin into SwiftBar (macOS); --remove unlinks
   config            the agents file: written from the built-ins the first
                     time, then opened in $EDITOR (~/.config/trails/config.json)
   help              this
 
-In the picker (each agent, with its sessions for this project beneath it):
-  enter             start the agent, or attach to / restore / resume the session
-  tab               toggle YOLO (run everything unconfirmed) on the highlighted agent or ◷
-                    row; "mode": "yolo" in the config starts new rows armed
-  ctrl-x            kill the highlighted session, or forget a ↻ row
+In the picker:
+  enter             open it: attach, restore, resume, or start the agent
+  tab               toggle YOLO (run everything unconfirmed) on an agent to start or a
+                    closed session; "mode": "yolo" in the config starts new rows armed
+  ctrl-x            end a running session, or forget a lost one
 
-  ↻ died with tmux, comes back on its own conversation
-  ◷ a recent conversation here that nothing is running (claude, opencode);
-    it resumes in the mode it last ran in, YOLO included
-  ! one still open in a claude that trails didn't start: enter says where
+States — ● running, ○ not:
+  ● needs you       asking you something
+  ● your turn       finished its turn, waiting on you
+  ● working         busy
+  ○ lost            tmux died under it; enter (or trails restore) brings it back
+  ○ closed          it ended; enter resumes its conversation, in the mode it last ran in
+  ○ elsewhere       open in a claude trails didn't start; enter says where
 
 Env:
   AGENT_SETTLE        seconds between the two screen samples (default 0.35)
   AGENT_ASK_RE        regex meaning "the agent is asking you something"
-  TRAILS_RECENT_DAYS  how far back ◷ rows look (default 10)
-  TRAILS_RECENT_MAX   how many of them to show (default 5)
+  TRAILS_RECENT_DAYS  how far back closed sessions are listed (default 10)
+  TRAILS_RECENT_MAX   how many of them (default 5)
 EOF
 }
 
 # The agents, read once per run. Not for what never starts or names an agent — help, config,
 # and the wrapper's --forget, which has to work even when the config is broken. ls carries on
-# without them (only its ◷ rows need them), so a typo in the file can't blank a menu bar.
+# without them (only its closed rows need them), so a typo in the file can't blank a menu bar.
 case $1 in
   help | -h | --help | config | swiftbar | --forget | --peek) AGENTS= ;;
   ls) AGENTS=$(load_agents) || AGENTS= ;;
@@ -2065,7 +2096,7 @@ fi
 #                     AGENT_SETTLE to sample screens twice, so recomputing it per keystroke is
 #                     what delayed the Tab relabel. The snapshot does not change over the picker's
 #                     life (fzf never refreshes it on its own), so caching loses no freshness.
-# TRAILS_RECENT_CACHE — the ◷ rows' raw TSV, for the same reason: read once, drawn per reload.
+# TRAILS_RECENT_CACHE — the closed rows' raw TSV, for the same reason: read once, drawn per reload.
 TRAILS_YOLO_STATE="${TMPDIR:-/tmp}/trails-yolo.$$"
 TRAILS_MENU_CACHE="${TMPDIR:-/tmp}/trails-menu.$$"
 TRAILS_RECENT_CACHE="${TMPDIR:-/tmp}/trails-recent.$$"
@@ -2081,14 +2112,14 @@ else
   : >"$TRAILS_MENU_CACHE"
 fi
 
-# ↻ rows on the same terms as the running ones: not where there is no tmux to restore into (inside plain tmux the agent would run bare, with nothing to hold
+# lost rows on the same terms as the running ones: not where there is no tmux to restore into (inside plain tmux the agent would run bare, with nothing to hold
 # its record). print_menu reads the verdict rather than re-deriving it, for the reason the
 # cache comment above gives.
 TRAILS_RESTORE_OK=
 [ -n "$USE_TMUX" ] && TRAILS_RESTORE_OK=1
 export TRAILS_RESTORE_OK
 
-# ◷ rows need no tmux: resuming bare is still resuming.
+# closed rows need no tmux: resuming bare is still resuming.
 recent_rows "$PWD" >"$TRAILS_RECENT_CACHE"
 
 MENU=$(print_menu) || exit 1
@@ -2110,16 +2141,16 @@ set -- --prompt='Agent: ' --reverse --no-info --ansi --wrap \
 # fires on every Tab reload too and would yank the cursor off the row you just armed.
 want=$(printf '%s\n' "$MENU" | awk -F"$TAB" '
   $1 != "attach" { next }
-  { s = $3; gsub("\033\\[[0-9;]*m", "", s) } # the dot is coloured, so the reset splits "● ["
-  !b && index(s, "● [blocked") { b = NR }
-  !i && index(s, "● [idle") { i = NR }
+  { s = $3; gsub("\033\\[[0-9;]*m", "", s) } # the glyph and word are coloured
+  !b && index(s, "● needs you") { b = NR }
+  !i && index(s, "● your turn") { i = NR }
   END { print b ? b : i }')
 [ -n "$want" ] && set -- "$@" --bind="load:pos($want)+unbind(load)"
 if printf '%s\n' "$MENU" | grep -Eq '^(attach|restore)'; then
-  set -- "$@" --header='enter: start/attach/restore/resume   tab: toggle YOLO   ctrl-x: kill/forget' \
+  set -- "$@" --header='enter: open   tab: toggle YOLO   ctrl-x: end a running one, forget a lost one' \
     --bind="ctrl-x:execute-silent($0 --kill {2})+reload($0 --print-menu)"
 else
-  set -- "$@" --header='enter: start/resume   tab: toggle YOLO'
+  set -- "$@" --header='enter: open   tab: toggle YOLO'
 fi
 
 choice=$(printf '%s\n' "$MENU" | fzf "$@") || exit 0
@@ -2132,6 +2163,8 @@ rm -f "$TRAILS_YOLO_STATE" "$TRAILS_MENU_CACHE" "$TRAILS_RECENT_CACHE"
 trap - EXIT INT TERM
 
 case $choice in
+  # The "start new" rule: nothing was chosen, so ask again.
+  none*) exec "$SELF" ;;
   attach*)
     apply_policy "$target"
     attach_to "$target"
@@ -2140,7 +2173,7 @@ case $choice in
     new=$(restore_one "$target") || exit 1
     attach_to "$new"
     ;;
-  # A ◷ row whose conversation a claude outside trails still has open. Say where, start nothing.
+  # A closed row whose conversation a claude outside trails still has open. Say where, start nothing.
   open*)
     pid=$(claude_open_pid "${target#*:}")
     echo "trails: that conversation is still open in ${target%%:*}${pid:+ (pid $pid)} — switch to it there, or quit it first" >&2

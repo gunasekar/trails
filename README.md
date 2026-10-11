@@ -6,20 +6,22 @@
 </h1>
 
 A launcher for AI coding agents that live in tmux. Start Claude Code, Codex,
-Gemini, Copilot, Cursor, opencode or any other agent CLI in a tmux session of its own, come back to it from any
-terminal or editor, see where every session is, and resume the ones you closed.
+Gemini, Copilot, Cursor, opencode or any other agent CLI in a tmux session of its
+own, come back to it from any terminal or editor, see where every session is, and
+resume the ones you closed.
 
 Once an agent is running, trails gets out of the way: the session is plain tmux.
 
 ```text
-claude  + new                                  ← enter starts a fresh one
-  ├─ ● [blocked · #2]        Rework the retry budget   ← asking you something
-  ├─ ● [working · YOLO]      Migrate the schema        ← getting on with it
-  ├─ ↻ [restore]             Old spike                 ← lost when tmux died
-  └─ ◷ [2d ago · YOLO]       Tidy the release notes    ← finished, resumable
-cursor  + new
-  └─ ● [idle · #3]           Fix the flaky auth test   ← finished its turn
-opencode  + new
+● needs you  claude · yolo         Rework the retry budget   ← asking you something
+● your turn  claude         #2     Fix the flaky auth test   ← finished its turn
+● working    codex                 Migrate the schema        ← getting on with it
+○ lost       claude                Old spike                 ← tmux died under it
+○ closed     claude · yolo  2d ago Tidy the release notes    ← ended, resumable
+─── start new ──────────────────────────
+▸ claude
+▸ codex
+▸ cursor
 ```
 
 Because each agent runs inside tmux, it outlives the terminal that started it.
@@ -65,21 +67,46 @@ trails map 4        # the four that most want you, side by side in one window
 
 ### The picker
 
-Each agent you have installed gets a `+ new` row, with this directory's sessions
-beneath it. The cursor starts on the session that most wants you.
+`trails` shows this directory's sessions first, then the agents you can start.
+The cursor starts on the session that most wants you.
 
-| Row | Means | Enter |
+Every session has two signals. The glyph says whether its tmux session is
+running (`●`) or not (`○`); the word says what's going on:
+
+| State | Means | Enter |
 |---|---|---|
-| `●` | running: `blocked` (asking you something), `idle` (finished its turn) or `working` | attach |
-| `↻` | lost when tmux died (a reboot, a crash, `kill-server`) | bring it back on its conversation |
-| `◷` | a recent conversation here that nothing is running | resume it, in the mode it last ran in |
-| `!` | a recent conversation still open in a `claude` that trails didn't start | refuses, and says where it's open |
+| `●` needs you | running, and the agent is asking you something | attach |
+| `●` your turn | running, and it finished its turn | attach |
+| `●` working | running, and it's busy | attach |
+| `○` lost | tmux died under it (a reboot, a crash, `kill-server`) | bring it back on its conversation |
+| `○` closed | it ended in the last 10 days; its conversation can be resumed | resume it, in the mode it last ran in |
+| `○` elsewhere | its conversation is open in a `claude` that trails didn't start | refuses, and says where it's open |
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    state "your turn" as your_turn
+    state "needs you" as needs_you
+    state "running ●" as running {
+        working --> your_turn: turn ends
+        your_turn --> working: you reply
+        working --> needs_you: asks you something
+        needs_you --> working: you answer
+    }
+    [*] --> working: start, resume, restore
+    state "closed ○" as closed
+    state "lost ○" as lost
+    running --> closed: you quit or end it
+    running --> lost: tmux dies
+    lost --> working: restore
+    closed --> working: resume
+```
 
 | Key | Does |
 |---|---|
-| `enter` | start, attach, restore or resume |
-| `tab` | toggle YOLO (run everything unconfirmed) on the highlighted agent or `◷` row — flipping it from the config's `mode` |
-| `ctrl-x` | kill the highlighted session, or forget a `↻` row |
+| `enter` | open the row: attach, restore, resume, or start the agent |
+| `tab` | toggle YOLO (run everything unconfirmed) on an agent to start or a closed session, flipping it from the config's `mode` |
+| `ctrl-x` | end a running session, or forget a lost one |
 
 `trails` refuses to open an agent in `/`. `$HOME` is fine.
 
@@ -87,28 +114,35 @@ beneath it. The cursor starts on the session that most wants you.
 
 ```console
 $ trails ls
-● blocked  claude · yolo  ~/code/api            Rework the retry budget
-● idle     claude         ~/.dotfiles #2        Fix the flaky test
-↻ restore  claude · yolo  ~/code/foundry        Improve observability
-◷ 2h ago   claude · yolo  ~/notes               Weekly review
-! 1d ago   claude         ~/scratch             Spike on caching  (open in claude, pid 812)
-↻ trails restore brings these back · ◷ run trails in its directory to resume
+● needs you  claude · yolo  ~/code/api                Rework the retry budget
+● your turn  claude         ~/.dotfiles #2            Fix the flaky test
+○ lost       claude · yolo  ~/code/foundry            Improve observability
+○ closed     claude · yolo  ~/notes         2h ago    Weekly review
+○ elsewhere  claude         ~/scratch       1d ago    Spike on caching  (open in claude, pid 812)
+
+● needs you  running, asking you something
+● your turn  running, finished its turn
+○ lost       not running: tmux died · trails restore brings it back
+○ closed     not running: it ended · resume it from its directory
+○ elsewhere  not running here: open in a claude trails did not start
 ```
 
-`#2` marks the second session in the same directory. Piped, `ls` prints one
-tab-separated line per row, in the same order, with `-` for an empty field:
+`#2` marks the second session in the same directory, and the dim legend covers
+the states on screen. Piped, `ls` prints one tab-separated line per row, in the
+same order, with `-` for an empty field:
 
 ```text
-state  session  agent  yolo  dir  id  when  pid  title
+life  state  session  agent  yolo  dir  id  when  pid  title
 ```
 
 | Field | Values |
 |---|---|
-| `state` | `blocked`, `idle`, `working` (running) · `restore` (lost with tmux) · `recent`, `open` (finished; `open` is still held by a `claude` trails didn't start) |
-| `session` | the tmux session name, or `-` for a finished conversation |
+| `life` | `running` (the tmux session is there) or `stopped` |
+| `state` | `needs-you`, `your-turn`, `working` (running) · `lost`, `closed`, `elsewhere` (stopped) |
+| `session` | the tmux session name, or `-` for a conversation nothing is running |
 | `yolo` | `yolo` or `-` |
-| `when` | when a finished conversation was last active (Unix time), else `-` |
-| `pid` | the process holding an `open` one, else `-` |
+| `when` | when an ended conversation was last active (Unix time), else `-` |
+| `pid` | the process holding an `elsewhere` one, else `-` |
 
 That is what the menu-bar plugin below reads, and anything else can too. Set
 `TRAILS_RECENT_MAX=0` for a poll that only wants running sessions; it skips
@@ -128,7 +162,7 @@ trails swiftbar                 # link the plugin in; --remove takes it out
   you something and amber when one finished its turn; its bottom dot is green
   while any agent is working. The number beside it is how many want you.
 - **The menu** lists every running session. Each has *Resume*, which opens it in
-  a new tab of your terminal, and, once it's idle, *End session*.
+  a new tab of your terminal, and, once it's your turn, *End session*.
 - **Open sessions in** at the bottom picks the terminal: Terminal (the default),
   iTerm or Ghostty.
 - **Notifications:** an agent that stops working and stays stopped for 30 seconds
@@ -143,9 +177,9 @@ the `trails ls` it reads.
 
 | Variable | Default | Does |
 |---|---|---|
-| `TRAILS_RECENT_DAYS` | `10` | how far back `◷` rows look |
+| `TRAILS_RECENT_DAYS` | `10` | how far back closed sessions are listed |
 | `TRAILS_RECENT_MAX` | `5` | how many of them to show (`0` for none) |
-| `AGENT_SETTLE` | `0.35` | seconds between the two screen samples that tell `working` from `idle` |
+| `AGENT_SETTLE` | `0.35` | seconds between the two screen samples that tell *working* from *your turn* |
 | `AGENT_ASK_RE` | *(see script)* | regex meaning "this agent is asking you something" |
 
 ### Agents
@@ -179,7 +213,7 @@ Which agents trails can start, and how, is a list in
 | `yolo` | *(optional)* the flag Tab adds to run everything unconfirmed |
 | `session` | *(optional)* how trails learns which conversation a session is in, so it can come back after tmux dies. See below. |
 | `default_agent` | *(optional)* listed first in the picker |
-| `mode` | *(optional)* `default` (the agent's own, prompting mode) or `yolo`: the mode a `+ new` row starts in. Tab flips a row from it, so with `yolo` Tab is how you start one in default mode. Rows to resume (`◷`) come back in the mode they last ran in, and an agent with no `yolo` flag always runs in default mode. |
+| `mode` | *(optional)* `default` (the agent's own, prompting mode) or `yolo`: the mode an agent row under *start new* starts in. Tab flips a row from it, so with `yolo` Tab is how you start one in default mode. Closed sessions come back in the mode they last ran in, and an agent with no `yolo` flag always runs in default mode. |
 
 Only agents whose command is on `PATH` are offered. Recent conversations are
 read from claude's and opencode's own history, and are filed under the first
@@ -243,7 +277,7 @@ shares one set of sessions.
 ## How it works
 
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) covers how sessions are named and
-found, how `working` / `idle` / `blocked` is read off the screen, how sessions
+found, how *working*, *your turn* and *needs you* are read off the screen, how sessions
 survive tmux dying, where recent conversations come from, and how the map
 borrows sessions without owning them. Key design decisions are recorded in
 [docs/decisions/](docs/decisions/).

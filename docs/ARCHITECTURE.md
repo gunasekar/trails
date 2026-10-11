@@ -64,10 +64,30 @@ other record claims. An agent without a `session` block
 still launches; it just gets no record, so it can't be restored.
 
 The record and the tmux `@agent` option hold the agent *name*. Rename or remove
-an agent and its `↻` rows fail to restore with "unknown agent" and keep their
+an agent and its lost rows fail to restore with "unknown agent" and keep their
 record until the agent is back or the row is forgotten.
 
-## Who wants you: working, idle, blocked
+## Session states
+
+Every session has two signals: whether its tmux session is running (`●`) or not
+(`○`), and a state word. One table in the script, `STATES`, holds each state's
+glyph, colour, word, legend line and sort position, and every view draws from it:
+the picker, `trails ls` and its legend, the map, and the TSV's `state` column.
+
+| State | Running | Comes from |
+|---|---|---|
+| needs you | yes | `classify`: still, and asking (`blocked` inside the script) |
+| your turn | yes | `classify`: still, not asking (`idle`) |
+| working | yes | `classify`: the screen changed |
+| lost | no | a record whose session is gone |
+| closed | no | an agent's own history, with nothing running it |
+| elsewhere | no | the same, but held open by a `claude` trails didn't start |
+
+The README has the lifecycle diagram. The picker lists this directory's sessions in
+`STATES` order, then a *start new* rule and one row per agent; the rule's verb is
+`none`, and Enter on it reopens the picker.
+
+## Who wants you: working, your turn, needs you
 
 There are no per-agent hooks. Claude Code's hooks would report this exactly, but
 only for Claude, and the other CLIs have nothing. The signal every agent already
@@ -93,13 +113,12 @@ alert bookkeeping, not bytes written to the pane.
 
 ## trails ls
 
-`ls` answers "where is everything", box-wide, in one list built by `ls_rows`:
-running sessions first (`blocked`, `idle`, `working`, so most-wants-you first),
-then sessions lost with tmux (`restore`), then finished conversations newest first
-(`recent`, or `open` when a `claude` trails didn't start still holds one).
+`ls` answers "where is everything", box-wide, in one list built by `ls_rows`, in
+`STATES` order: running sessions most-wants-you first, then lost ones, then ended
+conversations newest first.
 
-Piped, it is TSV, a contract for notifiers: `state session agent yolo dir id when
-pid title`. An empty field is written `-`, never left empty, because tab counts
+Piped, it is TSV, a contract for notifiers: `life state session agent yolo dir id
+when pid title`, `life` being `running` or `stopped`. An empty field is written `-`, never left empty, because tab counts
 as whitespace to `read` and two tabs in a row collapse, shifting every later field.
 The title goes last because it is free text. On a terminal it is a padded table,
 with `#N` on the Nth session in a directory. The badge is read off the session
@@ -133,7 +152,7 @@ task=Fixing the flaky test
 this directory", so two sessions in one project would resume the same one.
 
 **The task is kept current** by every `sessions()` pass, which a menu-bar poll
-runs every few seconds, so a `↻` row can say what the session was doing.
+runs every few seconds, so a lost row can say what the session was doing.
 
 **So is the conversation.** The ID trails chose is only where a session started:
 `/resume` or `/clear` inside claude moves it to another one. Every `sessions()`
@@ -189,12 +208,12 @@ caches them, so a Tab doesn't pay for it again.
 
 Whether a claude conversation last ran YOLO comes from the transcript too: each
 turn records its `permissionMode`, and `bypassPermissions` is what
-`--dangerously-skip-permissions` runs as. A `◷` row resumes in that mode, the way a
-`↻` row comes back in its recorded one. opencode records nothing like it.
+`--dangerously-skip-permissions` runs as. A closed row resumes in that mode, the way a
+lost row comes back in its recorded one. opencode records nothing like it.
 
 The picker shows this directory's; `trails ls` shows every directory's.
 
-Conversations a record holds are left out, since they're already live or `↻`
+Conversations a record holds are left out, since they're already running or lost
 rows. A conversation still open in a `claude` that `trails` didn't start is
 marked `!`, and Enter refuses it. Claude writes a file per running process,
 `~/.claude/sessions/<pid>.json`, naming its `sessionId`, so "open" is that file's

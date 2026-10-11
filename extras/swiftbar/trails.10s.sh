@@ -178,11 +178,12 @@ if [[ $# -ge 2 && $2 == trails-* ]]; then
   exit 0
 fi
 
-# Running sessions only: `trails ls` also lists ones lost with tmux (restore) and finished
-# conversations (recent, open), and neither is anything to announce. TRAILS_RECENT_MAX=0
+# Running sessions only (`life` is running): `trails ls` also lists ones lost with tmux and
+# ended conversations, and neither is anything to announce. The life column is cut off, so
+# what's read below starts at the state. TRAILS_RECENT_MAX=0
 # skips reading conversation history altogether, the bulk of an ls, every 10 seconds.
 ROWS=$(TRAILS_RECENT_MAX=0 "$TRAILS" ls 2>/dev/null |
-  awk -F'\t' '$1 == "blocked" || $1 == "idle" || $1 == "working"')
+  awk -F'\t' '$1 == "running"' | cut -f2-)
 [ -n "$ROWS" ] || exit 0
 
 DIM='#5c6370' # the summary footer
@@ -255,10 +256,17 @@ TERMINAL_NAME=$(terminal_app "$CURRENT_TERMINAL")
 blocked=0 idle=0 working=0
 menu=''
 
-# The TSV is `state session agent yolo dir id when pid title`, with - for an empty field
-# (see trails' README) — the title last, so a task with spaces arrives whole.
+# The TSV is `life state session agent yolo dir id when pid title`, with - for an empty
+# field (see trails' README) — the title last, so a task with spaces arrives whole.
 while IFS=$'\t' read -r state name agent yolo _dir _id _when _pid task; do
   [ -n "$name" ] || continue
+  # trails names a running agent's state needs-you, your-turn or working; this file's logic
+  # keeps its own shorter names for them, and shows trails' words.
+  case $state in
+    needs-you) state=blocked word="needs you" ;;
+    your-turn) state=idle word="your turn" ;;
+    *) state=working word=working ;;
+  esac
   label=$agent
   [ "$yolo" = yolo ] && label+=" (YOLO)"
 
@@ -303,7 +311,7 @@ while IFS=$'\t' read -r state name agent yolo _dir _id _when _pid task; do
       ;;
   esac
 
-  line="${state} · ${label} · ${proj}${badge}"
+  line="${word} · ${label} · ${proj}${badge}"
   [ -n "$task" ] && line+=" — ${task}"
   menu+="${line//|/－} | sfimage=${icon} refresh=true"$'\n'
   # What to do about it, one level down. Resume for every state — even a working one is
@@ -352,9 +360,9 @@ while IFS=$'\t' read -r state name agent yolo _dir _id _when _pid task; do
 
     if [ "$seen" = 1 ] && [ "$said" = 0 ] && [ $((NOW - since)) -ge "$GRACE" ]; then
       if [ "$state" = blocked ]; then
-        notify "${agent} needs you · ${proj}" "${task:-Waiting on a permission prompt}"
+        notify "${agent} · needs you · ${proj}" "${task:-Waiting on a permission prompt}"
       else
-        notify "${agent} idle · ${proj}" "${task:-Finished — waiting for your next move}"
+        notify "${agent} · your turn · ${proj}" "${task:-Finished — waiting for your next move}"
       fi
       said=1
     fi
@@ -401,7 +409,7 @@ fi
 echo '---'
 printf '%s' "$menu"
 echo '---'
-echo "${blocked} blocked · ${idle} idle · ${working} working | color=${DIM} size=11"
+echo "${blocked} needs you · ${idle} your turn · ${working} working | color=${DIM} size=11"
 echo "Open sessions in"
 for t in $TERMINALS; do
   name=$(terminal_app "$t")
