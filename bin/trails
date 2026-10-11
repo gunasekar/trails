@@ -11,6 +11,8 @@
 #   trails restore          bring back every session that died with tmux (a reboot, a
 #                           crash, kill-server), each resuming its conversation, detached.
 #                           See "Surviving tmux" below.
+#   trails config           the agent profiles file, ~/.config/trails/config.json. See
+#                           "Agent profiles" below.
 #   trails map [N]          several agents at once in one window. Pick them, or take the
 #                           N that most want you. Bare `map` re-attaches to a map
 #                           already up rather than rebuilding; `map new` forces a fresh
@@ -50,63 +52,173 @@
 # resume. Every frontend goes through this one script; the same session is reachable
 # from a plain terminal with `tmux a -t trails-<project>`.
 
-# ─── Agent registry ──────────────────────────────────────────────────────────
-# name|command|args|yolo|pin|resume|idform — the single source of truth. Drives the menu, the PATH filter
-# and the launch, so adding an agent is one line here and nothing else.
+# ─── Agent profiles ──────────────────────────────────────────────────────────
+# Which agents trails can start, and how, come from a JSON file you edit — never from this
+# script. The shape follows claude-squad's, so a profile is a name and the command it runs:
 #
-# Every agent starts in its normal, permission-prompting mode. The 4th field is the flag that
-# turns that agent's "run every command unconfirmed" mode on, and it is opt-in per launch:
-# Tab in the picker arms the highlighted row (it relabels to "(YOLO)"), and Enter then starts
-# that one session with the flag appended. Nothing is armed unless you Tab it, so a stray
-# Enter is always the safe mode. The flag lives here rather than baked into the command
-# because the mode is a pick-time choice now — not a fixed property of a row.
+#   ~/.config/trails/config.json
+#   {
+#     "default_profile": "claude",
+#     "profiles": [
+#       { "name": "claude", "program": "claude",
+#         "yolo": "--dangerously-skip-permissions",
+#         "session": { "start": "--session-id {id}", "resume": "--resume {id}", "id": "uuid" } },
+#       { "name": "aider", "program": "aider --model ollama_chat/gemma3:1b", "yolo": "--yes-always" }
+#     ]
+#   }
 #
-# Each CLI spells the flag differently, which is the whole reason it is a per-agent field:
-#   claude       --dangerously-skip-permissions
-#   cursor       --force   (alias --yolo — allow every command unless explicitly denied)
-#   opencode     --auto    (auto-approve permissions not explicitly denied)
-#   antigravity  --dangerously-skip-permissions   (agy — Google reused claude's flag name)
-# pi is the exception that needs no flag: it has no permission gating at all — "no permission
-# popups" by design (its README) — so the plain "new  pi" row already runs tools unconfirmed and
-# there is nothing for a flag to switch on. Its field is empty like a flagless agent's, so Tab is
-# a no-op, but the reason is the opposite — pi is *always* in the mode YOLO would grant, not
-# missing it. (pi's own --approve only trusts project-local config files, never tool calls.)
-# agy is not installed on this box, so its flag comes from Google's CLI docs, not a live --help.
-# launch() refuses a YOLO launch as root when the flag is --dangerously-skip-permissions (claude
-# and agy): that flag also auto-approves the sandbox-bypass prompt, so skip-permissions plus root
-# is the one combination catastrophic enough to guard (see there); plain, prompting mode needs none.
+#   name      what the picker calls it. Letters, digits, . _ - only: it is part of a picker
+#             target and a tmux option value.
+#   program   the command line, split on spaces. No shell quoting: anything that needs it
+#             belongs in a wrapper script.
+#   yolo      the flag that runs everything unconfirmed. Opt-in per launch with Tab, so a
+#             stray Enter is always the safe mode. Omit it for an agent that has none.
+#   session   what makes a session survive tmux (see "Surviving tmux"): `start` begins a
+#             conversation under an ID trails chooses, `resume` picks one back up, {id} is
+#             where the ID goes, and `id` is its shape — "uuid", or "ses_hex" (ses_ + 32 hex,
+#             what opencode insists on). Without it the agent still runs, it just isn't
+#             brought back after a reboot.
+#   default_profile  listed first in the picker.
 #
-# Fields 5-7 make a session restorable after tmux dies (see "Surviving tmux"): the flag that
-# starts a conversation under an ID we choose, the flag that resumes one by ID, and the shape
-# of that ID. Choosing the ID up front is the point — `--continue` means "the latest in this
-# directory", so trails-foo and trails-foo-2 would both resume the same one. Empty fields mean
-# the agent is not restorable, and launch() simply writes no record for it. Checked against
-# each CLI's --help (claude 2.1.296, opencode 2.0.25) and a live create-then-resume:
-#   claude    --session-id <uuid> / --resume <uuid>
-#   opencode  --session <id> for both — it creates the session if the ID is new. It refuses
-#             an ID not starting "ses" ('Expected a string starting with "ses"'), hence ses_hex.
-# cursor-agent can do it too, but only by asking `cursor-agent create-chat` for an ID before
-# every launch rather than choosing one, so it is left out of the first cut.
-AGENTS='claude|claude||--dangerously-skip-permissions|--session-id|--resume|uuid
-cursor|cursor-agent||--force|||
-antigravity|agy||--dangerously-skip-permissions|||
-opencode|opencode||--auto|--session|--session|ses_hex
-pi|pi|||||'
+# Without a file, the built-in profiles below apply; `trails config` writes them out as a
+# starting point. Only profiles whose command is on PATH are offered, so listing an agent you
+# have not installed costs nothing.
+#
+# Choosing the conversation ID up front is the point of `session` — `--continue` means "the
+# latest in this directory", so trails-foo and trails-foo-2 would both resume the same one.
+#
+# Recent conversations (◷) are read from claude's and opencode's own stores, and filed under
+# the first profile that runs that command — the default profile, if it is one of them.
+CONFIG=${XDG_CONFIG_HOME:-$HOME/.config}/trails/config.json
 
-agent_row() {
-  printf '%s\n' "$AGENTS" | awk -F'|' -v n="$1" '$1 == n { print; exit }'
+DEFAULT_CONFIG='{
+  "default_profile": "claude",
+  "profiles": [
+    {
+      "name": "claude",
+      "program": "claude",
+      "yolo": "--dangerously-skip-permissions",
+      "session": { "start": "--session-id {id}", "resume": "--resume {id}", "id": "uuid" }
+    },
+    { "name": "codex", "program": "codex", "yolo": "--dangerously-bypass-approvals-and-sandbox" },
+    { "name": "gemini", "program": "gemini", "yolo": "--approval-mode=yolo" },
+    { "name": "cursor", "program": "cursor-agent", "yolo": "--force" },
+    {
+      "name": "opencode",
+      "program": "opencode",
+      "yolo": "--auto",
+      "session": { "start": "--session {id}", "resume": "--session {id}", "id": "ses_hex" }
+    },
+    {
+      "name": "copilot",
+      "program": "copilot",
+      "yolo": "--allow-all",
+      "session": { "start": "--session-id {id}", "resume": "--resume={id}", "id": "uuid" }
+    },
+    { "name": "qwen", "program": "qwen", "yolo": "--yolo" },
+    { "name": "aider", "program": "aider", "yolo": "--yes-always" },
+    { "name": "amp", "program": "amp", "yolo": "--dangerously-allow-all" },
+    { "name": "goose", "program": "goose session" },
+    { "name": "crush", "program": "crush", "yolo": "--yolo" },
+    { "name": "kiro", "program": "kiro-cli chat", "yolo": "--trust-all-tools" },
+    { "name": "antigravity", "program": "agy", "yolo": "--dangerously-skip-permissions" },
+    {
+      "name": "pi",
+      "program": "pi",
+      "session": { "start": "--session-id {id}", "resume": "--session-id {id}", "id": "uuid" }
+    }
+  ]
+}'
+
+# The profiles as one line each, name|command|args|yolo|start|resume|idform, default first.
+# A bar, not a tab: tab is whitespace to `read`, which would merge the empty fields most
+# profiles have. jq does the JSON, because sed on hand-edited JSON is how a stray space in
+# someone's config becomes a silent wrong answer. A profile with no usable name or program
+# is skipped with a warning rather than failing the lot.
+load_profiles() {
+  command -v jq >/dev/null 2>&1 || {
+    echo "trails: needs jq to read its agent profiles — brew install jq (or apt install jq)" >&2
+    return 1
+  }
+  if [ -f "$CONFIG" ]; then
+    json=$(cat "$CONFIG") || return 1
+    src=$CONFIG
+  else
+    json=$DEFAULT_CONFIG
+    src="the built-in profiles"
+  fi
+  out=$(printf '%s' "$json" | jq -r '
+    def words: split(" ") | map(select(. != ""));
+    (.default_profile // "") as $d
+    | [.profiles[]?] | (map(select(.name == $d)) + map(select(.name != $d)))[]
+    | if (.name | type) != "string" or (.name | test("^[A-Za-z0-9._-]+$") | not)
+         or (.program | type) != "string" or ((.program | words | length) == 0)
+      then "!" + (.name // "(no name)" | tostring)
+      else [.name, (.program | words | .[0]), (.program | words | .[1:] | join(" ")),
+            (.yolo // ""), (.session.start // ""), (.session.resume // ""), (.session.id // "")]
+           | map(tostring | gsub("\\|"; "")) | join("|")
+      end' 2>&1) || {
+    echo "trails: can't read $src: $out" >&2
+    return 1
+  }
+  printf '%s\n' "$out" | while read -r line; do
+    case $line in
+      !*) echo "trails: skipping profile '${line#!}' in $src — it needs a name (letters, digits, . _ -) and a program" >&2 ;;
+      *) printf '%s\n' "$line" ;;
+    esac
+  done
 }
 
-# The flag that turns on an agent's YOLO (run-everything-unconfirmed) mode — the 4th field,
-# empty for an agent that has none. toggle_yolo and launch both ask through here, so "which
-# agents can be armed" has a single answer and a session name (an attach row) simply misses.
+agent_row() {
+  printf '%s\n' "$PROFILES" | awk -F'|' -v n="$1" '$1 == n { print; exit }'
+}
+
+# The first profile that runs command $1 (by basename): who recent conversations from that
+# agent's own store are filed under.
+store_profile() {
+  printf '%s\n' "$PROFILES" | awk -F'|' -v c="$1" '{ n = split($2, p, "/"); if (p[n] == c) { print $1; exit } }'
+}
+
+# Can profile $1 pick a conversation back up? It has a session.resume.
+resumable() { [ -n "$1" ] && [ -n "$(agent_row "$1" | awk -F'|' '{ print $6 }')" ]; }
+
+# A session template with its ID filled in. A template written as a bare flag ("--resume")
+# gets the ID appended, which is what that spelling can only mean.
+with_id() {
+  case $1 in
+    *"{id}"*) printf '%s' "$1" | sed "s/{id}/$2/g" ;;
+    *) printf '%s %s' "$1" "$2" ;;
+  esac
+}
+
+# `trails config` — the profiles file, created from the built-ins the first time so there is
+# something to edit, then opened in $EDITOR when there is a terminal to open it in.
+edit_config() {
+  if [ ! -f "$CONFIG" ]; then
+    command -v jq >/dev/null 2>&1 || {
+      echo "trails: needs jq — brew install jq (or apt install jq)" >&2
+      exit 1
+    }
+    mkdir -p "$(dirname "$CONFIG")" || exit 1
+    printf '%s\n' "$DEFAULT_CONFIG" | jq . >"$CONFIG" || exit 1
+    echo "trails: wrote the built-in profiles to $CONFIG" >&2
+  fi
+  if [ -t 0 ] && [ -t 1 ] && [ -n "${VISUAL:-${EDITOR:-}}" ]; then
+    exec ${VISUAL:-$EDITOR} "$CONFIG"
+  fi
+  printf '%s\n' "$CONFIG"
+}
+
+# The flag that turns on an agent's YOLO (run-everything-unconfirmed) mode, empty for an agent
+# that has none. toggle_yolo and launch both ask through here, so "which agents can be armed"
+# has a single answer and a session name (an attach row) simply misses.
 yolo_flag() {
   agent_row "$1" | awk -F'|' '{ print $4 }'
 }
 
 # Only offer an agent whose command actually exists here.
 available_agents() {
-  printf '%s\n' "$AGENTS" | while IFS='|' read -r name cmd _; do
+  printf '%s\n' "$PROFILES" | while IFS='|' read -r name cmd _; do
     command -v "$cmd" >/dev/null 2>&1 && printf '%s\n' "$name"
   done
 }
@@ -411,8 +523,7 @@ list_sessions() {
       if (length(c1[NR]) > w1) w1 = length(c1[NR])
       if (aw[NR] > w2) w2 = aw[NR]
       if (length(c3[NR]) > w3) w3 = length(c3[NR])
-      if (st == "restore") lost = 1
-      if (st == "recent" || st == "open") done = 1
+      seen[st] = 1
     }
     END {
       for (i = 1; i <= NR; i++) {
@@ -420,9 +531,21 @@ list_sessions() {
         sub(/ +$/, "", line)
         print line
       }
-      if (lost && done) print dim "↻ trails restore brings these back · ◷ run trails in its directory to resume" rst
-      else if (lost) print dim "↻ trails restore brings these back" rst
-      else if (done) print dim "◷ run trails in its directory to resume" rst
+      # A legend for the icons this listing used, dim, in the order rows appear — reference,
+      # not news, so it stays out of the way and skips anything not on screen.
+      n = split("blocked idle working restore recent open", order, " ")
+      key["blocked"] = "● blocked  running, asking you something"
+      key["idle"] = "● idle     running, finished its turn"
+      key["working"] = "● working  running, busy"
+      key["restore"] = "↻ restore  lost when tmux died · trails restore brings it back"
+      key["recent"] = "◷ recent   finished · run trails in its directory to resume"
+      key["open"] = "! open     finished, but open in a claude trails did not start"
+      first = 1
+      for (k = 1; k <= n; k++) {
+        if (!(order[k] in seen)) continue
+        if (first) { print ""; first = 0 }
+        print dim key[order[k]] rst
+      }
     }
   '
 }
@@ -706,8 +829,8 @@ launch() {
     exit 1
   }
   # args is normally empty; the yolo flag is appended only when this launch was armed (see
-  # mode below), and pin/resume/idform only matter to agents that can be restored.
-  IFS='|' read -r _ cmd args yolo pin resume idform <<EOF
+  # mode below), and the session templates only matter to agents that can be restored.
+  IFS='|' read -r _ cmd args yolo start resume idform <<EOF
 $row
 EOF
 
@@ -726,14 +849,15 @@ EOF
   # that is catastrophic rather than merely unwise. Only the yolo launch is refused: plain,
   # prompting mode is merely ordinary as root.
   #
-  # Keyed on the flag, not the agent name, so every agent whose YOLO flag is
-  # --dangerously-skip-permissions is covered without a list to keep in sync — today claude and
-  # antigravity's agy, which reused the name. That flag also auto-approves the sandbox-bypass
-  # prompt, which is what makes it (and not --force or --auto) the one worth refusing as root.
+  # Keyed on the flag, not the profile, so any profile using one of these is covered however
+  # it is named: --dangerously-skip-permissions (claude, and agy, which reused the name) also
+  # auto-approves the sandbox-bypass prompt, and codex's --dangerously-bypass-approvals-and-sandbox
+  # drops the sandbox outright. That is what makes them, and not --force or --auto, the ones
+  # worth refusing as root.
   if [ "$2" = yolo ] && [ "$(id -u)" -eq 0 ]; then
     case $yolo in
-      *--dangerously-skip-permissions*)
-        echo "trails: refusing $1 --dangerously-skip-permissions as root" >&2
+      *--dangerously-skip-permissions* | *--dangerously-bypass-approvals-and-sandbox*)
+        echo "trails: refusing $1 $yolo as root" >&2
         exit 1
         ;;
     esac
@@ -743,17 +867,17 @@ EOF
   # separate arguments is the point. A ◷ row resumes here too, with nothing to record: there
   # is no tmux session for a record to bring back.
   # shellcheck disable=SC2086
-  [ -n "$USE_TMUX" ] || exec "$cmd" $args ${3:+$resume "$3"}
+  [ -n "$USE_TMUX" ] || exec "$cmd" $args ${3:+$(with_id "$resume" "$3")}
 
   # The conversation ID: the one being resumed, or a fresh one chosen here so this session
-  # can be resumed later. Neither for an agent with no pin flag, which gets no record.
+  # can be resumed later. Neither for a profile with no session block, which gets no record.
   id=
   if [ -n "$3" ]; then
     id=$3
-    args="${args:+$args }$resume $id"
-  elif [ -n "$pin" ]; then
+    args="${args:+$args }$(with_id "$resume" "$id")"
+  elif [ -n "$start" ] && [ -n "$resume" ]; then
     id=$(new_id "$idform")
-    args="${args:+$args }$pin $id"
+    args="${args:+$args }$(with_id "$start" "$id")"
   fi
 
   # Restore asks for its old name back, and gets it unless something has since taken it —
@@ -888,7 +1012,7 @@ esac
 # shellcheck disable=SC2016 # expanded by the wrapper's sh, not here
 WRAP='self=$1 name=$2; shift 2; trap : INT QUIT; "$@"; s=$?; "$self" --forget "$name"; exit $s'
 
-# A conversation ID in the shape the agent's pin flag wants (AGENTS, field 7).
+# A conversation ID in the shape the profile's session.id asks for.
 new_id() {
   if command -v uuidgen >/dev/null 2>&1; then
     u=$(uuidgen | tr '[:upper:]' '[:lower:]')
@@ -1057,7 +1181,8 @@ restore_all() {
 # The cost is bounded by the rows shown, not the history behind them: a RECENT_DAYS window
 # on mtime, newest first, and only as many files opened as it takes to fill RECENT_MAX rows.
 #
-# Only agents with a resume flag in AGENTS can be offered, and of those, these two stores:
+# Only a profile with a session block can resume, and of those, the first to run each of
+# these two commands is the one whose store is read:
 #   claude    ~/.claude/projects/<cwd, non-alphanumerics as ->/<id>.jsonl, a JSON line per
 #             event. "entrypoint":"cli" keeps out conversations scripts ran through the SDK —
 #             most of the files there, measured. The title is the last ai-title line, the
@@ -1143,7 +1268,7 @@ claude_recent() {
       yolo=-
       [ "$(grep -o '"permissionMode":"[^"]*"' "$f" | tail -n 1)" = '"permissionMode":"bypassPermissions"' ] && yolo=yolo
       pid=$(claude_open_pid "$id") || pid=-
-      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$m" claude "$dir" "$id" "$yolo" "$pid" "$title"
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$m" "$2" "$dir" "$id" "$yolo" "$pid" "$title"
       n=$((n + 1))
       [ "$n" -lt "$RECENT_MAX" ] || break
     done
@@ -1157,7 +1282,7 @@ opencode_recent() {
   where=
   [ -n "$1" ] && where="AND directory = '$(printf '%s' "$1" | sed "s/'/''/g")'"
   sqlite3 -readonly -separator "$TAB" "$db" "
-    SELECT time_updated / 1000, 'opencode', directory, id, '-', '-',
+    SELECT time_updated / 1000, '$2', directory, id, '-', '-',
            replace(replace(title, char(9), ' '), char(10), ' ')
     FROM session
     WHERE parent_id IS NULL AND time_archived IS NULL AND time_updated >= $since
@@ -1173,9 +1298,11 @@ opencode_recent() {
 recent_rows() {
   [ "$RECENT_MAX" -gt 0 ] 2>/dev/null || return 0
   avail=" $(available_agents | tr '\n' ' ') "
+  cp=$(store_profile claude)
+  op=$(store_profile opencode)
   {
-    case $avail in *" claude "*) claude_recent "$1" ;; *) ;; esac
-    case $avail in *" opencode "*) opencode_recent "$1" ;; *) ;; esac
+    resumable "$cp" && case $avail in *" $cp "*) claude_recent "$1" "$cp" ;; *) ;; esac
+    resumable "$op" && case $avail in *" $op "*) opencode_recent "$1" "$op" ;; *) ;; esac
   } | sort -t "$TAB" -k1,1nr | head -n "$RECENT_MAX"
 }
 
@@ -1591,6 +1718,8 @@ usage: trails [command]
   map [N|new]       several agents in one window — pick them, or take the N that
                     most want you; `new` rebuilds instead of re-attaching
   restore           bring back every session that died with tmux (the ↻ rows)
+  config            the agent profiles file: written from the built-ins the first
+                    time, then opened in $EDITOR (~/.config/trails/config.json)
   help              this
 
 In the picker (each agent, with its sessions for this project beneath it):
@@ -1611,6 +1740,15 @@ Env:
 EOF
 }
 
+# The profiles, read once per run. Not for what never starts or names an agent — help, config,
+# and the wrapper's --forget, which has to work even when the config is broken. ls carries on
+# without them (only its ◷ rows need them), so a typo in the file can't blank a menu bar.
+case $1 in
+  help | -h | --help | config | --forget | --peek) PROFILES= ;;
+  ls) PROFILES=$(load_profiles) || PROFILES= ;;
+  *) PROFILES=$(load_profiles) || exit 1 ;;
+esac
+
 case $1 in
   help | -h | --help)
     usage
@@ -1625,6 +1763,10 @@ case $1 in
   # from wherever you happened to walk back to.
   map)
     map "$2"
+    exit 0
+    ;;
+  config)
+    edit_config
     exit 0
     ;;
   # Box-wide like ls: each session comes back in its own recorded directory, so where you

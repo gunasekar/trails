@@ -33,8 +33,9 @@ brew install gunasekar/tap/trails
 By hand: it's one POSIX `sh` script. Put [`bin/trails`](bin/trails) anywhere on
 your `PATH`.
 
-It needs `tmux` and `fzf`, plus at least one agent CLI on `PATH`. Reading recent
-opencode conversations uses `sqlite3`, which macOS ships with.
+It needs `tmux`, `fzf` and `jq`, plus at least one agent CLI on `PATH`. macOS
+ships `jq`; Homebrew installs all three. Reading recent opencode conversations uses
+`sqlite3`, which macOS ships with.
 
 ## Quickstart
 
@@ -53,6 +54,7 @@ trails map 4        # the four that most want you, side by side in one window
 | `trails ls` | where every agent session is: running, lost when tmux died, or finished in the last 10 days |
 | `trails restore` | bring back every session lost when tmux died, each on its own conversation, detached |
 | `trails map [N]` | several running agents side by side in one window: re-attach to the map already up, pick a set, or take the `N` that most want you (`map new` forces a fresh pick) |
+| `trails config` | open the agent profiles file in `$EDITOR`, writing the built-ins first if there isn't one |
 | `trails help` | the commands and picker keys (also `-h`, `--help`) |
 
 ### The picker
@@ -115,19 +117,65 @@ running sessions; it skips reading conversation history.
 | `AGENT_SETTLE` | `0.35` | seconds between the two screen samples that tell `working` from `idle` |
 | `AGENT_ASK_RE` | *(see script)* | regex meaning "this agent is asking you something" |
 
-### Agents
+### Agents and profiles
 
-Agents are rows in the `AGENTS` table at the top of the script: name, command,
-extra args, YOLO flag, and the three fields that make a session restorable.
-Adding one is one line. Only agents whose command is on `PATH` are offered.
+Which agents trails can start is a list of profiles in
+`~/.config/trails/config.json`. With no file, the built-in profiles apply.
+`trails config` writes them out as a starting point and opens the file in
+`$EDITOR`. Changing agents never needs a change to trails.
 
-| Agent | Command | YOLO flag | Restore and resume |
+```json
+{
+  "default_profile": "claude",
+  "profiles": [
+    {
+      "name": "claude",
+      "program": "claude",
+      "yolo": "--dangerously-skip-permissions",
+      "session": { "start": "--session-id {id}", "resume": "--resume {id}", "id": "uuid" }
+    },
+    { "name": "claude-opus", "program": "claude --model opus", "yolo": "--dangerously-skip-permissions" },
+    { "name": "aider", "program": "aider --model ollama_chat/gemma3:1b", "yolo": "--yes-always" }
+  ]
+}
+```
+
+| Field | Means |
+|---|---|
+| `name` | what the picker shows. Letters, digits, `.`, `_` and `-` |
+| `program` | the command line to run, split on spaces (no shell quoting; use a wrapper script for anything fancier) |
+| `yolo` | *(optional)* the flag Tab adds to run everything unconfirmed |
+| `session` | *(optional)* how to start a conversation under an ID trails chooses (`start`) and resume it (`resume`); `{id}` marks where the ID goes, and `id` is `uuid` or `ses_hex`. This is what lets a session come back after tmux dies. |
+| `default_profile` | *(optional)* listed first in the picker |
+
+Only profiles whose command is on `PATH` are offered. Recent conversations are
+read from claude's and opencode's own history, and are filed under the first
+profile that runs `claude` or `opencode`.
+
+The built-in profiles, checked against each tool's docs or `--help` in October
+2026:
+
+| Profile | Runs | YOLO flag | Restores after tmux dies |
 |---|---|---|---|
 | claude | `claude` | `--dangerously-skip-permissions` | yes |
+| codex | `codex` | `--dangerously-bypass-approvals-and-sandbox` | no |
+| gemini | `gemini` | `--approval-mode=yolo` | no |
 | cursor | `cursor-agent` | `--force` | no |
-| antigravity | `agy` | `--dangerously-skip-permissions` | no |
 | opencode | `opencode` | `--auto` | yes |
-| pi | `pi` | none (it never asks) | no |
+| copilot | `copilot` | `--allow-all` | yes |
+| qwen | `qwen` | `--yolo` | no |
+| aider | `aider` | `--yes-always` | no |
+| amp | `amp` | `--dangerously-allow-all` | no |
+| goose | `goose session` | none (set `GOOSE_MODE=auto`) | no |
+| crush | `crush` | `--yolo` | no |
+| kiro | `kiro-cli chat` | `--trust-all-tools` | no |
+| antigravity | `agy` | `--dangerously-skip-permissions` | no |
+| pi | `pi` | none (it never asks) | yes |
+
+"No" means the tool can only resume an ID it made itself, so trails can't choose
+one up front to bring the session back by. The agent still runs normally in tmux.
+trails refuses a YOLO launch as root for the two flags that also bypass a sandbox
+(`--dangerously-skip-permissions`, `--dangerously-bypass-approvals-and-sandbox`).
 
 ### From an editor
 

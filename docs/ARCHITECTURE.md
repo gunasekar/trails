@@ -37,6 +37,24 @@ None of this is required, but a tmux.conf can use those options:
   map's pane borders read the same string.
 - **A second prefix that also reaches nested clients,** which the map uses.
 
+## Agent profiles
+
+What trails can start comes from `~/.config/trails/config.json`, or the built-in
+profiles (the same JSON, inside the script) when there is no file. `load_profiles`
+reads it once per run with `jq` and turns each profile into one line,
+`name|command|args|yolo|start|resume|idform`, default profile first. Everything
+else asks through `agent_row`. A bar, not a tab, separates the fields, because
+most profiles leave some empty and tab counts as whitespace to `read`.
+
+`launch` builds the command from that line: the program's words, the YOLO flag if
+the row was armed, then the session template with a fresh ID (`start`) or the one
+being resumed (`resume`), `{id}` filled in. A profile without a `session` block
+still launches; it just gets no record, so it can't be restored.
+
+The record and the tmux `@agent` option hold the profile *name*. Rename or remove
+a profile and its `↻` rows fail to restore with "unknown agent" and keep their
+record until the profile is back or the row is forgotten.
+
 ## Who wants you: working, idle, blocked
 
 There are no per-agent hooks. Claude Code's hooks would report this exactly, but
