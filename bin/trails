@@ -10,6 +10,8 @@
 #   aigent restore [-n]     bring back every session that died with tmux (a reboot, a
 #                           crash, kill-server), each resuming its conversation, detached.
 #                           -n (--dry-run) lists them instead. See "Surviving tmux" below.
+#   aigent recent           conversations from the last 10 days, every directory — the
+#                           ◷ rows' source. See "Recent conversations" below.
 #   aigent cockpit [N]      several agents at once in one window. Pick them, or take the
 #                           N that most want you. Bare `cockpit` re-attaches to a cockpit
 #                           already up rather than rebuilding; `cockpit new` forces a fresh
@@ -24,11 +26,14 @@
 # In the picker: tab arms the highlighted agent for YOLO, ctrl-a arms any row to hold this
 # Mac awake for as long as that session lives (for the run you start and walk away from —
 # see toggle_awake), ctrl-x kills the highlighted session. A ↻ row is a session that died with
-# tmux: enter brings it back on its old conversation, ctrl-x forgets it.
+# tmux: enter brings it back on its old conversation, ctrl-x forgets it. A ◷ row is a recent
+# conversation in this directory that nothing is running: enter resumes it, tab arms it for YOLO.
 #
 # Env:
 #   AGENT_SETTLE           seconds between the two screen samples (default 0.35)
 #   AGENT_ASK_RE           regex meaning "the agent is asking you something"
+#   AIGENT_RECENT_DAYS     how far back ◷ rows and `aigent recent` look (default 10)
+#   AIGENT_RECENT_MAX      how many of them to show (default 5)
 #
 # `aigent`, not `agent`: ~/.local/bin is a shared namespace, and cursor-agent ships
 # a binary called `agent` that overwrote this script's symlink on install and on
@@ -473,12 +478,13 @@ kill_session() {
 # tab: arm the highlighted agent for YOLO, or disarm it if it was already armed. Exactly one
 # agent can be armed at a time — arming a second replaces the first — so the state is a single
 # name in a file, not a set. Only an agent with a YOLO flag can be armed; Tab on an attach row
-# (a session name) or a flagless agent (pi, antigravity) finds no flag and is a no-op. The
+# (a session name) or a flagless agent (pi, antigravity) finds no flag and is a no-op. A ◷ row
+# arms too: its target is agent:id, and the flag is its agent's. The
 # file is $AIGENT_YOLO_STATE, exported by the dispatch below and so inherited by this
 # subprocess fzf spawns. print_menu reads the same file to relabel the row and set its verb.
 toggle_yolo() {
   [ -n "$AIGENT_YOLO_STATE" ] || return 0
-  [ -n "$(yolo_flag "$1")" ] || return 0
+  [ -n "$(yolo_flag "${1%%:*}")" ] || return 0
   cur=
   [ -s "$AIGENT_YOLO_STATE" ] && cur=$(cat "$AIGENT_YOLO_STATE")
   if [ "$cur" = "$1" ]; then
@@ -571,18 +577,43 @@ print_menu() {
         "$(rec_get "$name" agent)" "$name" "${yolo:+ · YOLO}" "${task:+  $task}"
     done)
   fi
+  # The one row armed for YOLO (toggle_yolo wrote it); empty if none. An agent's row carries
+  # the verb "yolo" so the dispatch launches it with the flag, and draws "(YOLO)" in yellow so
+  # you can see what Enter will do; a ◷ row does the same as "resume-yolo". Every other agent
+  # is a plain "new" row.
+  armed=
+  [ -n "$AIGENT_YOLO_STATE" ] && [ -s "$AIGENT_YOLO_STATE" ] && armed=$(cat "$AIGENT_YOLO_STATE")
+
+  # Recent conversations here that nothing is running (see "Recent conversations"), last under
+  # their agent: the furthest from wanting you. From the dispatch's cache, like the running
+  # block: reading them costs ~150ms, which every Tab would pay, and nothing the picker does
+  # changes them. The target is agent:id, which the dispatch splits, and which ctrl-x and
+  # ctrl-a pass through harmlessly.
+  recent=
+  if [ -n "$AIGENT_RECENT_CACHE" ] && [ -s "$AIGENT_RECENT_CACHE" ]; then
+    now=$(date +%s)
+    recent=$(while IFS="$TAB" read -r m agent _ id title pid; do
+      if [ -n "$pid" ]; then
+        # Still open in a claude aigent did not start: shown so you know where it went, but
+        # the verb is one the dispatch refuses rather than resumes. Tab can't arm it either.
+        printf '%s\topen\t%s:%s\t%s!%s %s[%s · open in %s]%s  %s\n' \
+          "$agent" "$agent" "$id" "$YEL" "$RST" "$DIM" "$(ago "$m" "$now")" "$agent" "$RST" "$title"
+        continue
+      fi
+      verb=resume yolo=
+      [ "$agent:$id" = "$armed" ] && verb=resume-yolo yolo="  $YEL(YOLO)$RST"
+      printf '%s\t%s\t%s:%s\t%s◷ [%s]%s  %s%s\n' \
+        "$agent" "$verb" "$agent" "$id" "$DIM" "$(ago "$m" "$now")" "$RST" "$title" "$yolo"
+    done <"$AIGENT_RECENT_CACHE")
+  fi
+
   # `$(...)` eats trailing newlines, so each block gets its own back or the last row of one
   # welds onto the first of the next.
   children=$(
     [ -n "$running" ] && printf '%s\n' "$running"
     [ -n "$dead" ] && printf '%s\n' "$dead"
+    [ -n "$recent" ] && printf '%s\n' "$recent"
   )
-
-  # The one agent armed for YOLO (toggle_yolo wrote it); empty if none. Its row carries the
-  # verb "yolo" so the dispatch launches it with the flag, and draws "(YOLO)" in yellow so you
-  # can see what Enter will do. Every other agent is a plain "new" row.
-  armed=
-  [ -n "$AIGENT_YOLO_STATE" ] && [ -s "$AIGENT_YOLO_STATE" ] && armed=$(cat "$AIGENT_YOLO_STATE")
 
   # A tree: each agent's row starts a fresh one, and its sessions hang beneath it as branches.
   # Same three fields throughout — verb, target, what's drawn — so the selection, Tab, ctrl-a
@@ -704,9 +735,10 @@ EOF
 
   # $args is a controlled, space-separated field from the table above; splitting it into
   # separate arguments is the point. $awake_cmd is unquoted for the same reason and one
-  # more: empty, it has to vanish rather than become an argument.
+  # more: empty, it has to vanish rather than become an argument. A ◷ row resumes here too,
+  # with nothing to record: there is no tmux session for a record to bring back.
   # shellcheck disable=SC2086
-  [ -n "$USE_TMUX" ] || exec $awake_cmd "$cmd" $args
+  [ -n "$USE_TMUX" ] || exec $awake_cmd "$cmd" $args ${4:+$resume "$4"}
 
   # The conversation ID: the one being resumed, or a fresh one chosen here so this session
   # can be resumed later. Neither for an agent with no pin flag, which gets no record.
@@ -997,6 +1029,165 @@ restore_hint() {
   [ "$n" -gt 0 ] || return 0
   printf '%s↻ %s can be restored — aigent restore -n%s\n' "$DIM" \
     "$([ "$n" -eq 1 ] && echo "1 session" || echo "$n sessions")" "$RST"
+}
+
+# ─── Recent conversations ────────────────────────────────────────────────────
+# Records are no history: the wrapper forgets one the moment its agent exits, so they only
+# ever hold what is running or what tmux took down. Each CLI keeps a history anyway — it is
+# what its own --resume reads — so "what was I working on" is answered from there, read when
+# asked, rather than from a log of our own that would start empty and miss every agent
+# started without aigent. Old and new conversations take the same path; nothing to import.
+#
+# The cost is bounded by the rows shown, not the history behind them: a RECENT_DAYS window
+# on mtime, newest first, and only as many files opened as it takes to fill RECENT_MAX rows.
+#
+# Only agents with a resume flag in AGENTS can be offered, and of those, these two stores:
+#   claude    ~/.claude/projects/<cwd, non-alphanumerics as ->/<id>.jsonl, a JSON line per
+#             event. "entrypoint":"cli" keeps out conversations scripts ran through the SDK —
+#             most of the files there, measured. The title is the last ai-title line, the
+#             text the tmux title (and so a record's task) carries, else the last prompt for
+#             a conversation too short to have earned one. Neither: it never got a message,
+#             and claude refuses to resume it.
+#   opencode  its SQLite store's session table: top-level (a subagent run has a parent_id),
+#             not archived, and titled — "New session - <date>" is the placeholder until the
+#             first message.
+#
+# A conversation a record holds is left out, being a live or ↻ row already. One still open in
+# a claude that aigent did not start (a plain `claude` in some terminal) is shown, marked !,
+# and Enter refuses it: resuming would put a second claude on the conversation, each adding
+# turns the other never sees. claude says which are open itself — a file per running process,
+# ~/.claude/sessions/<pid>.json, naming its sessionId — so "open" is that file's pid alive.
+RECENT_DAYS=${AIGENT_RECENT_DAYS:-10}
+RECENT_MAX=${AIGENT_RECENT_MAX:-5}
+
+# find's matches as "mtime path", newest first, one stat for the lot. Asked rather than
+# guessed which stat this is: GNU reads BSD's -f as --file-system and answers something else.
+newest_first() {
+  if stat -c %Y / >/dev/null 2>&1; then
+    find "$@" -exec stat -c '%Y %n' {} + 2>/dev/null
+  else
+    find "$@" -exec stat -f '%m %N' {} + 2>/dev/null
+  fi | sort -rn
+}
+
+# A string field off one JSON line, then made readable. sed rather than jq, which a fresh
+# Debian box lacks; these are flat lines read for display, not data to round-trip.
+json_field() { sed -En "s/.*\"$1\":\"(([^\"\\\\]|\\\\.)*)\".*/\1/p"; }
+json_text() { sed -e 's/\\[nt]/ /g' -e 's/\\"/"/g' -e 's/\\\\/\\/g'; }
+
+# Every conversation ID a record holds, space-separated and padded for a case match.
+held_ids() { printf ' %s ' "$(cat "$STATE_DIR"/"$PREFIX"* 2>/dev/null | sed -n 's/^id=//p' | tr '\n' ' ')"; }
+
+# The pid of the running claude that has conversation $1 open, if any. A file whose pid is
+# gone is one claude did not get to clean up (a crash, a kill -9), and means nothing.
+claude_open_pid() {
+  for f in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/sessions/*.json; do
+    [ -f "$f" ] || continue
+    grep -qF "\"sessionId\":\"$1\"" "$f" || continue
+    pid=${f##*/}
+    pid=${pid%.json}
+    kill -0 "$pid" 2>/dev/null && printf '%s' "$pid" && return 0
+  done
+  return 1
+}
+
+# The rows below are all one shape, TSV: mtime, agent, dir, id, title, and the pid of the
+# process that still has it open (empty for none). $1 is the directory to keep, or empty
+# for every one.
+#
+# Scoped, it opens the one folder claude files that directory under and checks each file's
+# own cwd, since the folder name is lossy (/a.b and /a-b share one).
+claude_recent() {
+  root=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects
+  if [ -n "$1" ]; then
+    where=$root/$(printf '%s' "$1" | sed 's/[^A-Za-z0-9]/-/g') depth=1
+  else
+    where=$root depth=2
+  fi
+  [ -d "$where" ] || return 0
+  held=$(held_ids)
+  n=0
+  newest_first "$where" -mindepth "$depth" -maxdepth "$depth" -name '*.jsonl' -mtime "-$RECENT_DAYS" |
+    while read -r m f; do
+      id=${f##*/}
+      id=${id%.jsonl}
+      case $held in *" $id "*) continue ;; *) ;; esac
+      [ "$(grep -m1 -o '"entrypoint":"[^"]*"' "$f")" = '"entrypoint":"cli"' ] || continue
+      dir=$(grep -m1 -o '"cwd":"[^"]*"' "$f" | json_field cwd)
+      [ -z "$1" ] || [ "$dir" = "$1" ] || continue
+      title=$(grep -F '"type":"ai-title"' "$f" | tail -n 1 | json_field aiTitle | json_text)
+      [ -n "$title" ] ||
+        title=$(grep -F '"type":"last-prompt"' "$f" | tail -n 1 | json_field lastPrompt | json_text | cut -c1-80)
+      [ -n "$title" ] || continue
+      printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$m" claude "$dir" "$id" "$title" "$(claude_open_pid "$id")"
+      n=$((n + 1))
+      [ "$n" -lt "$RECENT_MAX" ] || break
+    done
+}
+
+# Read-only, so a running opencode holding the database is never in the way.
+opencode_recent() {
+  db=${XDG_DATA_HOME:-$HOME/.local/share}/opencode/opencode.db
+  [ -f "$db" ] && command -v sqlite3 >/dev/null 2>&1 || return 0
+  since=$((($(date +%s) - RECENT_DAYS * 86400) * 1000))
+  where=
+  [ -n "$1" ] && where="AND directory = '$(printf '%s' "$1" | sed "s/'/''/g")'"
+  sqlite3 -readonly -separator "$TAB" "$db" "
+    SELECT time_updated / 1000, 'opencode', directory, id,
+           replace(replace(title, char(9), ' '), char(10), ' '), ''
+    FROM session
+    WHERE parent_id IS NULL AND time_archived IS NULL AND time_updated >= $since
+      AND title NOT LIKE 'New session - %' $where
+    ORDER BY time_updated DESC" 2>/dev/null |
+    awk -F"$TAB" -v held="$(held_ids)" -v max="$RECENT_MAX" \
+      'index(held, " " $4 " ") == 0 { print; if (++n >= max) exit }'
+}
+
+# Both stores, newest first, RECENT_MAX in all. Each source stops at RECENT_MAX of its own,
+# which is enough: the overall newest five are among the union of each one's newest five.
+recent_rows() {
+  avail=" $(available_agents | tr '\n' ' ') "
+  {
+    case $avail in *" claude "*) claude_recent "$1" ;; *) ;; esac
+    case $avail in *" opencode "*) opencode_recent "$1" ;; *) ;; esac
+  } | sort -t "$TAB" -k1,1nr | head -n "$RECENT_MAX"
+}
+
+# mtime, now → "5m ago", "3h ago", "2d ago".
+ago() {
+  s=$(($2 - $1))
+  if [ "$s" -lt 3600 ]; then
+    printf '%sm ago' $((s / 60))
+  elif [ "$s" -lt 86400 ]; then
+    printf '%sh ago' $((s / 3600))
+  else
+    printf '%sd ago' $((s / 86400))
+  fi
+}
+
+# `aigent recent` — the conversations behind every directory's ◷ rows, box-wide like ls.
+# A table on a terminal; the raw rows when piped, for whatever wants to offer them.
+list_recent() {
+  rows=$(recent_rows "")
+  [ -t 1 ] || {
+    [ -z "$rows" ] || printf '%s\n' "$rows"
+    return 0
+  }
+  [ -n "$rows" ] || {
+    echo "aigent: no conversations in the last $RECENT_DAYS days"
+    return 0
+  }
+  now=$(date +%s)
+  printf '%s\n' "$rows" | while IFS="$TAB" read -r m agent dir _ title pid; do
+    printf '%s\t%s\t%s\t%s\t%s\n' "${pid:+!}" "$(ago "$m" "$now")" "$agent" \
+      "$(printf '%s' "$dir" | sed "s|^$HOME|~|")" "$title${pid:+  (open in $agent, pid $pid)}"
+  done | awk -F"$TAB" -v yel="$YEL" -v rst="$RST" '
+    { m[NR] = $1; for (i = 2; i <= 4; i++) { c[NR, i] = $i; if (length($i) > w[i]) w[i] = length($i) }; t[NR] = $5 }
+    END { for (r = 1; r <= NR; r++) {
+            g = m[r] == "!" ? yel "!" rst : "◷"
+            line = sprintf("%s %-*s  %-*s  %-*s  %s", g, w[2], c[r, 2], w[3], c[r, 3], w[4], c[r, 4], t[r])
+            sub(/ +$/, "", line); print line } }'
+  printf '%s◷ to pick one up, run aigent in its directory · ! still open in that agent%s\n' "$DIM" "$RST"
 }
 
 # ─── Cockpit ─────────────────────────────────────────────────────────────────
@@ -1399,17 +1590,24 @@ usage: aigent [command]
                     most want you; `new` rebuilds instead of re-attaching
   restore [-n]      bring back every session that died with tmux
                     (-n, --dry-run: list them, start nothing)
+  recent            conversations from the last 10 days, every directory
+                    (a table, or TSV when piped)
   help              this
 
 In the picker (each agent, with its sessions for this project beneath it):
-  enter             start the agent, or attach to / restore the session
-  tab               arm the highlighted agent for YOLO (run everything unconfirmed)
+  enter             start the agent, or attach to / restore / resume the session
+  tab               arm the highlighted agent or ◷ row for YOLO (run everything unconfirmed)
   ctrl-a            hold this Mac awake for as long as that session lives
   ctrl-x            kill the highlighted session, or forget a ↻ row
 
+  ↻ died with tmux, comes back on its own conversation
+  ◷ a recent conversation here that nothing is running (claude, opencode)
+
 Env:
-  AGENT_SETTLE      seconds between the two screen samples (default 0.35)
-  AGENT_ASK_RE      regex meaning "the agent is asking you something"
+  AGENT_SETTLE        seconds between the two screen samples (default 0.35)
+  AGENT_ASK_RE        regex meaning "the agent is asking you something"
+  AIGENT_RECENT_DAYS  how far back ◷ rows and `recent` look (default 10)
+  AIGENT_RECENT_MAX   how many of them to show (default 5)
 EOF
 }
 
@@ -1435,6 +1633,10 @@ case $1 in
   # stand does not matter.
   restore)
     restore_all "$2"
+    exit 0
+    ;;
+  recent)
+    list_recent
     exit 0
     ;;
   # Called by the wrapper launch() puts around every agent, when the agent exits.
@@ -1493,12 +1695,14 @@ fi
 #                     AGENT_SETTLE to sample screens twice, so recomputing it per keystroke is
 #                     what delayed the Tab relabel. The snapshot does not change over the picker's
 #                     life (fzf never refreshes it on its own), so caching loses no freshness.
+# AIGENT_RECENT_CACHE — the ◷ rows' raw TSV, for the same reason: read once, drawn per reload.
 AIGENT_YOLO_STATE="${TMPDIR:-/tmp}/aigent-yolo.$$"
 AIGENT_AWAKE_STATE="${TMPDIR:-/tmp}/aigent-awake.$$"
 AIGENT_MENU_CACHE="${TMPDIR:-/tmp}/aigent-menu.$$"
-export AIGENT_YOLO_STATE AIGENT_AWAKE_STATE AIGENT_MENU_CACHE
+AIGENT_RECENT_CACHE="${TMPDIR:-/tmp}/aigent-recent.$$"
+export AIGENT_YOLO_STATE AIGENT_AWAKE_STATE AIGENT_MENU_CACHE AIGENT_RECENT_CACHE
 rm -f "$AIGENT_YOLO_STATE" "$AIGENT_AWAKE_STATE"
-trap 'rm -f "$AIGENT_YOLO_STATE" "$AIGENT_AWAKE_STATE" "$AIGENT_MENU_CACHE"' EXIT INT TERM
+trap 'rm -f "$AIGENT_YOLO_STATE" "$AIGENT_AWAKE_STATE" "$AIGENT_MENU_CACHE" "$AIGENT_RECENT_CACHE"' EXIT INT TERM
 
 # Classify the running sessions once, up front — the only place that pays classify's settle
 # sleep on the picker's happy path. Empty (not absent) for `aigent new` or no tmux: print_menu
@@ -1517,6 +1721,13 @@ fi
 AIGENT_RESTORE_OK=
 [ -n "$USE_TMUX" ] && [ -z "$FORCE_NEW" ] && AIGENT_RESTORE_OK=1
 export AIGENT_RESTORE_OK
+
+# ◷ rows likewise skip `aigent new`, but need no tmux: resuming bare is still resuming.
+if [ -z "$FORCE_NEW" ]; then
+  recent_rows "$PWD" >"$AIGENT_RECENT_CACHE"
+else
+  : >"$AIGENT_RECENT_CACHE"
+fi
 
 MENU=$(print_menu) || exit 1
 
@@ -1568,7 +1779,7 @@ target=$(printf '%s' "$choice" | cut -f2)
 awake=
 [ -s "$AIGENT_AWAKE_STATE" ] && [ "$(cat "$AIGENT_AWAKE_STATE")" = "$target" ] && awake=1
 
-rm -f "$AIGENT_YOLO_STATE" "$AIGENT_AWAKE_STATE" "$AIGENT_MENU_CACHE"
+rm -f "$AIGENT_YOLO_STATE" "$AIGENT_AWAKE_STATE" "$AIGENT_MENU_CACHE" "$AIGENT_RECENT_CACHE"
 trap - EXIT INT TERM
 
 case $choice in
@@ -1580,6 +1791,19 @@ case $choice in
   restore*)
     new=$(restore_one "$target" "$awake") || exit 1
     attach_to "$new"
+    ;;
+  # A ◷ row whose conversation a claude outside aigent still has open. Say where, start nothing.
+  open*)
+    pid=$(claude_open_pid "${target#*:}")
+    echo "aigent: that conversation is still open in ${target%%:*}${pid:+ (pid $pid)} — switch to it there, or quit it first" >&2
+    exit 1
+    ;;
+  # Before yolo*, which "resume-yolo" does not match but reads as if it might. A fresh session
+  # on the old conversation, recorded under its ID like any launch, so tmux dying can't lose it.
+  resume*)
+    mode=
+    case $choice in resume-yolo*) mode=yolo ;; *) ;; esac
+    launch "${target%%:*}" "$mode" "$awake" "${target#*:}"
     ;;
   yolo*) launch "$target" yolo "$awake" ;;
   *) launch "$target" '' "$awake" ;;
