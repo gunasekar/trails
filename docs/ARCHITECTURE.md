@@ -34,8 +34,8 @@ None of this is required, but a tmux.conf can use those options:
   turn an agent session into something three frontends would each draw wrong.
 - **Title from the agent:** `set-titles-string` built from `#{@agent}` and
   `#{pane_title}` gives every terminal tab "claude · what it is working on". The
-  cockpit's pane borders read the same string.
-- **A second prefix that also reaches nested clients,** which the cockpit uses.
+  map's pane borders read the same string.
+- **A second prefix that also reaches nested clients,** which the map uses.
 
 ## Who wants you: working, idle, blocked
 
@@ -61,8 +61,23 @@ as idle. `blocked` vs `idle` is the one heuristic, and both sort above
 A tmux timestamp doesn't work instead: `#{session_activity}` tracks tmux's own
 alert bookkeeping, not bytes written to the pane.
 
-`trails ls` is the box-wide view of this, sorted `blocked`, `idle`, `working`.
-Piped, it is TSV, a contract for notifiers. On a terminal, it is a padded table.
+## trails ls
+
+`ls` answers "where is everything", box-wide, in one list built by `ls_rows`:
+running sessions first (`blocked`, `idle`, `working`, so most-wants-you first),
+then sessions lost with tmux (`restore`), then finished conversations newest first
+(`recent`, or `open` when a `claude` trails didn't start still holds one).
+
+Piped, it is TSV, a contract for notifiers: `state session agent yolo dir id when
+pid title`. An empty field is written `-`, never left empty, because tab counts
+as whitespace to `read` and two tabs in a row collapse, shifting every later field.
+The title goes last because it is free text. On a terminal it is a padded table,
+with `#N` on the Nth session in a directory. The badge is read off the session
+name *against its directory*, because the name alone can't tell foo's second
+agent from project foo-2's first.
+
+Reading conversation history costs most of an `ls`. `TRAILS_RECENT_MAX=0` skips it,
+for a menu-bar poll that only wants running sessions.
 
 ## Surviving tmux
 
@@ -89,6 +104,14 @@ this directory", so two sessions in one project would resume the same one.
 
 **The task is kept current** by every `sessions()` pass, which a menu-bar poll
 runs every few seconds, so a `↻` row can say what the session was doing.
+
+**So is the conversation.** The ID trails chose is only where a session started:
+`/resume` or `/clear` inside claude moves it to another one. Every `sessions()`
+pass asks claude which conversation it has open (the pane's process is the wrapper,
+its child is claude, and `~/.claude/sessions/<pid>.json` names the `sessionId`).
+When that differs, the record and `@trails_id` follow it. Otherwise a restore after
+tmux dies would bring back the conversation you left, and the one you were in would
+look like a stranger's.
 
 **Deleting a record at the right moment is the hard part.** A session you quit
 is over, and a session tmux took down is the whole point, but from outside both
@@ -134,6 +157,13 @@ into `-`. That mapping is lossy, so each file's own `cwd` is checked too.
 scan stops after `TRAILS_RECENT_MAX` hits. The picker reads them once per run and
 caches them, so a Tab doesn't pay for it again.
 
+Whether a claude conversation last ran YOLO comes from the transcript too: each
+turn records its `permissionMode`, and `bypassPermissions` is what
+`--dangerously-skip-permissions` runs as. A `◷` row resumes in that mode, the way a
+`↻` row comes back in its recorded one. opencode records nothing like it.
+
+The picker shows this directory's; `trails ls` shows every directory's.
+
 Conversations a record holds are left out, since they're already live or `↻`
 rows. A conversation still open in a `claude` that `trails` didn't start is
 marked `!`, and Enter refuses it. Claude writes a file per running process,
@@ -144,8 +174,8 @@ adding turns the other never sees.
 ## The picker
 
 `print_menu` builds TSV rows of `verb`, `target`, `what's drawn`. fzf draws only
-the third field. Tab, ctrl-a and ctrl-x pass the target to a subcommand of the
-script (`--toggle-yolo`, `--toggle-awake`, `--kill`) and reload the menu. They're
+the third field. Tab and ctrl-x pass the target to a subcommand of the script
+(`--toggle-yolo`, `--kill`) and reload the menu. They're
 subcommands rather than inline shell because fzf runs its bindings through
 `$SHELL`, where zsh expands a leading `=` and silently ate the kill.
 
@@ -158,40 +188,33 @@ way.
 | `new` / `yolo` | launch a fresh agent, with the YOLO flag for `yolo` |
 | `attach` | attach to the running session |
 | `restore` | `restore_one`, then attach |
-| `resume` / `resume-yolo` | launch with the resume flag and that ID, recorded like any launch |
+| `resume` / `resume-yolo` | launch with the resume flag and that ID, recorded like any launch; `resume-yolo` when it last ran YOLO or Tab armed it |
 | `open` | refuse, naming the process that has it |
 
 `launch` creates the session detached, stamps it, waits 1.5s and checks the pane
 isn't already dead before attaching. An agent that fails at once (a bad token, no
 keychain) would otherwise take its error with it and look like nothing happened.
-Inside tmux, outside a cockpit, it runs the agent bare in the current pane
+Inside tmux, outside a map, it runs the agent bare in the current pane
 instead of nesting.
 
-## Holding the Mac awake
+## The map
 
-`ctrl-a` runs a new agent under `caffeinate -ims`, so the assertion lasts exactly
-as long as the agent and nothing needs reaping. For a session that already exists,
-it uses `caffeinate -ims -w <pane pid>`. Claude's own `caffeinate -i -t 300` only
-covers the time it spends working, which is the wrong window for a run you walked
-away from.
-
-## The cockpit
-
-`trails cockpit` is a tmux session named `cockpit` whose panes are each a tmux
+`trails map` is a tmux session named `trails_map` whose panes are each a tmux
 client attached to an agent session. It borrows the view and owns nothing: kill
 it and every agent is where it was. That's why it is never reconciled, only
 rebuilt, and why its name is outside `$PREFIX`. Under the prefix, `trails ls`
-would count it as an agent that is always working.
+would count it as an agent that is always working. The underscore matters:
+`trails-map` is what a project folder called `map` gets.
 
 Panes are ordered most-wants-you first and re-tiled after every split, since
 splitting halves the current pane and runs out of room fast. Two agents go side
 by side only when the window is at least 160 columns wide. Each pane is stamped
 with `@dir` and `@ag` so its border can read `<dir> · <agent> · <task>`.
 
-A tmux window has one size, so a session watched by a cockpit pane and, say, a
+A tmux window has one size, so a session watched by a map pane and, say, a
 Zed thread can't be drawn right for both. `window-size` stays at tmux's default
 `latest`, so the view you last typed in wins and the other catches up when you
 press a key there.
 
-Inside the cockpit, a shell you split off (`C-b |`) can run `trails`. The agent
+Inside the map, a shell you split off (`C-b |`) can run `trails`. The agent
 still gets its own session, and that pane becomes a viewer of it.

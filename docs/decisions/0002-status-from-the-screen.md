@@ -25,4 +25,4 @@ is `blocked`; otherwise `idle`.
 - `blocked` vs `idle` is a heuristic and can be fooled by an agent printing
   "Approve". Both sort above `working`, so a wrong guess only changes a colour.
 - A resize is a screen change, so an agent can read as `working` for one poll
-  after a cockpit attaches.
+  after a map attaches.

@@ -15,7 +15,9 @@ continued elsewhere.
 Read each agent's own transcript store, the one its `--resume` reads: claude's
 `~/.claude/projects/<dir>/<id>.jsonl` and opencode's SQLite `session` table.
 Show at most `TRAILS_RECENT_MAX` (5) from the last `TRAILS_RECENT_DAYS` (10),
-leaving out conversations a record holds. Mark with `!`, and refuse to resume, a
+leaving out conversations a record holds: this directory's as `◷` rows in the
+picker, every directory's in `trails ls`. Resume a claude conversation in the
+mode its transcript says it last ran in (`bypassPermissions` is YOLO). Mark with `!`, and refuse to resume, a
 claude conversation still open in a process `trails` didn't start, using
 `~/.claude/sessions/<pid>.json`.
 

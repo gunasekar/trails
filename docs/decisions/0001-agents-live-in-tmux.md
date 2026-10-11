@@ -14,7 +14,7 @@ frontends (a shell, Zed, nvim) also want to reach the same running agent.
 
 Every agent runs in its own tmux session, `trails-<project>`, created detached
 and then attached. Every frontend runs `trails`, which attaches to an existing
-session or starts one. Inside tmux, outside a cockpit, the agent runs bare in the
+session or starts one. Inside tmux, outside a map, the agent runs bare in the
 current pane instead of nesting.
 
 ## Consequences

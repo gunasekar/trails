@@ -18,4 +18,4 @@ jobs:
         run: |
           ./bin/trails help | grep -q '^usage: trails'
           ./bin/trails ls
-          ./bin/trails recent
+          TRAILS_RECENT_MAX=0 ./bin/trails ls

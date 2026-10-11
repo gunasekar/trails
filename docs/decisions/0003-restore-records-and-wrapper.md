@@ -21,11 +21,15 @@ directory", so two sessions in one project would resume the same one.
   `kill-server`, and `pane-exited` reports the wrong session. When tmux dies it
   hangs up on the wrapper too, so the record survives.
 - Treat a record as dead when no session carries its ID in `@trails_id`.
+- Follow the conversation, not the launch: `/resume` or `/clear` inside claude
+  moves a session to another conversation, so every listing reads claude's own
+  `~/.claude/sessions/<pid>.json` for the session's agent and updates the record
+  and `@trails_id` to match.
 
 ## Consequences
 
-- `trails restore` and the `↻` rows bring sessions back on their own
-  conversations.
+- `trails restore` and the `↻` rows bring sessions back on the conversation
+  they were last in, not just the one they started with. `trails ls` lists them.
 - Only agents that accept a chosen ID can be restored (claude, opencode).
   cursor-agent needs an ID from `create-chat` first, so it isn't covered yet.
 - A dead record reserves its name until it is restored or forgotten.

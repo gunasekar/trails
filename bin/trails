@@ -4,36 +4,32 @@
 # every frontend lands on the same sessions. https://github.com/gunasekar/trails
 #
 #   trails                  pick a running session to rejoin, or an agent to start
-#   trails new              skip the running sessions, start a fresh one
 #   trails help             the commands and picker keys (also -h, --help)
-#   trails ls               every agent session on the box — a table on a terminal, TSV
-#                           when piped, for a notifier to read
-#   trails restore [-n]     bring back every session that died with tmux (a reboot, a
+#   trails ls               where every agent session is: running, lost with tmux (↻), or
+#                           finished in the last 10 days (◷). A table on a terminal, TSV
+#                           when piped, for a notifier to read.
+#   trails restore          bring back every session that died with tmux (a reboot, a
 #                           crash, kill-server), each resuming its conversation, detached.
-#                           -n (--dry-run) lists them instead. See "Surviving tmux" below.
-#   trails recent           conversations from the last 10 days, every directory — the
-#                           ◷ rows' source. See "Recent conversations" below.
-#   trails cockpit [N]      several agents at once in one window. Pick them, or take the
-#                           N that most want you. Bare `cockpit` re-attaches to a cockpit
-#                           already up rather than rebuilding; `cockpit new` forces a fresh
+#                           See "Surviving tmux" below.
+#   trails map [N]          several agents at once in one window. Pick them, or take the
+#                           N that most want you. Bare `map` re-attaches to a map
+#                           already up rather than rebuilding; `map new` forces a fresh
 #                           pick. Inside, all stock tmux: C-b ←↑↓→ move, C-b z zoom one
 #                           full-screen, C-b Space cycle layout, C-b d detach. C-b C-b s
 #                           re-points one pane at a different agent — C-b C-b is send-prefix,
 #                           so the key lands on the pane's own (inner) client rather than on
-#                           the cockpit. To add one, split a shell off (C-b |) and run
+#                           the map. To add one, split a shell off (C-b |) and run
 #                           `trails` there: the agent gets its own session as usual and
 #                           that pane becomes its view.
 #
-# In the picker: tab arms the highlighted agent for YOLO, ctrl-a arms any row to hold this
-# Mac awake for as long as that session lives (for the run you start and walk away from —
-# see toggle_awake), ctrl-x kills the highlighted session. A ↻ row is a session that died with
+# In the picker: tab arms the highlighted agent for YOLO, ctrl-x kills the highlighted session. A ↻ row is a session that died with
 # tmux: enter brings it back on its old conversation, ctrl-x forgets it. A ◷ row is a recent
 # conversation in this directory that nothing is running: enter resumes it, tab arms it for YOLO.
 #
 # Env:
 #   AGENT_SETTLE           seconds between the two screen samples (default 0.35)
 #   AGENT_ASK_RE           regex meaning "the agent is asking you something"
-#   TRAILS_RECENT_DAYS     how far back ◷ rows and `trails recent` look (default 10)
+#   TRAILS_RECENT_DAYS     how far back ◷ rows look, in the picker and `trails ls` (default 10)
 #   TRAILS_RECENT_MAX      how many of them to show (default 5)
 #
 # Not `agent`: the bin directories on PATH are a shared namespace, and cursor-agent ships
@@ -155,8 +151,8 @@ is_ours() {
 }
 
 # Wrap the agent in tmux everywhere except inside tmux itself, where the process is
-# persistent anyway and nesting would double every prefix key. The cockpit is the
-# exception, and the dispatch turns USE_TMUX back on for it (see in_cockpit).
+# persistent anyway and nesting would double every prefix key. The map is the
+# exception, and the dispatch turns USE_TMUX back on for it (see in_map).
 USE_TMUX=
 if [ -z "$TMUX" ] && command -v tmux >/dev/null 2>&1; then
   USE_TMUX=1
@@ -257,6 +253,7 @@ sessions() {
       case $name in
         "$PREFIX"*)
           rec_note_task "$name" "$task"
+          rec_note_id "$name"
           printf '%s\t%s\t%s\n' "$name" "$label" "$task"
           ;;
         *) ;; # a tmux session you started yourself — not ours to report on
@@ -291,7 +288,7 @@ classify() {
 }
 
 # state → sort rank and colour: blocked first and red, idle next and yellow, working last
-# and dim. Both shell menus (live_sessions, cockpit_menu) draw the same rows in the same
+# and dim. Both shell menus (live_sessions, map_menu) draw the same rows in the same
 # order, so they read the mapping from here rather than each carrying a copy — a fourth
 # state added to classify() lands in one place, not two.
 #
@@ -309,57 +306,125 @@ rank_dot() {
   esac
 }
 
-# `trails ls` — every agent session on this machine: state, session, agent, task.
-# Deliberately not scoped to $PWD: the picker answers "what's running *here*", this
-# answers "what did I leave running while I walked away" — the question a notifier asks
-# (a SwiftBar menu-bar plugin is the caller this was built for; see docs/ARCHITECTURE.md).
-# blocked < idle < working alphabetically is also most-wants-you first, so plain sort. The
-# coincidence is load-bearing: renaming a state re-rolls it, and a name that sorts wrong
-# re-orders the notifier's rows quietly rather than failing.
+# `trails ls` — where every agent session on this machine is: running, lost with tmux, or
+# finished recently. Deliberately not scoped to $PWD: the picker answers "what's here", this
+# answers "what did I leave where" — the question a notifier asks too (a SwiftBar menu-bar
+# plugin is the caller the TSV was built for; see docs/ARCHITECTURE.md).
 #
-# Two audiences, so two views. The TSV is a contract — the plugin reads it back with
-# `IFS=$'\t' read -r state name agent task` — but a tab is not a column: it jumps to the
-# terminal's next 8-stop, so the moment one session name is longer than another the fields
-# stop lining up and you are reading a ragged grid. A person wants columns; a notifier
-# wants fields. `[ -t 1 ]` separates them, and needs no flag to do it: the plugin's own
-# `$(...)` is a pipe, so it goes on getting the TSV whether or not it ever asks.
+# ls_rows is the one list, TSV, in display order:
+#
+#   state  session  agent  yolo  dir  id  when  pid  title
+#
+#   state    blocked, idle, working (running) · restore (lost with tmux) · recent, open
+#            (finished; "open" is still held by a claude trails didn't start)
+#   session  the tmux session name, or - for a finished conversation
+#   yolo     yolo or -
+#   when     mtime of a finished conversation, - otherwise
+#   pid      the process holding an "open" one, - otherwise
+#
+# Never an empty field mid-row, for recent_rows' reason, and the title last since it is free
+# text. Running rows sort most-wants-you first — blocked < idle < working alphabetically, so
+# plain sort, a coincidence that is load-bearing: a renamed state re-orders the notifier's
+# rows quietly rather than failing.
+ls_rows() {
+  sessions | classify | sort | while IFS="$TAB" read -r state name label task; do
+    agent=${label%% *}
+    yolo=-
+    case $label in *"(YOLO)"*) yolo=yolo ;; *) ;; esac
+    dir=$(tmux display-message -pt "$name" '#{session_path}' 2>/dev/null)
+    id=$(tmux display-message -pt "$name" '#{@trails_id}' 2>/dev/null)
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t-\t-\t%s\n' \
+      "$state" "$name" "$agent" "$yolo" "${dir:--}" "${id:--}" "$task"
+  done
+  rec_dead | while read -r name; do
+    yolo=$(rec_get "$name" yolo)
+    printf 'restore\t%s\t%s\t%s\t%s\t%s\t-\t-\t%s\n' "$name" "$(rec_get "$name" agent)" \
+      "${yolo:--}" "$(rec_get "$name" dir)" "$(rec_get "$name" id)" "$(rec_get "$name" task)"
+  done
+  recent_rows "" | while IFS="$TAB" read -r m agent dir id yolo pid title; do
+    state=recent
+    [ "$pid" = - ] || state=open
+    printf '%s\t-\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$state" "$agent" "$yolo" "$dir" "$id" "$m" "$pid" "$title"
+  done
+}
+
+# Two audiences, so two views: the TSV above for a notifier, and for a person one row per
+# session in columns — a tab jumps to the next 8-stop, so a TSV on screen is a ragged grid.
+# `[ -t 1 ]` tells them apart with no flag: a caller's `$(...)` is a pipe.
+#
+#   ● idle      claude · yolo   ~/.dotfiles #2        Fixing the flaky test
+#   ↻ restore   claude          ~/code/api            Old spike
+#   ◷ 2h ago    claude · yolo   ~/notes               Weekly review
+#   ! 1d ago    claude          ~/scratch             Spike  (open in claude, pid 812)
+#
+# The #2 is read off the session name against its directory, and only then: trails-<dir> is
+# the first agent there and trails-<dir>-N the Nth, but the name alone could equally be
+# project <dir>-N's first, so a name that doesn't match its own directory gets no badge.
 list_sessions() {
-  rows=$(sessions | classify | sort)
+  rows=$(ls_rows)
   [ -t 1 ] || {
     [ -z "$rows" ] || printf '%s\n' "$rows"
     return 0
   }
+  [ -n "$rows" ] || {
+    echo "trails: no agent sessions, and none in the last $RECENT_DAYS days"
+    return 0
+  }
 
-  # Widths measured off the widest cell rather than fixed, so nothing truncates and
-  # nothing is padded further than this particular set of sessions needs.
-  #
-  # The name sheds $PREFIX and nothing else. Splitting a trailing -2 off as a `#2` badge
-  # is what the picker does, and it can: is_ours has already established every row there
-  # is the same project, so the suffix is an ordinal. Here the rows are the whole box,
-  # where `trails-foo-2` is equally foo's second agent and project foo-2's only one — the
-  # same ambiguity is_ours stopped guessing at. So print the name and let it be read.
-  [ -n "$rows" ] && printf '%s\n' "$rows" | awk -F"$TAB" \
-    -v pfx="$PREFIX" -v red="$RED" -v yel="$YEL" -v dim="$DIM" -v rst="$RST" '
+  # Widths off the widest cell, measured on an ASCII stand-in for the agent column: awk's
+  # length() counts bytes here, and the · in "claude · yolo" is two of them.
+  printf '%s\n' "$rows" | awk -F"$TAB" -v now="$(date +%s)" -v home="$HOME" -v pfx="$PREFIX" \
+    -v red="$RED" -v yel="$YEL" -v dim="$DIM" -v rst="$RST" '
+    function ago(t,   d) {
+      d = now - t
+      if (d < 3600) return int(d / 60) "m ago"
+      if (d < 86400) return int(d / 3600) "h ago"
+      return int(d / 86400) "d ago"
+    }
     {
-      st[NR] = $1; ag[NR] = $3; tk[NR] = $4
-      nm[NR] = $2
-      if (index(nm[NR], pfx) == 1) nm[NR] = substr(nm[NR], length(pfx) + 1)
-      if (length(st[NR]) > w1) w1 = length(st[NR])
-      if (length(nm[NR]) > w2) w2 = length(nm[NR])
-      if (length(ag[NR]) > w3) w3 = length(ag[NR])
+      st = $1; nm = $2; dir = $5
+      if (st == "blocked") g = red "●" rst
+      else if (st == "idle") g = yel "●" rst
+      else if (st == "working") g = dim "●" rst
+      else if (st == "restore") g = "↻"
+      else if (st == "open") g = yel "!" rst
+      else g = "◷"
+      glyph[NR] = g
+      c1[NR] = (st == "recent" || st == "open") ? ago($7) : st
+
+      ag[NR] = $3 ($4 == "yolo" ? " · yolo" : "")
+      aw[NR] = length($3 ($4 == "yolo" ? " - yolo" : ""))
+
+      badge = ""
+      if (nm != "-") {
+        base = dir; sub(/.*\//, "", base); gsub(/[:. ]/, "_", base); base = pfx base
+        rest = substr(nm, length(base) + 2)
+        if (index(nm, base "-") == 1 && rest ~ /^[0-9]+$/) badge = " #" rest
+      }
+      if (index(dir, home) == 1) dir = "~" substr(dir, length(home) + 1)
+      c3[NR] = dir badge
+
+      t = $9
+      if (st == "open") t = t "  (open in " $3 ", pid " $8 ")"
+      title[NR] = t
+
+      if (length(c1[NR]) > w1) w1 = length(c1[NR])
+      if (aw[NR] > w2) w2 = aw[NR]
+      if (length(c3[NR]) > w3) w3 = length(c3[NR])
+      if (st == "restore") lost = 1
+      if (st == "recent" || st == "open") done = 1
     }
     END {
       for (i = 1; i <= NR; i++) {
-        c = st[i] == "blocked" ? red : (st[i] == "idle" ? yel : dim)
-        # Built whole then trimmed: a session with no task would otherwise leave the
-        # agent column padded out to nothing.
-        line = sprintf("%-*s  %-*s  %-*s  %s", w1, st[i], w2, nm[i], w3, ag[i], tk[i])
+        line = sprintf("%s %-*s  %s%*s  %-*s  %s", glyph[i], w1, c1[i], ag[i], w2 - aw[i], "", w3, c3[i], title[i])
         sub(/ +$/, "", line)
-        printf "%s●%s %s\n", c, rst, line
+        print line
       }
+      if (lost && done) print dim "↻ trails restore brings these back · ◷ run trails in its directory to resume" rst
+      else if (lost) print dim "↻ trails restore brings these back" rst
+      else if (done) print dim "◷ run trails in its directory to resume" rst
     }
   '
-  restore_hint
 }
 
 # Menu lines are TAB-delimited; fzf draws only field 3 on (--with-nth). Fields 1-2 are
@@ -496,49 +561,8 @@ toggle_yolo() {
   fi
 }
 
-# ctrl-a: hold the Mac awake for as long as the highlighted row's session lives. Same
-# one-name-in-a-file shape as toggle_yolo, and for the same reason — you launch one thing,
-# so "which row is armed" is a name, not a set.
-#
-# Unlike YOLO it refuses nothing, because it applies to every row there is. YOLO is a
-# property of an *agent* (its flag, or the absence of one, is in the AGENTS table), so Tab
-# on an attach row has nothing to arm. Staying awake is a property of a *session*, and an
-# already-running one wants it as much as a new one does — arguably more, since a session
-# you are re-joining is one you walked away from and left working.
-#
-# Why this is opt-in per launch rather than a setting: most agent sessions are you sitting
-# in front of the machine, where sleep is not in play and holding an assertion is just a
-# warmer laptop. The ones that want it are the ones you start and walk away from, and only
-# you know which those are at the moment you press Enter.
-toggle_awake() {
-  [ -n "$TRAILS_AWAKE_STATE" ] || return 0
-  cur=
-  [ -s "$TRAILS_AWAKE_STATE" ] && cur=$(cat "$TRAILS_AWAKE_STATE")
-  if [ "$cur" = "$1" ]; then
-    : >"$TRAILS_AWAKE_STATE"
-  else
-    printf '%s' "$1" >"$TRAILS_AWAKE_STATE"
-  fi
-}
-
-# ctrl-a on an attach row. The session already exists, so there is nothing left to wrap the
-# way launch() does — hold the assertion against its pid instead and let caffeinate drop it
-# when the agent exits. Same lifetime, reached from the other end.
-#
-# Not routed through `keepawake`: that owns exactly one hold, the manual timed one you
-# start from the menu bar, and an agent quietly cancelling your six-hour hold by attaching
-# would be a genuinely bad surprise. This is a second, independently-scoped assertion, and
-# `keepawake status` reports it as one more holder — named for the agent, not for caffeinate.
-hold_awake() {
-  pid=$(tmux display-message -pt "$1" '#{pane_pid}' 2>/dev/null)
-  case $pid in
-    '' | *[!0-9]*) return 0 ;;
-  esac
-  nohup caffeinate -ims -w "$pid" >/dev/null 2>&1 &
-}
-
-# Sessions already running here, then the agents you can start. `trails new` skips to the
-# new-session half. Re-run by fzf after a kill, hence a subcommand.
+# Sessions already running here, then the agents you can start. Re-run by fzf after a kill,
+# hence a subcommand.
 print_menu() {
   agents=$(available_agents)
   [ -n "$agents" ] || {
@@ -550,25 +574,16 @@ print_menu() {
   # print_menu is re-run on every Tab and ctrl-x reload — paying that sleep per keystroke is
   # what made the Tab relabel lag. The snapshot is fixed for the picker's life anyway (fzf never
   # live-refreshes it), so caching loses no freshness. An empty cache means no running rows,
-  # which is also how `trails new` and no-tmux reach here — the dispatch reads FORCE_NEW and
-  # leaves the file empty, so print_menu need not (and its reload subprocess cannot) see it.
+  # which is also how no-tmux reaches here.
   running=
   [ -n "$TRAILS_MENU_CACHE" ] && [ -s "$TRAILS_MENU_CACHE" ] && running=$(cat "$TRAILS_MENU_CACHE")
-  # The one row armed to keep the Mac awake (toggle_awake wrote it); empty if none. Unlike
-  # $armed below it is not carried in the verb: staying awake is orthogonal to how you
-  # launch, so folding it in would need a "yolo-awake" verb and a "new-awake" beside it —
-  # two more spellings of the same two facts. The dispatch reads this file directly instead
-  # and compares it against whatever row Enter returned, which stays one fact either way.
-  awake=
-  [ -n "$TRAILS_AWAKE_STATE" ] && [ -s "$TRAILS_AWAKE_STATE" ] && awake=$(cat "$TRAILS_AWAKE_STATE")
-
   # Sessions that died with tmux, in the cache's shape (agent first) so they file under their
   # agent alongside the live ones — below them, because they want nothing from you yet. Read
   # fresh on every reload, not cached: it is a few small files, no settle sleep, and ctrl-x on
   # one of these rows has to see it gone.
   #
   # TRAILS_RESTORE_OK is the dispatch's verdict, exported because this also runs as fzf's
-  # reload subprocess, which can see neither FORCE_NEW nor the cockpit's USE_TMUX override.
+  # reload subprocess, which cannot see the map's USE_TMUX override.
   dead=
   if [ -n "$TRAILS_RESTORE_OK" ]; then
     dead=$(rec_dead | while read -r name; do
@@ -589,23 +604,29 @@ print_menu() {
   # Recent conversations here that nothing is running (see "Recent conversations"), last under
   # their agent: the furthest from wanting you. From the dispatch's cache, like the running
   # block: reading them costs ~150ms, which every Tab would pay, and nothing the picker does
-  # changes them. The target is agent:id, which the dispatch splits, and which ctrl-x and
-  # ctrl-a pass through harmlessly.
+  # changes them. The target is agent:id, which the dispatch splits, and which ctrl-x passes
+  # through harmlessly.
   recent=
   if [ -n "$TRAILS_RECENT_CACHE" ] && [ -s "$TRAILS_RECENT_CACHE" ]; then
     now=$(date +%s)
-    recent=$(while IFS="$TAB" read -r m agent _ id title pid; do
-      if [ -n "$pid" ]; then
+    recent=$(while IFS="$TAB" read -r m agent _ id yolo pid title; do
+      if [ "$pid" != - ]; then
         # Still open in a claude trails did not start: shown so you know where it went, but
         # the verb is one the dispatch refuses rather than resumes. Tab can't arm it either.
         printf '%s\topen\t%s:%s\t%s!%s %s[%s · open in %s]%s  %s\n' \
           "$agent" "$agent" "$id" "$YEL" "$RST" "$DIM" "$(ago "$m" "$now")" "$agent" "$RST" "$title"
         continue
       fi
-      verb=resume yolo=
-      [ "$agent:$id" = "$armed" ] && verb=resume-yolo yolo="  $YEL(YOLO)$RST"
-      printf '%s\t%s\t%s:%s\t%s◷ [%s]%s  %s%s\n' \
-        "$agent" "$verb" "$agent" "$id" "$DIM" "$(ago "$m" "$now")" "$RST" "$title" "$yolo"
+      # One that last ran YOLO resumes YOLO, the way a ↻ row comes back in its recorded mode;
+      # Tab arms one that didn't.
+      verb=resume badge='' armed_tag=''
+      if [ "$yolo" = yolo ]; then
+        verb=resume-yolo badge=" · YOLO"
+      elif [ "$agent:$id" = "$armed" ]; then
+        verb=resume-yolo armed_tag="  $YEL(YOLO)$RST"
+      fi
+      printf '%s\t%s\t%s:%s\t%s◷ [%s%s]%s  %s%s\n' \
+        "$agent" "$verb" "$agent" "$id" "$DIM" "$(ago "$m" "$now")" "$badge" "$RST" "$title" "$armed_tag"
     done <"$TRAILS_RECENT_CACHE")
   fi
 
@@ -618,26 +639,25 @@ print_menu() {
   )
 
   # A tree: each agent's row starts a fresh one, and its sessions hang beneath it as branches.
-  # Same three fields throughout — verb, target, what's drawn — so the selection, Tab, ctrl-a
-  # and ctrl-x all work on a branch exactly as they did on a flat row; the indent is only
+  # Same three fields throughout — verb, target, what's drawn — so the selection, Tab and
+  # ctrl-x all work on a branch exactly as they did on a flat row; the indent is only
   # drawing. A session whose agent has no row here (uninstalled since, or a hand-made trails-
   # session whose label is a process name) has nowhere to hang, so it trails the tree flat,
   # carrying its label as the badge the branch would have implied.
   printf '%s\n' "$children" | awk -F"$TAB" -v OFS="$TAB" \
-    -v agents=" $(printf '%s' "$agents" | tr '\n' ' ') " -v armed="$armed" -v awake="$awake" \
-    -v yel="$YEL" -v cyn="$CYN" -v dim="$DIM" -v rst="$RST" '
-    function tag(t) { return t == awake ? "  " cyn "(awake)" rst : "" }
+    -v agents=" $(printf '%s' "$agents" | tr '\n' ' ') " -v armed="$armed" \
+    -v yel="$YEL" -v dim="$DIM" -v rst="$RST" '
     NF >= 4 {
-      row = $2 OFS $3 OFS $4 tag($3)
+      row = $2 OFS $3 OFS $4
       if (index(agents, " " $1 " ")) kids[$1] = kids[$1] (kids[$1] == "" ? "" : "\n") row
-      else stray[++ns] = $2 OFS $3 OFS $1 "  " $4 tag($3)
+      else stray[++ns] = $2 OFS $3 OFS $1 "  " $4
     }
     END {
       n = split(substr(agents, 2, length(agents) - 2), list, " ")
       for (i = 1; i <= n; i++) {
         a = list[i]
-        if (a == armed) print "yolo", a, a "  " dim "+ new" rst "  " yel "(YOLO)" rst tag(a)
-        else print "new", a, a "  " dim "+ new" rst tag(a)
+        if (a == armed) print "yolo", a, a "  " dim "+ new" rst "  " yel "(YOLO)" rst
+        else print "new", a, a "  " dim "+ new" rst
         if (kids[a] == "") continue
         k = split(kids[a], rows, "\n")
         for (j = 1; j <= k; j++) {
@@ -673,7 +693,7 @@ BOOT=1.5
 # the picker can label the session without inspecting it: claude reports `claude.exe`,
 # cursor-agent reports bare `node`, only opencode sets a pane title.
 #
-#   launch AGENT [yolo] [AWAKE] [RESUME_ID] [NAME]
+#   launch AGENT [yolo] [RESUME_ID] [NAME]
 #
 # The last two are restore's: RESUME_ID picks up that conversation instead of starting one,
 # and NAME is the session name to come back under if it is still free. With LAUNCH_DETACHED
@@ -719,34 +739,17 @@ EOF
     esac
   fi
 
-  # $3 is set when the picker row was ctrl-a armed: run the agent *under* caffeinate rather
-  # than starting an assertion beside it. `caffeinate -i make` is the documented idiom (see
-  # its man page) and it is the whole reason to prefer wrapping — the assertion's lifetime
-  # becomes the agent's by construction, so there is no pid to record, nothing to reap, and
-  # no way to leave the machine pinned awake by an agent that died an hour ago.
-  #
-  # caffeinate forks a *helper* to hold the assertion and execs the utility in the original
-  # process, so it adds no process of its own between the wrapper below and the agent.
-  # Measured, because the tree reads backwards from what you would guess: keepawake's
-  # owner_of() has the ps output.
-  #
-  # -ims, not -d: hold off idle, disk and system sleep, and leave the display alone. An
-  # agent running unattended has no business lighting the display.
-  awake_cmd=
-  [ -n "$3" ] && awake_cmd='caffeinate -ims'
-
   # $args is a controlled, space-separated field from the table above; splitting it into
-  # separate arguments is the point. $awake_cmd is unquoted for the same reason and one
-  # more: empty, it has to vanish rather than become an argument. A ◷ row resumes here too,
-  # with nothing to record: there is no tmux session for a record to bring back.
+  # separate arguments is the point. A ◷ row resumes here too, with nothing to record: there
+  # is no tmux session for a record to bring back.
   # shellcheck disable=SC2086
-  [ -n "$USE_TMUX" ] || exec $awake_cmd "$cmd" $args ${4:+$resume "$4"}
+  [ -n "$USE_TMUX" ] || exec "$cmd" $args ${3:+$resume "$3"}
 
   # The conversation ID: the one being resumed, or a fresh one chosen here so this session
   # can be resumed later. Neither for an agent with no pin flag, which gets no record.
   id=
-  if [ -n "$4" ]; then
-    id=$4
+  if [ -n "$3" ]; then
+    id=$3
     args="${args:+$args }$resume $id"
   elif [ -n "$pin" ]; then
     id=$(new_id "$idform")
@@ -756,8 +759,8 @@ EOF
   # Restore asks for its old name back, and gets it unless something has since taken it —
   # a fresh agent you started in that project after the reboot, say. Then it lands on the
   # next free -N like any second agent would, and the old name's record goes with it below.
-  if [ -n "$5" ] && ! tmux has-session -t "=$5" 2>/dev/null; then
-    SESSION=$5
+  if [ -n "$4" ] && ! tmux has-session -t "=$4" 2>/dev/null; then
+    SESSION=$4
   else
     SESSION=$(next_free)
   fi
@@ -767,7 +770,7 @@ EOF
   # An agent that dies at 1.6s would otherwise outrun its own record and leave a ↻ row for a
   # session that never was.
   [ -n "$id" ] && rec_write "$SESSION" "$1" "$PWD" "$id" "$2"
-  [ -n "$5" ] && [ "$5" != "$SESSION" ] && rec_forget "$5"
+  [ -n "$4" ] && [ "$4" != "$SESSION" ] && rec_forget "$4"
   # No "=" prefix on set-option: it does not accept one and fails with `no such session:
   # =name` (attach-session and has-session do accept it). Safe anyway — we just created
   # this exact name.
@@ -782,7 +785,7 @@ EOF
   # agent exits by itself and is killed alongside it when tmux goes.
   # shellcheck disable=SC2086
   tmux new-session -d -s "$SESSION" -c "$PWD" \
-    sh -c "$WRAP" trails-wrap "$SELF" "$SESSION" $awake_cmd "$cmd" $args \
+    sh -c "$WRAP" trails-wrap "$SELF" "$SESSION" "$cmd" $args \
     \; set-option -w -t "$SESSION" remain-on-exit on \
     \; set-option -w -t "$SESSION" remain-on-exit-format '' || exit 1
   # The picked entry, tagged (YOLO) when armed, so the picker and status table can label the
@@ -820,15 +823,15 @@ EOF
 }
 
 # The last step of every route into a session, launched or picked: attach the terminal
-# you are standing in to it. Normally that is a plain attach. In the cockpit (see
-# in_cockpit) the terminal is a cockpit pane, so the pane becomes a viewer the way
-# cockpit() builds them: an inner client, stamped with @dir/@ag so its border reads like
+# you are standing in to it. Normally that is a plain attach. In the map (see
+# in_map) the terminal is a map pane, so the pane becomes a viewer the way
+# map() builds them: an inner client, stamped with @dir/@ag so its border reads like
 # its neighbours'. Exec'd directly rather than through view_cmd's string — no $SHELL is
 # in the way here, so the leading-`=` trap that string quotes around does not apply.
 attach_to() {
-  if [ -n "$IN_COCKPIT" ]; then
-    tmux set-option -pt "$TMUX_PANE" @dir "$(cockpit_dir "$1")"
-    tmux set-option -pt "$TMUX_PANE" @ag "$(cockpit_agent "$1")"
+  if [ -n "$IN_MAP" ]; then
+    tmux set-option -pt "$TMUX_PANE" @dir "$(map_dir "$1")"
+    tmux set-option -pt "$TMUX_PANE" @ag "$(map_agent "$1")"
     exec env -u TMUX tmux attach-session -t "=$1"
   fi
   exec tmux attach-session -t "=$1"
@@ -861,9 +864,8 @@ attach_to() {
 # reboot runs nothing at all. Measured on an isolated server: own exit and ctrl-c forget,
 # kill-server keeps every record.
 #
-# What the wrapper costs: it is now the pane's process, so #{pane_pid} is sh's (hold_awake's
-# caffeinate -w on it still ends with the agent, since sh exits the moment the agent does)
-# and #{pane_current_command} reads sh — which matters only as sessions()' fallback label,
+# What the wrapper costs: it is now the pane's process, so #{pane_pid} is sh's, and
+# #{pane_current_command} reads sh — which matters only as sessions()' fallback label,
 # and every session launch() makes has @agent. The exit status is passed through, so the
 # dead-on-arrival guard still reads the agent's own.
 #
@@ -919,6 +921,42 @@ rec_note_task() {
     mv -f "$(rec_path "$1").tmp" "$(rec_path "$1")"
 }
 
+# The conversation a session's claude has open *now*, by claude's own account: a file per
+# running process, ~/.claude/sessions/<pid>.json, naming its sessionId. The pane's process is
+# the wrapper (see "Surviving tmux"), so the claude is its child; a session started before the
+# wrapper existed runs claude as the pane itself, hence both are tried. ps rather than pgrep -P,
+# which missed children here.
+claude_conv_of() {
+  pp=$(tmux display-message -pt "$1" '#{pane_pid}' 2>/dev/null)
+  case $pp in
+    '' | *[!0-9]*) return 1 ;;
+    *) ;; # a pid
+  esac
+  for k in "$pp" $(ps -A -o pid= -o ppid= | awk -v p="$pp" '$2 == p { print $1 }'); do
+    f=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/sessions/$k.json
+    [ -f "$f" ] || continue
+    grep -o '"sessionId":"[^"]*"' "$f" | head -n 1 | json_field sessionId
+    return 0
+  done
+  return 1
+}
+
+# Follow a session to the conversation it is actually in. The ID launch() chose is only where
+# it started: /resume or /clear inside claude moves it to another, and a record left on the
+# first would restore the wrong conversation after tmux dies — and leave the real one looking
+# like a stranger's (a ! row in `trails ls`). Only while the session still carries the ID the
+# record has, so a record is never rewritten from a session that isn't its own.
+rec_note_id() {
+  [ -f "$(rec_path "$1")" ] && [ "$(rec_get "$1" agent)" = claude ] || return 0
+  was=$(rec_get "$1" id)
+  [ "$(tmux display-message -pt "$1" '#{@trails_id}' 2>/dev/null)" = "$was" ] || return 0
+  now=$(claude_conv_of "$1") || return 0
+  [ -n "$now" ] && [ "$now" != "$was" ] || return 0
+  awk -v i="$now" '/^id=/ { print "id=" i; next } 1' "$(rec_path "$1")" >"$(rec_path "$1").tmp" &&
+    mv -f "$(rec_path "$1").tmp" "$(rec_path "$1")" &&
+    tmux set-option -t "$1" @trails_id "$now"
+}
+
 # Is this record's session gone? Not "is a session of that name running": a name can be
 # taken by something else (a `tmux new -s trails-foo` of your own), and that would hide the
 # dead record from every ↻ row and from restore. launch() stamps each session with its
@@ -964,26 +1002,23 @@ restore_one() {
   SESSION=$(session_base)
 
   # Subshells because launch() exits on failure, which would take the fallback with it.
-  (LAUNCH_DETACHED=1 launch "$agent" "$mode" "$2" "$id" "$1") && return 0
+  (LAUNCH_DETACHED=1 launch "$agent" "$mode" "$id" "$1") && return 0
   echo "trails: nothing to resume for ${1#"$PREFIX"} — starting $agent fresh in its place" >&2
-  (LAUNCH_DETACHED=1 launch "$agent" "$mode" "$2" "" "$1") && return 0
+  (LAUNCH_DETACHED=1 launch "$agent" "$mode" "" "$1") && return 0
   mkdir -p "$STATE_DIR" && printf '%s\n' "$saved" >"$(rec_path "$1")"
   echo "trails: could not bring ${1#"$PREFIX"} back — its record is kept, try again once $agent starts" >&2
   return 1
 }
 
-# `trails restore [-n|--dry-run]` — every dead session on the box, each in its own directory. Detached,
+# `trails restore` — every dead session on the box, each in its own directory. Detached,
 # because there may be several and you can only sit in one: attach afterwards with the
-# picker or the cockpit, which already know how to find them.
+# picker or the map, which already know how to find them. `trails ls` lists them first,
+# as its ↻ rows.
 restore_all() {
-  case ${1:-} in
-    '') ;;
-    -n | --dry-run) set -- -n ;; # one spelling below, whichever was typed
-    *)
-      echo "trails: restore takes -n or --dry-run (list only), not '$1'" >&2
-      exit 1
-      ;;
-  esac
+  [ -z "${1:-}" ] || {
+    echo "trails: restore takes no arguments — trails ls shows what it would bring back (↻)" >&2
+    exit 1
+  }
   command -v tmux >/dev/null 2>&1 || {
     echo "trails: restore needs tmux" >&2
     exit 1
@@ -994,18 +1029,6 @@ restore_all() {
     return 0
   }
 
-  if [ "$1" = -n ]; then
-    for name in $names; do
-      printf '%s\t%s\t%s\t%s\n' "${name#"$PREFIX"}" "$(rec_get "$name" agent)" \
-        "$(rec_get "$name" dir | sed "s|^$HOME|~|")" "$(rec_get "$name" task)"
-    done | awk -F"$TAB" '
-      { for (i = 1; i <= 3; i++) { c[NR, i] = $i; if (length($i) > w[i]) w[i] = length($i) }; t[NR] = $4 }
-      END { for (r = 1; r <= NR; r++) {
-              line = sprintf("↻ %-*s  %-*s  %-*s  %s", w[1], c[r, 1], w[2], c[r, 2], w[3], c[r, 3], t[r])
-              sub(/ +$/, "", line); print line } }'
-    return 0
-  fi
-
   # Each in a subshell: restore_one cds, and launch exits on failure — neither may leak into
   # the next one. USE_TMUX forced on, since run from inside tmux it would otherwise mean
   # "run the agent bare in this pane", and there is no pane here to run it in.
@@ -1015,22 +1038,13 @@ restore_all() {
       echo "trails: skipping ${name#"$PREFIX"} — $dir is gone (ctrl-x its ↻ row, or rm $(rec_path "$name"))" >&2
       continue
     fi
-    new=$(cd "$dir" && USE_TMUX=1 restore_one "$name" "") || continue
+    new=$(cd "$dir" && USE_TMUX=1 restore_one "$name") || continue
     if [ "$new" = "$name" ]; then
       echo "restored ${name#"$PREFIX"}"
     else
       echo "restored ${name#"$PREFIX"} as ${new#"$PREFIX"}"
     fi
   done
-}
-
-# One dim line under `trails ls` on a terminal, so a reboot's casualties are not silent.
-# Terminal only: the TSV is the notifier's contract and a dead session is not a row in it.
-restore_hint() {
-  n=$(rec_dead | wc -l | tr -d ' ')
-  [ "$n" -gt 0 ] || return 0
-  printf '%s↻ %s can be restored — trails restore -n%s\n' "$DIM" \
-    "$([ "$n" -eq 1 ] && echo "1 session" || echo "$n sessions")" "$RST"
 }
 
 # ─── Recent conversations ────────────────────────────────────────────────────
@@ -1093,9 +1107,14 @@ claude_open_pid() {
   return 1
 }
 
-# The rows below are all one shape, TSV: mtime, agent, dir, id, title, and the pid of the
-# process that still has it open (empty for none). $1 is the directory to keep, or empty
+# The rows below are all one shape, TSV: mtime, agent, dir, id, yolo, pid, title. yolo is
+# "yolo" or "-", pid the process still holding the conversation open or "-", and the title
+# goes last. Never an empty field mid-row: tab is whitespace to `read`, so two tabs in a row
+# collapse into one and every field after shifts left. $1 is the directory to keep, or empty
 # for every one.
+#
+# yolo is claude's own record of the last turn's permission mode: "bypassPermissions" is what
+# --dangerously-skip-permissions runs as. opencode keeps nothing like it, so its rows say "-".
 #
 # Scoped, it opens the one folder claude files that directory under and checks each file's
 # own cwd, since the folder name is lossy (/a.b and /a-b share one).
@@ -1121,7 +1140,10 @@ claude_recent() {
       [ -n "$title" ] ||
         title=$(grep -F '"type":"last-prompt"' "$f" | tail -n 1 | json_field lastPrompt | json_text | cut -c1-80)
       [ -n "$title" ] || continue
-      printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$m" claude "$dir" "$id" "$title" "$(claude_open_pid "$id")"
+      yolo=-
+      [ "$(grep -o '"permissionMode":"[^"]*"' "$f" | tail -n 1)" = '"permissionMode":"bypassPermissions"' ] && yolo=yolo
+      pid=$(claude_open_pid "$id") || pid=-
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$m" claude "$dir" "$id" "$yolo" "$pid" "$title"
       n=$((n + 1))
       [ "$n" -lt "$RECENT_MAX" ] || break
     done
@@ -1135,8 +1157,8 @@ opencode_recent() {
   where=
   [ -n "$1" ] && where="AND directory = '$(printf '%s' "$1" | sed "s/'/''/g")'"
   sqlite3 -readonly -separator "$TAB" "$db" "
-    SELECT time_updated / 1000, 'opencode', directory, id,
-           replace(replace(title, char(9), ' '), char(10), ' '), ''
+    SELECT time_updated / 1000, 'opencode', directory, id, '-', '-',
+           replace(replace(title, char(9), ' '), char(10), ' ')
     FROM session
     WHERE parent_id IS NULL AND time_archived IS NULL AND time_updated >= $since
       AND title NOT LIKE 'New session - %' $where
@@ -1147,7 +1169,9 @@ opencode_recent() {
 
 # Both stores, newest first, RECENT_MAX in all. Each source stops at RECENT_MAX of its own,
 # which is enough: the overall newest five are among the union of each one's newest five.
+# TRAILS_RECENT_MAX=0 turns it off, for a caller that only wants what is running.
 recent_rows() {
+  [ "$RECENT_MAX" -gt 0 ] 2>/dev/null || return 0
   avail=" $(available_agents | tr '\n' ' ') "
   {
     case $avail in *" claude "*) claude_recent "$1" ;; *) ;; esac
@@ -1167,52 +1191,27 @@ ago() {
   fi
 }
 
-# `trails recent` — the conversations behind every directory's ◷ rows, box-wide like ls.
-# A table on a terminal; the raw rows when piped, for whatever wants to offer them.
-list_recent() {
-  rows=$(recent_rows "")
-  [ -t 1 ] || {
-    [ -z "$rows" ] || printf '%s\n' "$rows"
-    return 0
-  }
-  [ -n "$rows" ] || {
-    echo "trails: no conversations in the last $RECENT_DAYS days"
-    return 0
-  }
-  now=$(date +%s)
-  printf '%s\n' "$rows" | while IFS="$TAB" read -r m agent dir _ title pid; do
-    printf '%s\t%s\t%s\t%s\t%s\n' "${pid:+!}" "$(ago "$m" "$now")" "$agent" \
-      "$(printf '%s' "$dir" | sed "s|^$HOME|~|")" "$title${pid:+  (open in $agent, pid $pid)}"
-  done | awk -F"$TAB" -v yel="$YEL" -v rst="$RST" '
-    { m[NR] = $1; for (i = 2; i <= 4; i++) { c[NR, i] = $i; if (length($i) > w[i]) w[i] = length($i) }; t[NR] = $5 }
-    END { for (r = 1; r <= NR; r++) {
-            g = m[r] == "!" ? yel "!" rst : "◷"
-            line = sprintf("%s %-*s  %-*s  %-*s  %s", g, w[2], c[r, 2], w[3], c[r, 3], w[4], c[r, 4], t[r])
-            sub(/ +$/, "", line); print line } }'
-  printf '%s◷ to pick one up, run trails in its directory · ! still open in that agent%s\n' "$DIM" "$RST"
-}
-
-# ─── Cockpit ─────────────────────────────────────────────────────────────────
+# ─── Map ─────────────────────────────────────────────────────────────────────
 # Several agents at once, in one window. The picker answers "what do I open here" and
 # `trails ls` answers "who wants me"; this is the third question — watch four of them work,
 # and answer whichever one stops, without leaving the window.
 #
-# Every pane is a tmux client attached to a live agent session: the cockpit *borrows* the
+# Every pane is a tmux client attached to a live agent session: the map *borrows* the
 # view, it does not take the pane. That is the whole design, and the reason to prefer it
 # over join-pane, which is the obvious other way to get four agents into one window.
 # join-pane *moves* a pane, so trails-foo would stop being a session — and sessions are
 # what is_ours, list_sessions() and the SwiftBar plugin all ask tmux about, so all three would go
-# blind at once. A cockpit that died mid-flight would leave the agents merged into a
+# blind at once. A map that died mid-flight would leave the agents merged into a
 # session none of them chose, with no way back but hand-run break-pane.
 #
-# Borrowed, the cockpit owns nothing, so it can lose nothing: kill it, close the window,
+# Borrowed, the map owns nothing, so it can lose nothing: kill it, close the window,
 # crash it, and every agent is where it was — still running, still attached to whatever
-# else was viewing it. That is also why this never reuses a cockpit. Rebuilding is free
-# when there is no state to keep, so `trails cockpit` always builds a fresh one rather
+# else was viewing it. That is also why this never reuses a map. Rebuilding is free
+# when there is no state to keep, so `trails map` always builds a fresh one rather
 # than reconciling an old one against a new pick.
 #
 # Not $PWD-scoped, for list_sessions()'s reason: the picker asks what is running *here*, the
-# cockpit asks what is running *at all*.
+# map asks what is running *at all*.
 #
 # What it costs, and it is not nothing. A tmux window has one grid, so a session two
 # clients of different shapes are watching cannot be right for both — that is not a thing
@@ -1228,83 +1227,84 @@ list_recent() {
 # across a keypress, either way). And a re-flow is a screen change, so the `trails ls`
 # poll that straddles an attach reads those agents as `working` — classify() calls a
 # changed screen working by construction — and the SwiftBar plugin re-announces them once
-# as they settle. That is the one place the cockpit dents the notifier's one-sided error:
+# as they settle. That is the one place the map dents the notifier's one-sided error:
 # a still screen can never read as working, and a resize is a still screen that moves
 # (measured: capture-pane's content hash does change across a resize). AGENT_NOTIFY_AFTER
 # is the existing dial for it, for the same reason it exists at all.
 #
 # `-f ignore-size` on the pane clients is the other end of the lever and was measured too:
 # it holds the agent at the other client's size, keeps typing (it is not read-only, which
-# is a separate flag), and falls back to the cockpit's own size when nothing else is
-# looking. It is not used because it only moves the dead space into the cockpit pane —
+# is a separate flag), and falls back to the map's own size when nothing else is
+# looking. It is not used because it only moves the dead space into the map pane —
 # a session Zed holds at 114x84 renders into a 181x45 pane as 114 columns of agent and 67
 # of nothing. Neither end is free, and the active view is the better one to keep whole.
 
-# One name, so exactly one cockpit — a decision, not an oversight, and the difference
+# One name, so exactly one map — a decision, not an oversight, and the difference
 # matters because the fix for it is sitting right there in this file. next_free() gives
 # agent sessions their -2 because each holds a live conversation that cannot be recreated:
-# ~/a/foo and ~/b/foo both want trails-foo, neither can yield, so they coexist. A cockpit
+# ~/a/foo and ~/b/foo both want trails-foo, neither can yield, so they coexist. A map
 # holds nothing, so that pressure has no counterpart here — nothing collides, because
-# there is nothing to lose. Reaching for next_free() when a second cockpit "collides"
+# there is nothing to lose. Reaching for next_free() when a second map "collides"
 # would be solving a problem the design does not have, and would cost the thing a fixed
-# name buys: the cockpit is a *place*. `tmux a -t cockpit` finds it forever, and re-running
+# name buys: the map is a *place*. `tmux a -t trails_map` finds it forever, and re-running
 # builds over it. Two of them and you are tracking which is which, which is bookkeeping —
 # for the one thing here whose whole point is that it needs none.
 #
-# The axis that scales is panes, not cockpits: eight agents is `trails cockpit 8`, not two
-# cockpits of four. Two monitors would be the honest reason to want a second, and a cockpit
+# The axis that scales is panes, not maps: eight agents is `trails map 8`, not two
+# maps of four. Two monitors would be the honest reason to want a second, and a map
 # you keep *while* building another would be a better one — but that second is a saved view,
 # which is state, and state is exactly what this does not have and should not grow lightly.
 #
-# The cost lands on kill-session in cockpit(): a window already sitting in the old cockpit
+# The cost lands on kill-session in map(): a window already sitting in the old map
 # has its `tmux attach` exit under it and drops back to a shell. Measured, and in the README,
 # because it is the one part of "re-running is free" that is not free. The agents are
 # untouched — they always are.
 #
 # Outside $PREFIX on purpose, and load-bearing rather than taste: sessions() calls
-# anything named trails-* an agent session, so an `trails-cockpit` would be listed by
+# anything named trails-* an agent session, so a `trails-map` would be listed by
 # `trails ls` and counted by the notifier as one more agent — a viewer reported as a
 # thing to watch, permanently "working" because its panes always repaint. The prefix
-# means "an agent lives here", and no agent lives here.
-COCKPIT=cockpit
+# means "an agent lives here", and no agent lives here. An underscore, not a dash, for the
+# same reason: trails-map is what a project folder called "map" gets.
+MAP=trails_map
 
 # This is the one session the script kills without asking, so be sure it is ours first.
-# @cockpit is the marker, stamped at build; a session you named `cockpit` yourself has no
+# @trails_map is the marker, stamped at build; a session you named `trails_map` yourself has no
 # marker and gets refused rather than reaped. display-message rather than show-options -t,
 # and no "=": the same trap is_ours() documents.
-is_cockpit() {
-  [ "$(tmux display-message -pt "$COCKPIT" '#{@cockpit}' 2>/dev/null)" = 1 ]
+is_map() {
+  [ "$(tmux display-message -pt "$MAP" '#{@trails_map}' 2>/dev/null)" = 1 ]
 }
 
-# Are we in a shell pane of the cockpit itself — one you split off with C-b | to start
+# Are we in a shell pane of the map itself — one you split off with C-b | to start
 # or pick an agent from? Inside tmux the picker normally runs the agent bare in the
 # current pane (USE_TMUX is off), and here that would be wrong in every way that matters:
 # no trails- session, so status, the notifier and the picker cannot see it, and the next
-# `trails cockpit new` kills it along with the session it is squatting in. The cockpit
+# `trails map new` kills it along with the session it is squatting in. The map
 # owns nothing, and an agent living inside it would be the one thing it owned.
 #
 # So the dispatch turns USE_TMUX back on here and the agent gets a real session like
 # anywhere else; attach_to then turns this pane into a viewer of it, so the split you made
 # becomes the new grid cell. Asked by $TMUX_PANE, not the current client: the shell may
-# be in a cockpit window you are not looking at.
-in_cockpit() {
+# be in a map window you are not looking at.
+in_map() {
   [ -n "$TMUX" ] && [ -n "$TMUX_PANE" ] || return 1
-  [ "$(tmux display-message -pt "$TMUX_PANE" '#{session_name}' 2>/dev/null)" = "$COCKPIT" ] &&
-    is_cockpit
+  [ "$(tmux display-message -pt "$TMUX_PANE" '#{session_name}' 2>/dev/null)" = "$MAP" ] &&
+    is_map
 }
 
 # fzf's preview: the agent's own screen. It is what makes a name pickable — "trails-foundry"
 # is a name, the screen tells you it is sat on a permission prompt. -e keeps the colours.
 peek() { tmux capture-pane -pet "$1" 2>/dev/null; }
 
-# What a cockpit pane runs: one tmux client, attached to one agent session. Written once
+# What a map pane runs: one tmux client, attached to one agent session. Written once
 # because both callers (new-session for the first pane, split-window for the rest) need the
 # same two non-obvious things, and either one missed is silent.
 #
 # The quotes around the '=' are for zsh, not tmux. tmux runs a pane's command through
 # $SHELL, where a bare leading `=` expands to a command path — the same trap that made the
 # picker internals above subcommands. Unquoted, every pane dies on arrival with
-# "=trails-foo not found" and the cockpit comes up empty.
+# "=trails-foo not found" and the map comes up empty.
 #
 # env -u TMUX because tmux sets $TMUX in every pane it creates and refuses to nest while it
 # is set. Clearing it is the supported way in: the inner client is an ordinary client that
@@ -1314,26 +1314,26 @@ peek() { tmux capture-pane -pet "$1" 2>/dev/null; }
 # server option, so it is already true of the inner client and Shift+Enter reaches the agent.
 view_cmd() { printf "env -u TMUX tmux attach -t '=%s'" "$1"; }
 
-# The directory a cockpit pane's agent works in — its session_path basename, frozen at
+# The directory a map pane's agent works in — its session_path basename, frozen at
 # launch by launch()'s -c "$PWD". Stamped onto the pane as @dir so the border can lead
 # with it (see the pane-border-format below). Not folded into tmux.conf's set-titles-string,
 # which is where "claude · <task>" comes from: that string is also the Ghostty tab title and
-# the normal agent session's title, and the directory is wanted in the cockpit grid only.
+# the normal agent session's title, and the directory is wanted in the map grid only.
 # Static, unlike the task half — a session's directory cannot change — so it is set once at
 # build and never goes stale, where #{pane_title} stays live for the task.
 # No "=" on the -t: display-message silently answers nothing for an =exact target (the
 # trap is_ours() documents), so "=$1" would hand basename an empty string and every pane
 # would get a blank @dir. The name comes straight from a live list, so an unanchored match
 # still lands on it exactly.
-cockpit_dir() { basename "$(tmux display-message -pt "$1" '#{session_path}' 2>/dev/null)"; }
+map_dir() { basename "$(tmux display-message -pt "$1" '#{session_path}' 2>/dev/null)"; }
 
-# The agent name for a cockpit pane, stamped as @ag so the border can tell a real task from
+# The agent name for a map pane, stamped as @ag so the border can tell a real task from
 # the title-less fallback. Before an agent publishes a task, tmux.conf's set-titles-string
 # falls back to "#{@agent} · #{b:pane_current_path}" — i.e. "claude · <dir>" — so the border
 # would read "<dir> · claude · <dir>", the directory twice. The border composes that same
 # fallback string from @ag and @dir and, on a match, drops the task half (see below). Same
-# no-"=" rule as cockpit_dir, and same source, so @agent is the value launch() wrote.
-cockpit_agent() { tmux display-message -pt "$1" '#{@agent}' 2>/dev/null; }
+# no-"=" rule as map_dir, and same source, so @agent is the value launch() wrote.
+map_agent() { tmux display-message -pt "$1" '#{@agent}' 2>/dev/null; }
 
 # Every agent on the box, ranked most-wants-you first. The rank is the same blocked/idle/
 # working sort list_sessions() and live_sessions() use, so pane 1 of the grid is always the one
@@ -1342,7 +1342,7 @@ cockpit_agent() { tmux display-message -pt "$1" '#{@agent}' 2>/dev/null; }
 # The name keeps its -N suffix here, for the reason list_sessions() spells out and live_sessions()
 # is exempt from: box-wide, `trails-foo-2` is equally foo's second agent and project
 # foo-2's only one, so the `#2` badge would be a guess. Print the name and let it be read.
-cockpit_menu() {
+map_menu() {
   sessions | classify | while IFS="$TAB" read -r state name label task; do
     rank_dot "$state"
     [ -n "$task" ] && task="  $task"
@@ -1352,58 +1352,58 @@ cockpit_menu() {
   done | sort | cut -f2-
 }
 
-cockpit() {
+map() {
   command -v tmux >/dev/null 2>&1 || {
-    echo "trails: cockpit needs tmux" >&2
+    echo "trails: map needs tmux" >&2
     exit 1
   }
-  if tmux has-session -t "=$COCKPIT" 2>/dev/null && ! is_cockpit; then
-    echo "trails: a tmux session named '$COCKPIT' is already here and is not ours" >&2
-    echo "        rename it (tmux rename-session -t $COCKPIT <name>) and retry" >&2
+  if tmux has-session -t "=$MAP" 2>/dev/null && ! is_map; then
+    echo "trails: a tmux session named '$MAP' is already here and is not ours" >&2
+    echo "        rename it (tmux rename-session -t $MAP <name>) and retry" >&2
     exit 1
   fi
 
-  # Bare `trails cockpit` means "take me to my cockpit": if one is already up, go there
+  # Bare `trails map` means "take me to my map": if one is already up, go there
   # rather than making you re-pick and rebuilding it. The guard above has established that
-  # any session named $COCKPIT is ours, so has-session alone is enough here. `trails cockpit
+  # any session named $MAP is ours, so has-session alone is enough here. `trails map
   # new` skips this to force a fresh pick (it is non-empty, so the -z test is false), and
-  # `trails cockpit N` likewise rebuilds — both keep the stateless "re-running is free"
+  # `trails map N` likewise rebuilds — both keep the stateless "re-running is free"
   # contract; this only spares you the rebuild when you did not ask for one. switch-client
   # inside tmux, attach outside — the same fork the build path ends on.
-  if [ -z "${1:-}" ] && tmux has-session -t "=$COCKPIT" 2>/dev/null; then
-    [ -z "$TMUX" ] || exec tmux switch-client -t "=$COCKPIT"
-    exec tmux attach-session -t "=$COCKPIT"
+  if [ -z "${1:-}" ] && tmux has-session -t "=$MAP" 2>/dev/null; then
+    [ -z "$TMUX" ] || exec tmux switch-client -t "=$MAP"
+    exec tmux attach-session -t "=$MAP"
   fi
 
-  rows=$(cockpit_menu)
+  rows=$(map_menu)
   [ -n "$rows" ] || {
     echo "trails: no agent sessions running" >&2
     exit 1
   }
 
-  # `trails cockpit N` takes the N that most want you and skips the picker — the rows are
+  # `trails map N` takes the N that most want you and skips the picker — the rows are
   # already sorted blocked, idle, working, so "the top N" is "the N worth looking at".
-  # `trails cockpit new` opens the picker; bare `trails cockpit` only reaches here when no
-  # cockpit was up to attach to (the block above returns otherwise), so it opens the picker
+  # `trails map new` opens the picker; bare `trails map` only reaches here when no
+  # map was up to attach to (the block above returns otherwise), so it opens the picker
   # too. Both arrive at the same list of names, and fzf --multi returns them in list order,
   # so the grid stays in wants-you order.
   case ${1:-} in
     '' | new)
       choice=$(printf '%s\n' "$rows" | fzf --multi --reverse --no-info --ansi \
-        --prompt='Cockpit: ' --delimiter='\t' --with-nth='2..' --height=~80% \
-        --header='tab: pick an agent   enter: open the cockpit' \
+        --prompt='Map: ' --delimiter='\t' --with-nth='2..' --height=~80% \
+        --header='tab: pick an agent   enter: open the map' \
         --preview="$0 --peek {1}" --preview-window='right,60%,border-left') || exit 0
       names=$(printf '%s\n' "$choice" | cut -f1)
       ;;
     *[!0-9]*)
-      echo "trails: cockpit takes a number of agents or 'new', not '$1'" >&2
+      echo "trails: map takes a number of agents or 'new', not '$1'" >&2
       exit 1
       ;;
     *)
       # 0 reaches head as `head -n 0`, which refuses with "illegal line count" and leaves
       # you reading coreutils' opinion of your typo rather than ours.
       [ "$1" -ge 1 ] || {
-        echo "trails: cockpit needs at least one agent, not '$1'" >&2
+        echo "trails: map needs at least one agent, not '$1'" >&2
         exit 1
       }
       names=$(printf '%s\n' "$rows" | cut -f1 | head -n "$1")
@@ -1411,14 +1411,14 @@ cockpit() {
   esac
   [ -n "$names" ] || exit 0
 
-  # Drop anything that died between the pick and here. The gap is real: cockpit_menu ran
+  # Drop anything that died between the pick and here. The gap is real: map_menu ran
   # before fzf opened, so a name can be minutes stale by the time you press enter, and an
   # agent that finished and exited in the meantime is gone.
   #
   # It is worth a pass of its own because the first name failing is not survivable. tmux
   # creates the session, its command exits at once, tmux reaps the session — and
   # new-session still returns 0, so the `|| exit 1` below never fires and every call after
-  # it ("no such session: cockpit", an empty pane_id, a failed attach) fails in a heap.
+  # it ("no such session: map", an empty pane_id, a failed attach) fails in a heap.
   # A dead name later in the list is milder — the pane opens and closes and the grid is
   # quietly one short — but it is the same bug, so it goes the same way.
   #
@@ -1449,7 +1449,7 @@ cockpit() {
   # Fall back to tmux's own default for a client-less session. Neither source is guaranteed
   # to answer: tput says nothing with no TERM or with stdout redirected, and client_width is
   # empty for a $TMUX set with no client attached. Either way the empty string reaches
-  # new-session as -x '' and tmux refuses the whole cockpit with a bare "width invalid" —
+  # new-session as -x '' and tmux refuses the whole map with a bare "width invalid" —
   # a real answer to a question nobody asked. 80x24 builds something you can look at, and
   # the client that attaches a moment later resizes it to the truth anyway; only the
   # two-pane rule below reads the guess, and it degrades to "stacked".
@@ -1477,53 +1477,53 @@ cockpit() {
     layout=tiled
   fi
 
-  # Unconditional, and this is the line that makes "one cockpit" true (see COCKPIT above).
+  # Unconditional, and this is the line that makes "one map" true (see MAP above).
   # A window sitting in the old one loses it here: detach-on-destroy sends its client home,
   # its `tmux attach` exits, and it lands back on a shell. That is the whole cost of asking
-  # for a cockpit while one is already open, and it is bounded — the agents never notice,
+  # for a map while one is already open, and it is bounded — the agents never notice,
   # because none of them live here.
-  tmux kill-session -t "=$COCKPIT" 2>/dev/null
+  tmux kill-session -t "=$MAP" 2>/dev/null
   first=$(printf '%s\n' "$names" | head -n1)
 
-  tmux new-session -d -s "$COCKPIT" -x "$w" -y "$h" "$(view_cmd "$first")" || exit 1
+  tmux new-session -d -s "$MAP" -x "$w" -y "$h" "$(view_cmd "$first")" || exit 1
 
   # new-session's exit status only says the session was created, not that its command
   # lived: a pane whose command exits immediately takes the session down with it and
   # new-session still returns 0. The filter above makes that unlikely, not impossible, and
   # unnoticed it turns every line below into a "no such session" — so ask.
-  tmux has-session -t "=$COCKPIT" 2>/dev/null || {
-    echo "trails: $first went away as the cockpit opened it" >&2
+  tmux has-session -t "=$MAP" 2>/dev/null || {
+    echo "trails: $first went away as the map opened it" >&2
     exit 1
   }
-  tmux set-option -t "$COCKPIT" @cockpit 1
-  home=$(tmux display-message -pt "$COCKPIT" '#{pane_id}')
-  tmux set-option -pt "$home" @dir "$(cockpit_dir "$first")"
-  tmux set-option -pt "$home" @ag "$(cockpit_agent "$first")"
+  tmux set-option -t "$MAP" @trails_map 1
+  home=$(tmux display-message -pt "$MAP" '#{pane_id}')
+  tmux set-option -pt "$home" @dir "$(map_dir "$first")"
+  tmux set-option -pt "$home" @ag "$(map_agent "$first")"
 
   # Re-tile after every split rather than once at the end, because split-window halves the
   # *current* pane and the halves get small fast: measured in an 80x24 window, the fifth
-  # agent fails with "no space for new pane" and the cockpit comes up with four and no
+  # agent fails with "no space for new pane" and the map comes up with four and no
   # complaint (the error lands on tmux's stderr, not in the grid you are looking at).
   # Tiling as we go re-spreads the panes each round so the next split has room — the same
   # window then takes six. Four fits either way, which is exactly why this is worth doing
-  # up front rather than after the first time a cockpit quietly drops an agent.
+  # up front rather than after the first time a map quietly drops an agent.
   printf '%s\n' "$names" | tail -n +2 | while read -r n; do
     [ -n "$n" ] || continue
     # -P -F to get the new pane's id back, so @dir lands on this split and not whichever
     # pane happened to be current — split-window makes the new pane active, but reading it
     # back by id is exact and does not assume that.
-    pane=$(tmux split-window -t "$COCKPIT" -P -F '#{pane_id}' "$(view_cmd "$n")")
-    tmux set-option -pt "$pane" @dir "$(cockpit_dir "$n")"
-    tmux set-option -pt "$pane" @ag "$(cockpit_agent "$n")"
-    tmux select-layout -t "$COCKPIT" tiled >/dev/null
+    pane=$(tmux split-window -t "$MAP" -P -F '#{pane_id}' "$(view_cmd "$n")")
+    tmux set-option -pt "$pane" @dir "$(map_dir "$n")"
+    tmux set-option -pt "$pane" @ag "$(map_agent "$n")"
+    tmux select-layout -t "$MAP" tiled >/dev/null
   done
-  tmux select-layout -t "$COCKPIT" "$layout" >/dev/null
+  tmux select-layout -t "$MAP" "$layout" >/dev/null
 
   # The border label, free and always current: the inner client emits its session's title
   # (tmux.conf's set-titles-string — "claude · what it is working on") to its terminal,
-  # which *is* this pane, so the cockpit reads it straight off #{pane_title}. No poll and
+  # which *is* this pane, so the map reads it straight off #{pane_title}. No poll and
   # no bookkeeping, and it follows the agent's own title as the task changes. The global
-  # format is no use here — every pane in a cockpit runs `tmux`, so #{pane_current_command}
+  # format is no use here — every pane in a map runs `tmux`, so #{pane_current_command}
   # would label all four "tmux". Set rather than inherited because the global exists for
   # other windows' reasons and apply_policy turns it off for agent sessions.
   #
@@ -1539,8 +1539,8 @@ cockpit() {
   # comparing pane_title to it catches exactly that state and shows "<dir> · claude"; any
   # real task fails the match and prints whole. Transient either way — it self-corrects the
   # moment the agent sets a title — but the doubling is avoided rather than blinked through.
-  tmux set-option -w -t "$COCKPIT" pane-border-status top
-  tmux set-option -w -t "$COCKPIT" pane-border-format \
+  tmux set-option -w -t "$MAP" pane-border-status top
+  tmux set-option -w -t "$MAP" pane-border-format \
     ' #{@dir} · #{?#{==:#{pane_title},#{@ag} · #{@dir}},#{@ag},#{pane_title}} '
 
   # Land on the one that most wants you. By pane id, which cannot be re-numbered out from
@@ -1549,8 +1549,8 @@ cockpit() {
 
   # Already inside tmux (opened from an agent session, or from your own window): attach
   # would refuse to nest, and switch-client is what "go there" means to a client already here.
-  [ -z "$TMUX" ] || exec tmux switch-client -t "=$COCKPIT"
-  exec tmux attach-session -t "=$COCKPIT"
+  [ -z "$TMUX" ] || exec tmux switch-client -t "=$MAP"
+  exec tmux attach-session -t "=$MAP"
 }
 
 # ─── Where an agent may not be opened ────────────────────────────────────────
@@ -1586,36 +1586,32 @@ usage() {
 usage: trails [command]
 
   (none)            pick a running session to rejoin, or an agent to start
-  new               skip the running sessions, start a fresh one
-  ls                every agent session on the box (a table, or TSV when piped)
-  cockpit [N|new]   several agents in one window — pick them, or take the N that
+  ls                where every agent session is: running (●), lost with tmux (↻),
+                    finished in the last 10 days (◷) — a table, or TSV when piped
+  map [N|new]       several agents in one window — pick them, or take the N that
                     most want you; `new` rebuilds instead of re-attaching
-  restore [-n]      bring back every session that died with tmux
-                    (-n, --dry-run: list them, start nothing)
-  recent            conversations from the last 10 days, every directory
-                    (a table, or TSV when piped)
+  restore           bring back every session that died with tmux (the ↻ rows)
   help              this
 
 In the picker (each agent, with its sessions for this project beneath it):
   enter             start the agent, or attach to / restore / resume the session
   tab               arm the highlighted agent or ◷ row for YOLO (run everything unconfirmed)
-  ctrl-a            hold this Mac awake for as long as that session lives
   ctrl-x            kill the highlighted session, or forget a ↻ row
 
   ↻ died with tmux, comes back on its own conversation
-  ◷ a recent conversation here that nothing is running (claude, opencode)
+  ◷ a recent conversation here that nothing is running (claude, opencode);
+    it resumes in the mode it last ran in, YOLO included
+  ! one still open in a claude that trails didn't start: enter says where
 
 Env:
   AGENT_SETTLE        seconds between the two screen samples (default 0.35)
   AGENT_ASK_RE        regex meaning "the agent is asking you something"
-  TRAILS_RECENT_DAYS  how far back ◷ rows and `recent` look (default 10)
+  TRAILS_RECENT_DAYS  how far back ◷ rows look (default 10)
   TRAILS_RECENT_MAX   how many of them to show (default 5)
 EOF
 }
 
-FORCE_NEW=
 case $1 in
-  new) FORCE_NEW=1 ;;
   help | -h | --help)
     usage
     exit 0
@@ -1625,20 +1621,16 @@ case $1 in
     exit 0
     ;;
   # Above refuse_bad_cwd with ls, and for the same reason: it opens no agent, so
-  # where you are standing is not its business. You are most likely to want a cockpit
+  # where you are standing is not its business. You are most likely to want a map
   # from wherever you happened to walk back to.
-  cockpit)
-    cockpit "$2"
+  map)
+    map "$2"
     exit 0
     ;;
   # Box-wide like ls: each session comes back in its own recorded directory, so where you
   # stand does not matter.
   restore)
     restore_all "$2"
-    exit 0
-    ;;
-  recent)
-    list_recent
     exit 0
     ;;
   # Called by the wrapper launch() puts around every agent, when the agent exits.
@@ -1662,10 +1654,6 @@ case $1 in
     toggle_yolo "$2"
     exit 0
     ;;
-  --toggle-awake)
-    toggle_awake "$2"
-    exit 0
-    ;;
   '') ;;
   *)
     echo "trails: unknown argument '$1' (try: trails help)" >&2
@@ -1675,23 +1663,18 @@ esac
 
 refuse_bad_cwd
 
-IN_COCKPIT=
-if in_cockpit; then
-  IN_COCKPIT=1
+IN_MAP=
+if in_map; then
+  IN_MAP=1
   USE_TMUX=1
 fi
 
-# Two per-invocation temp files, exported so the fzf-spawned --toggle-yolo / --print-menu /
+# Per-invocation temp files, exported so the fzf-spawned --toggle-yolo / --print-menu /
 # --kill subprocesses all share them. Both are removed the moment fzf returns and on
 # Esc/interrupt via the trap, since the exec paths below never run to an EXIT trap of their own.
 #
 # TRAILS_YOLO_STATE — which agent (if any) you armed for YOLO with Tab. The chosen row's verb
 #                     already carries the mode by the time fzf returns, so nothing reads it after.
-# TRAILS_AWAKE_STATE — which row (if any) you armed with ctrl-a to hold the Mac awake. This one
-#                     *is* read after fzf returns, unlike the YOLO file, because keeping the
-#                     machine awake is orthogonal to how you launch and so was deliberately not
-#                     folded into the verb (see print_menu). Hence the read below sits above the
-#                     rm rather than after it.
 # TRAILS_MENU_CACHE — the running-sessions block, classified once here rather than on every
 #                     reload. print_menu is re-run for each Tab and ctrl-x; live_sessions() sleeps
 #                     AGENT_SETTLE to sample screens twice, so recomputing it per keystroke is
@@ -1699,37 +1682,29 @@ fi
 #                     life (fzf never refreshes it on its own), so caching loses no freshness.
 # TRAILS_RECENT_CACHE — the ◷ rows' raw TSV, for the same reason: read once, drawn per reload.
 TRAILS_YOLO_STATE="${TMPDIR:-/tmp}/trails-yolo.$$"
-TRAILS_AWAKE_STATE="${TMPDIR:-/tmp}/trails-awake.$$"
 TRAILS_MENU_CACHE="${TMPDIR:-/tmp}/trails-menu.$$"
 TRAILS_RECENT_CACHE="${TMPDIR:-/tmp}/trails-recent.$$"
-export TRAILS_YOLO_STATE TRAILS_AWAKE_STATE TRAILS_MENU_CACHE TRAILS_RECENT_CACHE
-rm -f "$TRAILS_YOLO_STATE" "$TRAILS_AWAKE_STATE"
-trap 'rm -f "$TRAILS_YOLO_STATE" "$TRAILS_AWAKE_STATE" "$TRAILS_MENU_CACHE" "$TRAILS_RECENT_CACHE"' EXIT INT TERM
+export TRAILS_YOLO_STATE TRAILS_MENU_CACHE TRAILS_RECENT_CACHE
+rm -f "$TRAILS_YOLO_STATE"
+trap 'rm -f "$TRAILS_YOLO_STATE" "$TRAILS_MENU_CACHE" "$TRAILS_RECENT_CACHE"' EXIT INT TERM
 
 # Classify the running sessions once, up front — the only place that pays classify's settle
-# sleep on the picker's happy path. Empty (not absent) for `trails new` or no tmux: print_menu
-# reads this file, not FORCE_NEW, so the new-mode intent survives into the reload subprocesses,
-# where $1 is --print-menu and FORCE_NEW is unset.
-if [ -n "$USE_TMUX" ] && [ -z "$FORCE_NEW" ]; then
+# sleep on the picker's happy path. Empty (not absent) with no tmux to look in.
+if [ -n "$USE_TMUX" ]; then
   live_sessions >"$TRAILS_MENU_CACHE"
 else
   : >"$TRAILS_MENU_CACHE"
 fi
 
-# ↻ rows on the same terms as the running ones: not for `trails new`, and not where there is
-# no tmux to restore into (inside plain tmux the agent would run bare, with nothing to hold
+# ↻ rows on the same terms as the running ones: not where there is no tmux to restore into (inside plain tmux the agent would run bare, with nothing to hold
 # its record). print_menu reads the verdict rather than re-deriving it, for the reason the
 # cache comment above gives.
 TRAILS_RESTORE_OK=
-[ -n "$USE_TMUX" ] && [ -z "$FORCE_NEW" ] && TRAILS_RESTORE_OK=1
+[ -n "$USE_TMUX" ] && TRAILS_RESTORE_OK=1
 export TRAILS_RESTORE_OK
 
-# ◷ rows likewise skip `trails new`, but need no tmux: resuming bare is still resuming.
-if [ -z "$FORCE_NEW" ]; then
-  recent_rows "$PWD" >"$TRAILS_RECENT_CACHE"
-else
-  : >"$TRAILS_RECENT_CACHE"
-fi
+# ◷ rows need no tmux: resuming bare is still resuming.
+recent_rows "$PWD" >"$TRAILS_RECENT_CACHE"
 
 MENU=$(print_menu) || exit 1
 
@@ -1740,15 +1715,9 @@ MENU=$(print_menu) || exit 1
 #
 # tab arms the highlighted row for YOLO (toggle_yolo) and reloads so print_menu can relabel
 # it; the reload keeps the cursor on the row, so Tab-then-Enter lands on what you armed.
-# ctrl-a arms the highlighted row to hold the Mac awake, and reloads for the same reason Tab
-# does — print_menu is what draws the badge. Not ctrl-s, the obvious mnemonic for "stay
-# awake": ctrl-s is XOFF, and a terminal with flow control still on swallows it before fzf
-# ever sees it. ctrl-a's own default binding here is beginning-of-line, which costs nothing
-# in a picker whose longest query is four letters.
 set -- --prompt='Agent: ' --reverse --no-info --ansi --wrap \
   --delimiter='\t' --with-nth='3..' --height=~80% \
-  --bind="tab:execute-silent($0 --toggle-yolo {2})+reload($0 --print-menu)" \
-  --bind="ctrl-a:execute-silent($0 --toggle-awake {2})+reload($0 --print-menu)"
+  --bind="tab:execute-silent($0 --toggle-yolo {2})+reload($0 --print-menu)"
 # Sessions sit under their agents now, so the one that wants you is no longer row one. Start
 # the cursor on it instead — the first blocked, else the first idle — so Enter still rejoins it.
 # On the first `load`, then unbound: not `start`, which fires before fzf has read a row (it
@@ -1762,10 +1731,10 @@ want=$(printf '%s\n' "$MENU" | awk -F"$TAB" '
   END { print b ? b : i }')
 [ -n "$want" ] && set -- "$@" --bind="load:pos($want)+unbind(load)"
 if printf '%s\n' "$MENU" | grep -Eq '^(attach|restore)'; then
-  set -- "$@" --header='enter: start/attach/restore   tab: YOLO   ctrl-a: keep awake   ctrl-x: kill/forget' \
+  set -- "$@" --header='enter: start/attach/restore/resume   tab: YOLO   ctrl-x: kill/forget' \
     --bind="ctrl-x:execute-silent($0 --kill {2})+reload($0 --print-menu)"
 else
-  set -- "$@" --header='enter: start   tab: YOLO   ctrl-a: keep awake'
+  set -- "$@" --header='enter: start/resume   tab: YOLO'
 fi
 
 choice=$(printf '%s\n' "$MENU" | fzf "$@") || exit 0
@@ -1774,24 +1743,16 @@ choice=$(printf '%s\n' "$MENU" | fzf "$@") || exit 0
 # cut splits on TAB by default, the delimiter the menu is built with.
 target=$(printf '%s' "$choice" | cut -f2)
 
-# Read before the rm below, not after: the ctrl-a arming is the one picker state that
-# outlives fzf (print_menu explains why it is not carried in the verb). Compared against the
-# row actually chosen, so arming one row and pressing Enter on another does what it looks
-# like it does — nothing.
-awake=
-[ -s "$TRAILS_AWAKE_STATE" ] && [ "$(cat "$TRAILS_AWAKE_STATE")" = "$target" ] && awake=1
-
-rm -f "$TRAILS_YOLO_STATE" "$TRAILS_AWAKE_STATE" "$TRAILS_MENU_CACHE" "$TRAILS_RECENT_CACHE"
+rm -f "$TRAILS_YOLO_STATE" "$TRAILS_MENU_CACHE" "$TRAILS_RECENT_CACHE"
 trap - EXIT INT TERM
 
 case $choice in
   attach*)
     apply_policy "$target"
-    [ -n "$awake" ] && hold_awake "$target"
     attach_to "$target"
     ;;
   restore*)
-    new=$(restore_one "$target" "$awake") || exit 1
+    new=$(restore_one "$target") || exit 1
     attach_to "$new"
     ;;
   # A ◷ row whose conversation a claude outside trails still has open. Say where, start nothing.
@@ -1805,8 +1766,8 @@ case $choice in
   resume*)
     mode=
     case $choice in resume-yolo*) mode=yolo ;; *) ;; esac
-    launch "${target%%:*}" "$mode" "$awake" "${target#*:}"
+    launch "${target%%:*}" "$mode" "${target#*:}"
     ;;
-  yolo*) launch "$target" yolo "$awake" ;;
-  *) launch "$target" '' "$awake" ;;
+  yolo*) launch "$target" yolo ;;
+  *) launch "$target" '' ;;
 esac
