@@ -12,17 +12,25 @@ resume the ones you closed.
 
 Once an agent is running, trails gets out of the way: the session is plain tmux.
 
-```text
-● needs you  claude · yolo         Rework the retry budget   ← asking you something
-● your turn  claude         #2     Fix the flaky auth test   ← finished its turn
-● working    codex                 Migrate the schema        ← getting on with it
-○ lost       claude                Old spike                 ← tmux died under it
-○ closed     claude · yolo  2d ago Tidy the release notes    ← ended, resumable
-─── start new ──────────────────────────
-▸ claude
-▸ codex
-▸ cursor
+```console
+$ trails
+Pick a trail: █
+─────────────────────────────────────────────────────────────────
+  enter: open   tab: toggle YOLO   ctrl-x: end a running one, forget a lost one
+▌ ● needs you  claude · yolo          Rework the retry budget
+  ● your turn  claude         #2      Fix the flaky auth test
+  ● working    codex                  Migrate the schema
+  ○ lost       claude                 Old spike
+  ○ closed     claude · yolo  2d ago  Tidy the release notes
+  ─── start new ──────────────────────────
+  ▸ claude
+  ▸ codex
+  ▸ cursor
 ```
+
+`●` running, `○` not: *needs you* is asking you something, *your turn* finished
+its turn, *lost* is a session tmux took down, and *closed* ended but can be
+resumed. Type to filter, Enter to open.
 
 Because each agent runs inside tmux, it outlives the terminal that started it.
 Close the laptop, drop Wi-Fi or quit the terminal, and the conversation is still

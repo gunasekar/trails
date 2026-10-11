@@ -2131,7 +2131,7 @@ MENU=$(print_menu) || exit 1
 #
 # tab arms the highlighted row for YOLO (toggle_yolo) and reloads so print_menu can relabel
 # it; the reload keeps the cursor on the row, so Tab-then-Enter lands on what you armed.
-set -- --prompt='Agent: ' --reverse --no-info --ansi --wrap \
+set -- --prompt='Pick a trail: ' --reverse --no-info --ansi --wrap \
   --delimiter='\t' --with-nth='3..' --height=~80% \
   --bind="tab:execute-silent($0 --toggle-yolo {2})+reload($0 --print-menu)"
 # Sessions sit under their agents now, so the one that wants you is no longer row one. Start
