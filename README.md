@@ -9,6 +9,8 @@
 
 ![Start a Claude trail, lose it to a reboot, and bring it back with Enter](assets/demo.gif)
 
+![Picking a new trail in a Neovim side panel](assets/nvim.gif)
+
 trails starts Claude Code, Codex, Gemini, Copilot, Cursor, opencode or any other
 agent CLI in a tmux session of its own, then helps you find it again, resume it,
 or end it. That's all it does. There's no TUI or GUI of its own: the sessions are
@@ -338,13 +340,9 @@ editor and every shell shares one set of sessions.
   alive across disconnects.
 
   ![A Zed agent thread running claude in a trails session](assets/zed.png)
-
-  ![A Zed agent thread running claude in a trails session](assets/zed.png)
 - **Neovim:** open a terminal running `trails` in a side panel:
 
   ![Neovim in Ghostty with claude running in a trails agents panel](assets/nvim.png)
-
-  ![Picking a new trail in a Neovim side panel](assets/nvim.gif)
 
 - **Anything else:** run `trails` wherever the editor opens a terminal.
 
