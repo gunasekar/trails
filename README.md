@@ -54,7 +54,7 @@ trails map 4        # the four that most want you, side by side in one window
 | `trails ls` | where every agent session is: running, lost when tmux died, or finished in the last 10 days |
 | `trails restore` | bring back every session lost when tmux died, each on its own conversation, detached |
 | `trails map [N]` | several running agents side by side in one window: re-attach to the map already up, pick a set, or take the `N` that most want you (`map new` forces a fresh pick) |
-| `trails config` | open the agent profiles file in `$EDITOR`, writing the built-ins first if there isn't one |
+| `trails config` | open the agents file in `$EDITOR`, writing the built-ins first if there isn't one |
 | `trails help` | the commands and picker keys (also `-h`, `--help`) |
 
 ### The picker
@@ -117,17 +117,17 @@ running sessions; it skips reading conversation history.
 | `AGENT_SETTLE` | `0.35` | seconds between the two screen samples that tell `working` from `idle` |
 | `AGENT_ASK_RE` | *(see script)* | regex meaning "this agent is asking you something" |
 
-### Agents and profiles
+### Agents
 
-Which agents trails can start is a list of profiles in
-`~/.config/trails/config.json`. With no file, the built-in profiles apply.
+Which agents trails can start, and how, is a list in
+`~/.config/trails/config.json`. With no file, the built-in agents apply.
 `trails config` writes them out as a starting point and opens the file in
 `$EDITOR`. Changing agents never needs a change to trails.
 
 ```json
 {
-  "default_profile": "claude",
-  "profiles": [
+  "default_agent": "claude",
+  "agents": [
     {
       "name": "claude",
       "program": "claude",
@@ -146,16 +146,16 @@ Which agents trails can start is a list of profiles in
 | `program` | the command line to run, split on spaces (no shell quoting; use a wrapper script for anything fancier) |
 | `yolo` | *(optional)* the flag Tab adds to run everything unconfirmed |
 | `session` | *(optional)* how to start a conversation under an ID trails chooses (`start`) and resume it (`resume`); `{id}` marks where the ID goes, and `id` is `uuid` or `ses_hex`. This is what lets a session come back after tmux dies. |
-| `default_profile` | *(optional)* listed first in the picker |
+| `default_agent` | *(optional)* listed first in the picker |
 
-Only profiles whose command is on `PATH` are offered. Recent conversations are
+Only agents whose command is on `PATH` are offered. Recent conversations are
 read from claude's and opencode's own history, and are filed under the first
-profile that runs `claude` or `opencode`.
+agent that runs `claude` or `opencode`.
 
-The built-in profiles, checked against each tool's docs or `--help` in October
+The built-in agents, checked against each tool's docs or `--help` in October
 2026:
 
-| Profile | Runs | YOLO flag | Restores after tmux dies |
+| Agent | Runs | YOLO flag | Restores after tmux dies |
 |---|---|---|---|
 | claude | `claude` | `--dangerously-skip-permissions` | yes |
 | codex | `codex` | `--dangerously-bypass-approvals-and-sandbox` | no |

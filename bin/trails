@@ -11,8 +11,8 @@
 #   trails restore          bring back every session that died with tmux (a reboot, a
 #                           crash, kill-server), each resuming its conversation, detached.
 #                           See "Surviving tmux" below.
-#   trails config           the agent profiles file, ~/.config/trails/config.json. See
-#                           "Agent profiles" below.
+#   trails config           the agents file, ~/.config/trails/config.json. See
+#                           "Agents" below.
 #   trails map [N]          several agents at once in one window. Pick them, or take the
 #                           N that most want you. Bare `map` re-attaches to a map
 #                           already up rather than rebuilding; `map new` forces a fresh
@@ -52,14 +52,14 @@
 # resume. Every frontend goes through this one script; the same session is reachable
 # from a plain terminal with `tmux a -t trails-<project>`.
 
-# ─── Agent profiles ──────────────────────────────────────────────────────────
+# ─── Agents ──────────────────────────────────────────────────────────────────
 # Which agents trails can start, and how, come from a JSON file you edit — never from this
-# script. The shape follows claude-squad's, so a profile is a name and the command it runs:
+# script. The shape follows claude-squad's, so an agent is a name and the command it runs:
 #
 #   ~/.config/trails/config.json
 #   {
-#     "default_profile": "claude",
-#     "profiles": [
+#     "default_agent": "claude",
+#     "agents": [
 #       { "name": "claude", "program": "claude",
 #         "yolo": "--dangerously-skip-permissions",
 #         "session": { "start": "--session-id {id}", "resume": "--resume {id}", "id": "uuid" } },
@@ -78,22 +78,22 @@
 #             where the ID goes, and `id` is its shape — "uuid", or "ses_hex" (ses_ + 32 hex,
 #             what opencode insists on). Without it the agent still runs, it just isn't
 #             brought back after a reboot.
-#   default_profile  listed first in the picker.
+#   default_agent  listed first in the picker.
 #
-# Without a file, the built-in profiles below apply; `trails config` writes them out as a
-# starting point. Only profiles whose command is on PATH are offered, so listing an agent you
+# Without a file, the built-in agents below apply; `trails config` writes them out as a
+# starting point. Only agents whose command is on PATH are offered, so listing an agent you
 # have not installed costs nothing.
 #
 # Choosing the conversation ID up front is the point of `session` — `--continue` means "the
 # latest in this directory", so trails-foo and trails-foo-2 would both resume the same one.
 #
 # Recent conversations (◷) are read from claude's and opencode's own stores, and filed under
-# the first profile that runs that command — the default profile, if it is one of them.
+# the first agent that runs that command — the default agent, if it is one of them.
 CONFIG=${XDG_CONFIG_HOME:-$HOME/.config}/trails/config.json
 
 DEFAULT_CONFIG='{
-  "default_profile": "claude",
-  "profiles": [
+  "default_agent": "claude",
+  "agents": [
     {
       "name": "claude",
       "program": "claude",
@@ -130,14 +130,14 @@ DEFAULT_CONFIG='{
   ]
 }'
 
-# The profiles as one line each, name|command|args|yolo|start|resume|idform, default first.
+# The agents as one line each, name|command|args|yolo|start|resume|idform, default first.
 # A bar, not a tab: tab is whitespace to `read`, which would merge the empty fields most
-# profiles have. jq does the JSON, because sed on hand-edited JSON is how a stray space in
-# someone's config becomes a silent wrong answer. A profile with no usable name or program
+# agents have. jq does the JSON, because sed on hand-edited JSON is how a stray space in
+# someone's config becomes a silent wrong answer. An agent with no usable name or program
 # is skipped with a warning rather than failing the lot.
-load_profiles() {
+load_agents() {
   command -v jq >/dev/null 2>&1 || {
-    echo "trails: needs jq to read its agent profiles — brew install jq (or apt install jq)" >&2
+    echo "trails: needs jq to read its agents — brew install jq (or apt install jq)" >&2
     return 1
   }
   if [ -f "$CONFIG" ]; then
@@ -145,12 +145,16 @@ load_profiles() {
     src=$CONFIG
   else
     json=$DEFAULT_CONFIG
-    src="the built-in profiles"
+    src="the built-in agents"
   fi
+  printf '%s' "$json" | jq -e '.agents | type == "array"' >/dev/null 2>&1 || {
+    echo "trails: $src has no \"agents\": [ ... ] list — see trails help, or move it aside to use the built-ins" >&2
+    return 1
+  }
   out=$(printf '%s' "$json" | jq -r '
     def words: split(" ") | map(select(. != ""));
-    (.default_profile // "") as $d
-    | [.profiles[]?] | (map(select(.name == $d)) + map(select(.name != $d)))[]
+    (.default_agent // "") as $d
+    | [.agents[]?] | (map(select(.name == $d)) + map(select(.name != $d)))[]
     | if (.name | type) != "string" or (.name | test("^[A-Za-z0-9._-]+$") | not)
          or (.program | type) != "string" or ((.program | words | length) == 0)
       then "!" + (.name // "(no name)" | tostring)
@@ -163,23 +167,23 @@ load_profiles() {
   }
   printf '%s\n' "$out" | while read -r line; do
     case $line in
-      !*) echo "trails: skipping profile '${line#!}' in $src — it needs a name (letters, digits, . _ -) and a program" >&2 ;;
+      !*) echo "trails: skipping agent '${line#!}' in $src — it needs a name (letters, digits, . _ -) and a program" >&2 ;;
       *) printf '%s\n' "$line" ;;
     esac
   done
 }
 
 agent_row() {
-  printf '%s\n' "$PROFILES" | awk -F'|' -v n="$1" '$1 == n { print; exit }'
+  printf '%s\n' "$AGENTS" | awk -F'|' -v n="$1" '$1 == n { print; exit }'
 }
 
-# The first profile that runs command $1 (by basename): who recent conversations from that
+# The first agent that runs command $1 (by basename): who recent conversations from that
 # agent's own store are filed under.
-store_profile() {
-  printf '%s\n' "$PROFILES" | awk -F'|' -v c="$1" '{ n = split($2, p, "/"); if (p[n] == c) { print $1; exit } }'
+store_agent() {
+  printf '%s\n' "$AGENTS" | awk -F'|' -v c="$1" '{ n = split($2, p, "/"); if (p[n] == c) { print $1; exit } }'
 }
 
-# Can profile $1 pick a conversation back up? It has a session.resume.
+# Can agent $1 pick a conversation back up? It has a session.resume.
 resumable() { [ -n "$1" ] && [ -n "$(agent_row "$1" | awk -F'|' '{ print $6 }')" ]; }
 
 # A session template with its ID filled in. A template written as a bare flag ("--resume")
@@ -191,7 +195,7 @@ with_id() {
   esac
 }
 
-# `trails config` — the profiles file, created from the built-ins the first time so there is
+# `trails config` — the agents file, created from the built-ins the first time so there is
 # something to edit, then opened in $EDITOR when there is a terminal to open it in.
 edit_config() {
   if [ ! -f "$CONFIG" ]; then
@@ -201,7 +205,7 @@ edit_config() {
     }
     mkdir -p "$(dirname "$CONFIG")" || exit 1
     printf '%s\n' "$DEFAULT_CONFIG" | jq . >"$CONFIG" || exit 1
-    echo "trails: wrote the built-in profiles to $CONFIG" >&2
+    echo "trails: wrote the built-in agents to $CONFIG" >&2
   fi
   if [ -t 0 ] && [ -t 1 ] && [ -n "${VISUAL:-${EDITOR:-}}" ]; then
     exec ${VISUAL:-$EDITOR} "$CONFIG"
@@ -218,7 +222,7 @@ yolo_flag() {
 
 # Only offer an agent whose command actually exists here.
 available_agents() {
-  printf '%s\n' "$PROFILES" | while IFS='|' read -r name cmd _; do
+  printf '%s\n' "$AGENTS" | while IFS='|' read -r name cmd _; do
     command -v "$cmd" >/dev/null 2>&1 && printf '%s\n' "$name"
   done
 }
@@ -849,7 +853,7 @@ EOF
   # that is catastrophic rather than merely unwise. Only the yolo launch is refused: plain,
   # prompting mode is merely ordinary as root.
   #
-  # Keyed on the flag, not the profile, so any profile using one of these is covered however
+  # Keyed on the flag, not the agent, so any agent using one of these is covered however
   # it is named: --dangerously-skip-permissions (claude, and agy, which reused the name) also
   # auto-approves the sandbox-bypass prompt, and codex's --dangerously-bypass-approvals-and-sandbox
   # drops the sandbox outright. That is what makes them, and not --force or --auto, the ones
@@ -870,7 +874,7 @@ EOF
   [ -n "$USE_TMUX" ] || exec "$cmd" $args ${3:+$(with_id "$resume" "$3")}
 
   # The conversation ID: the one being resumed, or a fresh one chosen here so this session
-  # can be resumed later. Neither for a profile with no session block, which gets no record.
+  # can be resumed later. Neither for an agent with no session block, which gets no record.
   id=
   if [ -n "$3" ]; then
     id=$3
@@ -1012,7 +1016,7 @@ esac
 # shellcheck disable=SC2016 # expanded by the wrapper's sh, not here
 WRAP='self=$1 name=$2; shift 2; trap : INT QUIT; "$@"; s=$?; "$self" --forget "$name"; exit $s'
 
-# A conversation ID in the shape the profile's session.id asks for.
+# A conversation ID in the shape the agent's session.id asks for.
 new_id() {
   if command -v uuidgen >/dev/null 2>&1; then
     u=$(uuidgen | tr '[:upper:]' '[:lower:]')
@@ -1181,7 +1185,7 @@ restore_all() {
 # The cost is bounded by the rows shown, not the history behind them: a RECENT_DAYS window
 # on mtime, newest first, and only as many files opened as it takes to fill RECENT_MAX rows.
 #
-# Only a profile with a session block can resume, and of those, the first to run each of
+# Only an agent with a session block can resume, and of those, the first to run each of
 # these two commands is the one whose store is read:
 #   claude    ~/.claude/projects/<cwd, non-alphanumerics as ->/<id>.jsonl, a JSON line per
 #             event. "entrypoint":"cli" keeps out conversations scripts ran through the SDK —
@@ -1298,8 +1302,8 @@ opencode_recent() {
 recent_rows() {
   [ "$RECENT_MAX" -gt 0 ] 2>/dev/null || return 0
   avail=" $(available_agents | tr '\n' ' ') "
-  cp=$(store_profile claude)
-  op=$(store_profile opencode)
+  cp=$(store_agent claude)
+  op=$(store_agent opencode)
   {
     resumable "$cp" && case $avail in *" $cp "*) claude_recent "$1" "$cp" ;; *) ;; esac
     resumable "$op" && case $avail in *" $op "*) opencode_recent "$1" "$op" ;; *) ;; esac
@@ -1718,7 +1722,7 @@ usage: trails [command]
   map [N|new]       several agents in one window — pick them, or take the N that
                     most want you; `new` rebuilds instead of re-attaching
   restore           bring back every session that died with tmux (the ↻ rows)
-  config            the agent profiles file: written from the built-ins the first
+  config            the agents file: written from the built-ins the first
                     time, then opened in $EDITOR (~/.config/trails/config.json)
   help              this
 
@@ -1740,13 +1744,13 @@ Env:
 EOF
 }
 
-# The profiles, read once per run. Not for what never starts or names an agent — help, config,
+# The agents, read once per run. Not for what never starts or names an agent — help, config,
 # and the wrapper's --forget, which has to work even when the config is broken. ls carries on
 # without them (only its ◷ rows need them), so a typo in the file can't blank a menu bar.
 case $1 in
-  help | -h | --help | config | --forget | --peek) PROFILES= ;;
-  ls) PROFILES=$(load_profiles) || PROFILES= ;;
-  *) PROFILES=$(load_profiles) || exit 1 ;;
+  help | -h | --help | config | --forget | --peek) AGENTS= ;;
+  ls) AGENTS=$(load_agents) || AGENTS= ;;
+  *) AGENTS=$(load_agents) || exit 1 ;;
 esac
 
 case $1 in

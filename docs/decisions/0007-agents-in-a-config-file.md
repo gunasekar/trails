@@ -1,4 +1,4 @@
-# 7. Agent profiles live in a config file
+# 7. Agents live in a config file
 
 - Status: accepted
 - Date: 2026-10
@@ -13,15 +13,15 @@ a local model).
 
 ## Decision
 
-Profiles move to `~/.config/trails/config.json`, in the shape claude-squad uses:
+Agents move to `~/.config/trails/config.json`, in the shape claude-squad uses:
 a `name` and the `program` it runs, plus two optional fields of trails' own:
 
 - `yolo`, the flag Tab adds for a run-everything-unconfirmed launch
 - `session`, the `start` and `resume` templates (with `{id}`) and the ID shape
   that let trails choose a conversation ID and bring it back after tmux dies
 
-The built-in profiles are the same JSON, inside the script, and apply until the
-file exists. `trails config` writes them out as a starting point. Profiles whose
+The built-in agents are the same JSON, inside the script, and apply until the
+file exists. `trails config` writes them out as a starting point. Agents whose
 command is not on `PATH` are not offered. JSON is read with `jq`.
 
 ## Consequences
@@ -31,6 +31,6 @@ command is not on `PATH` are not offered. JSON is read with `jq`.
 - `program` is split on spaces with no shell quoting; anything fancier belongs in
   a wrapper script.
 - Recent conversations are still read only from claude's and opencode's own
-  stores, and are filed under the first profile that runs that command.
+  stores, and are filed under the first agent that runs that command.
 - A broken config stops the picker with the parse error, but not `trails ls`, so a
   menu bar polling it keeps working.
