@@ -51,8 +51,16 @@ The config's `mode` is read alongside, by `load_mode`, and only the picker uses 
 if its agent has a `yolo` flag.
 
 `launch` builds the command from that line: the program's words, the YOLO flag if
-the row was armed, then the session template with a fresh ID (`start`) or the one
-being resumed (`resume`), `{id}` filled in. An agent without a `session` block
+the row was armed, then the session template with `{id}` filled in: `resume` with
+the ID being resumed, else `start` with a fresh ID, else `resume` with one that
+`create` printed. An agent with only `find` starts with no ID and no record;
+`rec_note_id` writes the record once the reader can see the conversation.
+
+The readers are built in. `claude` asks claude's `~/.claude/sessions/<pid>.json`
+for the session's process. `codex` looks for the rollout file the codex process
+holds open (`lsof`), else the newest `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`
+whose first line names this directory, written since the session started, that no
+other record claims. An agent without a `session` block
 still launches; it just gets no record, so it can't be restored.
 
 The record and the tmux `@agent` option hold the agent *name*. Rename or remove

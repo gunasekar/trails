@@ -74,11 +74,15 @@
 #             belongs in a wrapper script.
 #   yolo      the flag that runs everything unconfirmed. Opt-in per launch with Tab, so a
 #             stray Enter is always the safe mode. Omit it for an agent that has none.
-#   session   what makes a session survive tmux (see "Surviving tmux"): `start` begins a
-#             conversation under an ID trails chooses, `resume` picks one back up, {id} is
-#             where the ID goes, and `id` is its shape — "uuid", or "ses_hex" (ses_ + 32 hex,
-#             what opencode insists on). Without it the agent still runs, it just isn't
-#             brought back after a reboot.
+#   session   what makes a session survive tmux (see "Surviving tmux"): `resume` picks a
+#             conversation back up, {id} is where the ID goes, and one of three says how
+#             trails learns the ID in the first place —
+#               start   begin the conversation under an ID trails chooses; `id` is its shape,
+#                       "uuid" or "ses_hex" (ses_ + 32 hex, what opencode insists on)
+#               create  a command that prints a fresh ID (cursor-agent create-chat)
+#               find    a reader for the agent's own files, built in below: "claude" (also
+#                       follows /resume inside claude), "codex"
+#             Without it the agent still runs, it just isn't brought back after a reboot.
 #   default_agent  listed first in the picker.
 #   mode           "default" (the agent's own, prompting mode) or "yolo": which a "+ new" row
 #                  starts in. Tab flips a row from it, so with "yolo" Tab is how you start one
@@ -104,39 +108,43 @@ DEFAULT_CONFIG='{
       "name": "claude",
       "program": "claude",
       "yolo": "--dangerously-skip-permissions",
-      "session": { "start": "--session-id {id}", "resume": "--resume {id}", "id": "uuid" }
+      "session": { "start": "--session-id {id}", "resume": "--resume {id}", "id": "uuid", "find": "claude" }
     },
-    { "name": "codex", "program": "codex", "yolo": "--dangerously-bypass-approvals-and-sandbox" },
-    { "name": "gemini", "program": "gemini", "yolo": "--approval-mode=yolo" },
-    { "name": "cursor", "program": "cursor-agent", "yolo": "--force" },
     {
-      "name": "opencode",
-      "program": "opencode",
-      "yolo": "--auto",
-      "session": { "start": "--session {id}", "resume": "--session {id}", "id": "ses_hex" }
+      "name": "codex",
+      "program": "codex",
+      "yolo": "--dangerously-bypass-approvals-and-sandbox",
+      "session": { "resume": "resume {id}", "find": "codex" }
+    },
+    {
+      "name": "gemini",
+      "program": "gemini",
+      "yolo": "--approval-mode yolo",
+      "session": { "start": "--session-id {id}", "resume": "--resume {id}", "id": "uuid" }
     },
     {
       "name": "copilot",
       "program": "copilot",
       "yolo": "--allow-all",
-      "session": { "start": "--session-id {id}", "resume": "--resume={id}", "id": "uuid" }
+      "session": { "start": "--session-id={id}", "resume": "--resume={id}", "id": "uuid" }
     },
-    { "name": "qwen", "program": "qwen", "yolo": "--yolo" },
-    { "name": "aider", "program": "aider", "yolo": "--yes-always" },
-    { "name": "amp", "program": "amp", "yolo": "--dangerously-allow-all" },
-    { "name": "goose", "program": "goose session" },
-    { "name": "crush", "program": "crush", "yolo": "--yolo" },
-    { "name": "kiro", "program": "kiro-cli chat", "yolo": "--trust-all-tools" },
-    { "name": "antigravity", "program": "agy", "yolo": "--dangerously-skip-permissions" },
     {
-      "name": "pi",
-      "program": "pi",
-      "session": { "start": "--session-id {id}", "resume": "--session-id {id}", "id": "uuid" }
+      "name": "cursor",
+      "program": "cursor-agent",
+      "yolo": "--force",
+      "session": { "create": "cursor-agent create-chat", "resume": "--resume {id}" }
+    },
+    {
+      "name": "opencode",
+      "program": "opencode",
+      "yolo": "--auto",
+      "session": { "start": "--session {id}", "resume": "--session {id}", "id": "ses_hex" }
     }
   ]
 }'
 
-# The agents as one line each, name|command|args|yolo|start|resume|idform, default first.
+# The agents as one line each, name|command|args|yolo|start|resume|idform|create|find,
+# default first.
 # A bar, not a tab: tab is whitespace to `read`, which would merge the empty fields most
 # agents have. jq does the JSON, because sed on hand-edited JSON is how a stray space in
 # someone's config becomes a silent wrong answer. An agent with no usable name or program
@@ -165,7 +173,8 @@ load_agents() {
          or (.program | type) != "string" or ((.program | words | length) == 0)
       then "!" + (.name // "(no name)" | tostring)
       else [.name, (.program | words | .[0]), (.program | words | .[1:] | join(" ")),
-            (.yolo // ""), (.session.start // ""), (.session.resume // ""), (.session.id // "")]
+            (.yolo // ""), (.session.start // ""), (.session.resume // ""), (.session.id // ""),
+            (.session.create // ""), (.session.find // "")]
            | map(tostring | gsub("\\|"; "")) | join("|")
       end' 2>&1) || {
     echo "trails: can't read $src: $out" >&2
@@ -861,7 +870,7 @@ launch() {
   }
   # args is normally empty; the yolo flag is appended only when this launch was armed (see
   # mode below), and the session templates only matter to agents that can be restored.
-  IFS='|' read -r _ cmd args yolo start resume idform <<EOF
+  IFS='|' read -r _ cmd args yolo start resume idform create find <<EOF
 $row
 EOF
 
@@ -900,8 +909,11 @@ EOF
   # shellcheck disable=SC2086
   [ -n "$USE_TMUX" ] || exec "$cmd" $args ${3:+$(with_id "$resume" "$3")}
 
-  # The conversation ID: the one being resumed, or a fresh one chosen here so this session
-  # can be resumed later. Neither for an agent with no session block, which gets no record.
+  # The conversation ID: the one being resumed, or one this session starts under so it can be
+  # resumed later — chosen here (session.start), or asked of the agent (session.create, a
+  # command that prints a fresh ID, then started on with session.resume). An agent that can
+  # only make its own IDs (session.find) starts with none: rec_note_id reads the ID back once
+  # the agent has written it, and writes the record then. No session block, no record.
   id=
   if [ -n "$3" ]; then
     id=$3
@@ -909,6 +921,15 @@ EOF
   elif [ -n "$start" ] && [ -n "$resume" ]; then
     id=$(new_id "$idform")
     args="${args:+$args }$(with_id "$start" "$id")"
+  elif [ -n "$create" ] && [ -n "$resume" ]; then
+    id=$(sh -c "$create" 2>/dev/null | awk 'NF { print $1; exit }')
+    case $id in
+      '' | *[!A-Za-z0-9._-]*)
+        echo "trails: \`$create\` gave no usable ID — starting $1 without restore" >&2
+        id=
+        ;;
+      *) args="${args:+$args }$(with_id "$resume" "$id")" ;;
+    esac
   fi
 
   # Restore asks for its old name back, and gets it unless something has since taken it —
@@ -1096,20 +1117,121 @@ claude_conv_of() {
   return 1
 }
 
-# Follow a session to the conversation it is actually in. The ID launch() chose is only where
-# it started: /resume or /clear inside claude moves it to another, and a record left on the
-# first would restore the wrong conversation after tmux dies — and leave the real one looking
-# like a stranger's (a ! row in `trails ls`). Only while the session still carries the ID the
-# record has, so a record is never rewritten from a session that isn't its own.
+# Follow a session to the conversation it is actually in, for an agent whose config names a
+# session.find reader. Two jobs, one mechanism:
+#
+#   claude moves on: /resume or /clear inside it switches the conversation, and a record left
+#   on the first would restore the wrong one after tmux dies — and leave the real one looking
+#   like a stranger's (a ! row in `trails ls`).
+#
+#   codex and gemini can't start under an ID trails chooses, so launch() writes no record for
+#   them. Once the agent has written its conversation, this reads the ID back and writes it.
+#
+# Only while the session still carries the ID the record has (none, before the first write),
+# so a record is never rewritten from a session that isn't its own. Only sessions launch()
+# made, too: they carry @agent, and the agent's config row is what names the reader.
 rec_note_id() {
-  [ -f "$(rec_path "$1")" ] && [ "$(rec_get "$1" agent)" = claude ] || return 0
-  was=$(rec_get "$1" id)
-  [ "$(tmux display-message -pt "$1" '#{@trails_id}' 2>/dev/null)" = "$was" ] || return 0
-  now=$(claude_conv_of "$1") || return 0
+  label=$(tmux display-message -pt "$1" '#{@agent}' 2>/dev/null)
+  agent=${label%% *}
+  [ -n "$agent" ] || return 0
+  finder=$(agent_row "$agent" | awk -F'|' '{ print $9 }')
+  [ -n "$finder" ] || return 0
+  carried=$(tmux display-message -pt "$1" '#{@trails_id}' 2>/dev/null)
+  was=
+  [ -f "$(rec_path "$1")" ] && was=$(rec_get "$1" id)
+  [ "$carried" = "$was" ] || return 0
+  now=$(find_conv "$finder" "$1") || return 0
   [ -n "$now" ] && [ "$now" != "$was" ] || return 0
-  awk -v i="$now" '/^id=/ { print "id=" i; next } 1' "$(rec_path "$1")" >"$(rec_path "$1").tmp" &&
-    mv -f "$(rec_path "$1").tmp" "$(rec_path "$1")" &&
-    tmux set-option -t "$1" @trails_id "$now"
+  if [ -f "$(rec_path "$1")" ]; then
+    awk -v i="$now" '/^id=/ { print "id=" i; next } 1' "$(rec_path "$1")" >"$(rec_path "$1").tmp" &&
+      mv -f "$(rec_path "$1").tmp" "$(rec_path "$1")" || return 0
+  else
+    mode=
+    case $label in *"(YOLO)"*) mode=yolo ;; *) ;; esac
+    rec_write "$1" "$agent" "$(tmux display-message -pt "$1" '#{session_path}')" "$now" "$mode"
+  fi
+  tmux set-option -t "$1" @trails_id "$now"
+}
+
+# The conversation session $2 has open, by reader $1 (an agent's session.find).
+find_conv() {
+  case $1 in
+    claude) claude_conv_of "$2" ;;
+    codex) codex_conv_of "$2" ;;
+    *) return 1 ;;
+  esac
+}
+
+# The pids under session $1's pane: the wrapper, the agent, and what the agent runs (an npm-
+# installed codex is a node shim in front of the real binary). Three levels is all of those.
+pane_pids() {
+  pp=$(tmux display-message -pt "$1" '#{pane_pid}' 2>/dev/null)
+  case $pp in
+    '' | *[!0-9]*) return 1 ;;
+    *) ;; # a pid
+  esac
+  ps -A -o pid= -o ppid= | awk -v p="$pp" '
+    { kid[$2] = kid[$2] " " $1 }
+    END {
+      print p; lvl = p
+      for (d = 0; d < 3; d++) {
+        next_lvl = ""; n = split(lvl, cur, " ")
+        for (i = 1; i <= n; i++) if (cur[i] in kid) { print substr(kid[cur[i]], 2); next_lvl = next_lvl kid[cur[i]] }
+        lvl = next_lvl
+      }
+    }' | tr ' ' '\n' | awk 'NF'
+}
+
+# The newest rollout under $1 for directory $2, written at or after $3, that no record other
+# than $4's claims ($5 is held_ids). A function, not inline in codex_conv_of's $( ... ): a case
+# pattern's ) inside a command substitution ends it early in bash 3.2, macOS's sh.
+codex_rollout_for() {
+  newest_first "$1" -mindepth 4 -maxdepth 4 -name 'rollout-*.jsonl' -mtime -2 |
+    while read -r m path; do
+      [ "$m" -ge "$3" ] || break
+      meta=$(head -n 1 "$path" | jq -r '.payload | "\(.id)\t\(.cwd)"' 2>/dev/null)
+      id=${meta%%"$TAB"*}
+      [ "${meta#*"$TAB"}" = "$2" ] || continue
+      case $5 in
+        *" $id "*) [ "$id" = "$4" ] || continue ;;
+        *) ;;
+      esac
+      printf '%s' "$path"
+      break
+    done
+}
+
+# codex's conversation for session $1. codex picks its own ID and writes it nowhere until the
+# first message: then $CODEX_HOME/sessions/YYYY/MM/DD/rollout-<time>-<uuid>.jsonl appears,
+# its first line a session_meta whose payload carries the id and the cwd
+# (codex-rs/rollout/src/recorder.rs). Two ways to find it, best first:
+#
+#   the rollout file the codex process holds open, by lsof — exact, if codex keeps it open;
+#   else the newest rollout for this directory started since the session was, that no other
+#   session's record claims — right unless two codex sessions in one directory both start
+#   talking between two listings.
+#
+# Files older than two days are skipped, and so is codex's later .jsonl.zst compression, which
+# only reaches files untouched for a week.
+codex_conv_of() {
+  root=${CODEX_HOME:-$HOME/.codex}/sessions
+  [ -d "$root" ] || return 1
+  f=
+  if command -v lsof >/dev/null 2>&1; then
+    for k in $(pane_pids "$1"); do
+      f=$(lsof -p "$k" -Fn 2>/dev/null | sed -n 's/^n//p' | grep '/rollout-[^/]*\.jsonl$' | head -n 1)
+      [ -n "$f" ] && break
+    done
+  fi
+  if [ -z "$f" ]; then
+    dir=$(tmux display-message -pt "$1" '#{session_path}' 2>/dev/null)
+    since=$(tmux display-message -pt "$1" '#{session_created}' 2>/dev/null)
+    own=$(rec_get "$1" id)
+    held=$(held_ids)
+    f=$(codex_rollout_for "$root" "$dir" "${since:-0}" "$own" "$held")
+  fi
+  [ -n "$f" ] || return 1
+  head -n 1 "$f" | jq -r '.payload.id // empty' 2>/dev/null
 }
 
 # Is this record's session gone? Not "is a session of that name running": a name can be

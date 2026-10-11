@@ -1,7 +1,7 @@
 # trails
 
-A launcher for AI coding agents that live in tmux. Start Claude Code, Cursor,
-opencode, antigravity or pi in a tmux session of its own, come back to it from any
+A launcher for AI coding agents that live in tmux. Start Claude Code, Codex,
+Gemini, Copilot, Cursor, opencode or any other agent CLI in a tmux session of its own, come back to it from any
 terminal or editor, see where every session is, and resume the ones you closed.
 
 Once an agent is running, trails gets out of the way: the session is plain tmux.
@@ -146,7 +146,7 @@ Which agents trails can start, and how, is a list in
 | `name` | what the picker shows. Letters, digits, `.`, `_` and `-` |
 | `program` | the command line to run, split on spaces (no shell quoting; use a wrapper script for anything fancier) |
 | `yolo` | *(optional)* the flag Tab adds to run everything unconfirmed |
-| `session` | *(optional)* how to start a conversation under an ID trails chooses (`start`) and resume it (`resume`); `{id}` marks where the ID goes, and `id` is `uuid` or `ses_hex`. This is what lets a session come back after tmux dies. |
+| `session` | *(optional)* how trails learns which conversation a session is in, so it can come back after tmux dies. See below. |
 | `default_agent` | *(optional)* listed first in the picker |
 | `mode` | *(optional)* `default` (the agent's own, prompting mode) or `yolo`: the mode a `+ new` row starts in. Tab flips a row from it, so with `yolo` Tab is how you start one in default mode. Rows to resume (`◷`) come back in the mode they last ran in, and an agent with no `yolo` flag always runs in default mode. |
 
@@ -154,28 +154,48 @@ Only agents whose command is on `PATH` are offered. Recent conversations are
 read from claude's and opencode's own history, and are filed under the first
 agent that runs `claude` or `opencode`.
 
-The built-in agents, checked against each tool's docs or `--help` in October
-2026:
+#### Restore
 
-| Agent | Runs | YOLO flag | Restores after tmux dies |
+To bring a session back after tmux dies, trails needs the ID of the conversation
+it was in. `session.resume` says how to resume one (`{id}` marks where the ID
+goes), plus one of three ways to learn the ID:
+
+| Key | trails gets the ID by | Example |
+|---|---|---|
+| `start` | choosing it, and starting the agent under it | `"start": "--session-id {id}", "id": "uuid"` |
+| `create` | running a command that prints a fresh one | `"create": "cursor-agent create-chat"` |
+| `find` | reading it back from the agent's own files (`claude`, `codex`) | `"find": "codex"` |
+
+`id` is the shape `start` generates: `uuid`, or `ses_hex` for opencode. `find`
+also follows a conversation that changes inside the agent, such as `/resume` in
+claude.
+
+#### Built-in agents
+
+The six most-used coding agents, with flags checked against each tool's latest
+`--help` or docs in October 2026:
+
+| Agent | Runs | YOLO flag | Restore |
 |---|---|---|---|
-| claude | `claude` | `--dangerously-skip-permissions` | yes |
-| codex | `codex` | `--dangerously-bypass-approvals-and-sandbox` | no |
-| gemini | `gemini` | `--approval-mode=yolo` | no |
-| cursor | `cursor-agent` | `--force` | no |
-| opencode | `opencode` | `--auto` | yes |
-| copilot | `copilot` | `--allow-all` | yes |
-| qwen | `qwen` | `--yolo` | no |
-| aider | `aider` | `--yes-always` | no |
-| amp | `amp` | `--dangerously-allow-all` | no |
-| goose | `goose session` | none (set `GOOSE_MODE=auto`) | no |
-| crush | `crush` | `--yolo` | no |
-| kiro | `kiro-cli chat` | `--trust-all-tools` | no |
-| antigravity | `agy` | `--dangerously-skip-permissions` | no |
-| pi | `pi` | none (it never asks) | yes |
+| claude | `claude` | `--dangerously-skip-permissions` | yes: chosen ID, and follows `/resume` |
+| codex | `codex` | `--dangerously-bypass-approvals-and-sandbox` | yes: read from `~/.codex/sessions`, once its first message is sent |
+| gemini | `gemini` | `--approval-mode yolo` | yes: chosen ID |
+| copilot | `copilot` | `--allow-all` | yes: chosen ID |
+| cursor | `cursor-agent` | `--force` | yes: `cursor-agent create-chat` |
+| opencode | `opencode` | `--auto` | yes: chosen ID |
 
-"No" means the tool can only resume an ID it made itself, so trails can't choose
-one up front to bring the session back by. The agent still runs normally in tmux.
+A session that never got a message has nothing to resume, so restoring one
+starts the agent fresh in its place.
+
+Any other agent is one entry in the config. It runs in tmux like the rest; add a
+`session` block only if the tool can start or resume by ID:
+
+```json
+{ "name": "aider", "program": "aider --model ollama_chat/gemma3:1b", "yolo": "--yes-always" },
+{ "name": "antigravity", "program": "agy", "yolo": "--dangerously-skip-permissions" },
+{ "name": "qwen", "program": "qwen", "yolo": "--yolo" }
+```
+
 trails refuses a YOLO launch as root for the two flags that also bypass a sandbox
 (`--dangerously-skip-permissions`, `--dangerously-bypass-approvals-and-sandbox`).
 

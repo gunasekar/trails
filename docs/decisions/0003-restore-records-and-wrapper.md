@@ -12,8 +12,12 @@ directory", so two sessions in one project would resume the same one.
 
 ## Decision
 
-- Choose each conversation's ID up front and pass it to the agent
-  (`claude --session-id`, `opencode --session`), then resume by it.
+- Learn each conversation's ID, then resume by it. Best is to choose it up front
+  and pass it to the agent (`claude --session-id`, `opencode --session`,
+  `gemini --session-id`, `copilot --session-id`). Failing that, ask the agent
+  for a fresh one (`cursor-agent create-chat`), or read back the one it made from
+  its own files (codex's `~/.codex/sessions` rollouts). Each agent's config says
+  which.
 - Write one record per session to `~/.local/state/trails/sessions/<name>`:
   agent, directory, ID, YOLO, last known task.
 - Run the agent under a small `sh` wrapper that deletes the record when the agent
@@ -30,7 +34,10 @@ directory", so two sessions in one project would resume the same one.
 
 - `trails restore` and the `↻` rows bring sessions back on the conversation
   they were last in, not just the one they started with. `trails ls` lists them.
-- Only agents that accept a chosen ID can be restored (claude, opencode).
-  cursor-agent needs an ID from `create-chat` first, so it isn't covered yet.
+- The six built-in agents can all be restored. An agent that offers none of the
+  three ways runs normally but can't come back.
+- codex writes nothing until its first message, so a codex session can't be
+  restored before then, and two codex sessions in one directory that both start
+  talking between two listings can be told apart only by `lsof`.
 - A dead record reserves its name until it is restored or forgotten.
 - Restoring brings back the conversation, not a half-run command.
