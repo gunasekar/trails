@@ -565,10 +565,8 @@ launch() {
   fi
 
   # Skip-permissions mode runs any command unconfirmed, so refuse the one place left where
-  # that is catastrophic rather than merely unwise. $HOME was refused here too until
-  # refuse_bad_cwd started refusing it — and / — for every agent before the picker opens,
-  # which is both wider and resolves symlinks this never did. Only the yolo launch is refused:
-  # plain, prompting mode is merely ordinary as root.
+  # that is catastrophic rather than merely unwise. Only the yolo launch is refused: plain,
+  # prompting mode is merely ordinary as root.
   #
   # Keyed on the flag, not the agent name, so every agent whose YOLO flag is
   # --dangerously-skip-permissions is covered without a list to keep in sync — today claude and
@@ -994,32 +992,26 @@ cockpit() {
 
 # ─── Where an agent may not be opened ────────────────────────────────────────
 # An agent takes the directory you are standing in to be the project: it reads and edits
-# from there, and launch() freezes it as the session root with -c "$PWD". Two directories
-# are never the answer, and both are easy to arrive at without meaning to — every new
-# terminal starts in $HOME, and a `cd "$somewhere"` with the variable unset lands in /.
-# This box had an `aigent-/` session to show for it.
+# from there, and launch() freezes it as the session root with -c "$PWD". / is never the
+# answer and is easy to arrive at without meaning to — a `cd "$somewhere"` with the
+# variable unset lands there. This box had an `aigent-/` session to show for it.
 #
-# Those two exactly, and nothing beneath them: every project lives under one or the other,
-# so refusing what is *under* $HOME would refuse the whole machine.
+# $HOME was refused alongside it, on the grounds that every new terminal starts there and
+# so it is the stray-launch directory. It is allowed now: a session that isn't about one
+# project (dotfiles-wide questions, poking at several repos) has nowhere better to live,
+# and making you cd somewhere arbitrary to get one was friction with no safety behind it.
+#
+# / exactly, and nothing beneath it, since everything lives beneath it.
 #
 # Measured with `pwd -P` rather than $PWD, which keeps whatever path you walked in by: a
-# symlink pointing at $HOME is the same directory and reads as a different string, and
-# that is precisely the route someone takes without noticing. The comparison resolves
-# $HOME the same way so the two are judged alike.
+# symlink pointing at / is the same directory and reads as a different string.
 #
 # Only starting is refused, never reporting: `aigent status` answers for the whole box and
 # is read-only, so it works from anywhere, and the fzf internals run from a picker that has
 # already passed through here.
 refuse_bad_cwd() {
-  here=$(pwd -P)
-  home=$(cd -P -- "$HOME" 2>/dev/null && pwd -P)
-
-  what=
-  [ "$here" = / ] && what=/
-  [ -n "$home" ] && [ "$here" = "$home" ] && what="\$HOME"
-  [ -n "$what" ] || return 0
-
-  echo "aigent: refusing to open an agent in $what — cd into a project directory" >&2
+  [ "$(pwd -P)" = / ] || return 0
+  echo "aigent: refusing to open an agent in / — cd into a project directory" >&2
   exit 1
 }
 
