@@ -5,7 +5,12 @@
   </picture>
 </h1>
 
-**Never lose an AI coding agent again. Claude Code, Codex and the rest run in tmux, and drop into any terminal or editor.**
+**Too many agent sessions? trails keeps the ones you're working on in one view.**
+
+Each task gets its own tmux session. You see which agents are working and which
+are waiting on you, jump into any of them from any terminal or editor, and bring
+old ones back only when you need them. And when you want to watch several at
+once, a cockpit view puts them side by side in one window.
 
 ![Picking a new trail in a Neovim side panel](assets/nvim.gif)
 
