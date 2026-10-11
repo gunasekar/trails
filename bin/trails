@@ -360,8 +360,13 @@ list_sessions() {
 # row is the same project, so `aigent-_dotfiles` repeats identically and in a half-width
 # pane pushed the task (the part that differs) off the end. The suffix survives as a `#2` badge.
 #
-# Sorted by what it wants from you: blocked, idle, then the ones getting on with it —
-# so the agent you have to unblock lands under the cursor.
+# This emits one more field in front — the agent — which print_menu strips after using it to
+# file each session under its agent's "new" row. The agent is left out of the drawn badge for
+# the same reason: the row it hangs under already says it.
+#
+# Sorted by what it wants from you: blocked, idle, then the ones getting on with it — the
+# order each agent's branch keeps, and what the dispatch reads to land the cursor on the
+# session you have to unblock.
 live_sessions() {
   sessions | while IFS="$TAB" read -r name label task; do
     is_ours "$name" || continue
@@ -378,11 +383,17 @@ live_sessions() {
       '' | *[!0-9]*) n= ;;
       *) ;; # a real -N ordinal, worth a badge
     esac
-    [ -n "$n" ] && label="$label · #$n"
     [ -n "$task" ] && task="  $task"
+    # launch() writes @agent as "claude (YOLO)" for an armed launch: the first word is the
+    # agent it files under, and the YOLO it ran with stays on the branch's badge.
+    agent=${label%% *}
+    mode=${label#"$agent"}
+    mode=${mode# (}
+    mode=${mode%)}
+    mode=${mode:+ · $mode}
     # Sort key up front, stripped after.
-    printf '%s\tattach\t%s\t%s●%s [%s · %s]%s\n' \
-      "$rank" "$name" "$dot" "$RST" "$state" "$label" "$task"
+    printf '%s\t%s\tattach\t%s\t%s●%s [%s%s%s]%s\n' \
+      "$rank" "$agent" "$name" "$dot" "$RST" "$state" "$mode" "${n:+ · #$n}" "$task"
   done | sort | cut -f2-
 }
 
@@ -542,43 +553,66 @@ print_menu() {
   awake=
   [ -n "$AIGENT_AWAKE_STATE" ] && [ -s "$AIGENT_AWAKE_STATE" ] && awake=$(cat "$AIGENT_AWAKE_STATE")
 
-  # `$(...)` eats trailing newlines, so re-add one or the last session line welds
-  # itself onto the first agent line. The cached block is already three finished fields, so
-  # the badge is appended to the drawn one rather than rebuilt — awk with the tab as both
-  # input and output separator puts the row back exactly as it found it.
-  [ -n "$running" ] && printf '%s\n' "$running" |
-    awk -F"$TAB" -v OFS="$TAB" -v awake="$awake" -v cyn="$CYN" -v rst="$RST" \
-      '$2 == awake { $3 = $3 "  " cyn "(awake)" rst } 1'
-
-  # Sessions that died with tmux, between the live ones and the new ones: below what is
-  # running because they want nothing from you yet, above "new" because bringing back the
-  # work you had beats starting over. Read fresh on every reload, not cached: it is a few
-  # small files, no settle sleep, and ctrl-x on one of these rows has to see it gone.
+  # Sessions that died with tmux, in the cache's shape (agent first) so they file under their
+  # agent alongside the live ones — below them, because they want nothing from you yet. Read
+  # fresh on every reload, not cached: it is a few small files, no settle sleep, and ctrl-x on
+  # one of these rows has to see it gone.
   #
   # AIGENT_RESTORE_OK is the dispatch's verdict, exported because this also runs as fzf's
   # reload subprocess, which can see neither FORCE_NEW nor the cockpit's USE_TMUX override.
+  dead=
   if [ -n "$AIGENT_RESTORE_OK" ]; then
-    rec_dead | while read -r name; do
+    dead=$(rec_dead | while read -r name; do
       [ "$(rec_get "$name" dir)" = "$PWD" ] || continue
       task=$(rec_get "$name" task)
-      tag=
-      [ "$name" = "$awake" ] && tag="  $CYN(awake)$RST"
-      printf 'restore\t%s\t↻ [restore · %s]%s%s\n' \
-        "$name" "$(rec_get "$name" agent)" "${task:+  $task}" "$tag"
-    done
+      yolo=$(rec_get "$name" yolo)
+      printf '%s\trestore\t%s\t↻ [restore%s]%s\n' \
+        "$(rec_get "$name" agent)" "$name" "${yolo:+ · YOLO}" "${task:+  $task}"
+    done)
   fi
+  # `$(...)` eats trailing newlines, so each block gets its own back or the last row of one
+  # welds onto the first of the next.
+  children=$(
+    [ -n "$running" ] && printf '%s\n' "$running"
+    [ -n "$dead" ] && printf '%s\n' "$dead"
+  )
 
   # The one agent armed for YOLO (toggle_yolo wrote it); empty if none. Its row carries the
   # verb "yolo" so the dispatch launches it with the flag, and draws "(YOLO)" in yellow so you
   # can see what Enter will do. Every other agent is a plain "new" row.
   armed=
   [ -n "$AIGENT_YOLO_STATE" ] && [ -s "$AIGENT_YOLO_STATE" ] && armed=$(cat "$AIGENT_YOLO_STATE")
-  # Same three fields: verb, target, what's drawn.
-  printf '%s\n' "$agents" | awk -v OFS='\t' -v armed="$armed" -v awake="$awake" \
-    -v yel="$YEL" -v cyn="$CYN" -v rst="$RST" '
-    { tag = ($0 == awake) ? "  " cyn "(awake)" rst : "" }
-    $0 == armed { print "yolo", $0, "new     " $0 "  " yel "(YOLO)" rst tag; next }
-    { print "new", $0, "new     " $0 tag }
+
+  # A tree: each agent's row starts a fresh one, and its sessions hang beneath it as branches.
+  # Same three fields throughout — verb, target, what's drawn — so the selection, Tab, ctrl-a
+  # and ctrl-x all work on a branch exactly as they did on a flat row; the indent is only
+  # drawing. A session whose agent has no row here (uninstalled since, or a hand-made aigent-
+  # session whose label is a process name) has nowhere to hang, so it trails the tree flat,
+  # carrying its label as the badge the branch would have implied.
+  printf '%s\n' "$children" | awk -F"$TAB" -v OFS="$TAB" \
+    -v agents=" $(printf '%s' "$agents" | tr '\n' ' ') " -v armed="$armed" -v awake="$awake" \
+    -v yel="$YEL" -v cyn="$CYN" -v dim="$DIM" -v rst="$RST" '
+    function tag(t) { return t == awake ? "  " cyn "(awake)" rst : "" }
+    NF >= 4 {
+      row = $2 OFS $3 OFS $4 tag($3)
+      if (index(agents, " " $1 " ")) kids[$1] = kids[$1] (kids[$1] == "" ? "" : "\n") row
+      else stray[++ns] = $2 OFS $3 OFS $1 "  " $4 tag($3)
+    }
+    END {
+      n = split(substr(agents, 2, length(agents) - 2), list, " ")
+      for (i = 1; i <= n; i++) {
+        a = list[i]
+        if (a == armed) print "yolo", a, a "  " dim "+ new" rst "  " yel "(YOLO)" rst tag(a)
+        else print "new", a, a "  " dim "+ new" rst tag(a)
+        if (kids[a] == "") continue
+        k = split(kids[a], rows, "\n")
+        for (j = 1; j <= k; j++) {
+          split(rows[j], f, OFS)
+          print f[1], f[2], "  " dim (j == k ? "└─" : "├─") rst " " f[3]
+        }
+      }
+      for (i = 1; i <= ns; i++) print stray[i]
+    }
   '
 }
 
@@ -1469,6 +1503,18 @@ set -- --prompt='Agent: ' --reverse --no-info --ansi --wrap \
   --delimiter='\t' --with-nth='3..' --height=~80% \
   --bind="tab:execute-silent($0 --toggle-yolo {2})+reload($0 --print-menu)" \
   --bind="ctrl-a:execute-silent($0 --toggle-awake {2})+reload($0 --print-menu)"
+# Sessions sit under their agents now, so the one that wants you is no longer row one. Start
+# the cursor on it instead — the first blocked, else the first idle — so Enter still rejoins it.
+# On the first `load`, then unbound: not `start`, which fires before fzf has read a row (it
+# takes input asynchronously) so pos() lands on nothing; and not a standing `load`, which
+# fires on every Tab reload too and would yank the cursor off the row you just armed.
+want=$(printf '%s\n' "$MENU" | awk -F"$TAB" '
+  $1 != "attach" { next }
+  { s = $3; gsub("\033\\[[0-9;]*m", "", s) } # the dot is coloured, so the reset splits "● ["
+  !b && index(s, "● [blocked") { b = NR }
+  !i && index(s, "● [idle") { i = NR }
+  END { print b ? b : i }')
+[ -n "$want" ] && set -- "$@" --bind="load:pos($want)+unbind(load)"
 if printf '%s\n' "$MENU" | grep -Eq '^(attach|restore)'; then
   set -- "$@" --header='enter: start/attach/restore   tab: YOLO   ctrl-a: keep awake   ctrl-x: kill/forget' \
     --bind="ctrl-x:execute-silent($0 --kill {2})+reload($0 --print-menu)"
