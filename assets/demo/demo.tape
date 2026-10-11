@@ -75,3 +75,5 @@ Ctrl+B
 Type "d"
 Type "demo_done"
 Enter
+# demo_done waits for the agents to exit before removing their history; give it time.
+Sleep 15s

@@ -193,6 +193,16 @@ That is what the menu-bar plugin below reads, and anything else can too. Set
 `TRAILS_RECENT_MAX=0` for a poll that only wants running sessions; it skips
 reading conversation history.
 
+### trails map
+
+`trails map 4` puts the four sessions that most want you side by side in one
+window, across projects. Each pane is a live view of a real session, labelled with
+its directory, its agent and what it's working on; type into any of them, and
+detach (`C-b d`) to leave them all running. `trails map` re-attaches to the map
+already up, or lets you pick a set.
+
+![Four Claude Code sessions in four projects, side by side in trails map](assets/map.gif)
+
 ### Menu bar (macOS)
 
 trails ships a [SwiftBar](https://swiftbar.app) plugin that keeps your agents in

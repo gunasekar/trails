@@ -8,23 +8,29 @@
 #            sandboxed claude history (CLAUDE_CONFIG_DIR) holding only the demo's two ended
 #            conversations — otherwise `trails ls` would list every project on the machine —
 #            and a wrapper drops that setting before running the real claude
-#   project  ~/code/checkout, so paths read as they would for anyone; created here and removed
-#            by demo_done, and refused if it already exists
+#   projects ~/code/checkout, plus any in DEMO_EXTRA (storefront, notify, api — the map demo's),
+#            so paths read as they would for anyone; created here and removed by demo_done,
+#            and refused if any of them, or its claude history, already exists
 #   codex    a stand-in (agent), only ever listed, never started
 real_claude=$(command -v claude) || {
   echo "trails demo: needs claude on PATH, logged in" >&2
   return 1
 }
-demo=$(mktemp -d /tmp/trails-demo.XXXXXX)
 here=$(cd "$(dirname "${BASH_SOURCE:-$0}")" && pwd)
 project="$HOME/code/checkout"
-history="$HOME/.claude/projects/$(printf '%s' "$project" | sed 's/[^A-Za-z0-9]/-/g')"
-if [ -e "$project" ] || [ -e "$history" ]; then
-  echo "trails demo: $project or its claude history already exists — not touching it" >&2
-  return 1
-fi
+# claude's history folder for a project path: the path with every non-alphanumeric as -.
+history_of() { printf '%s/.claude/projects/%s' "$HOME" "$(printf '%s' "$1" | sed 's/[^A-Za-z0-9]/-/g')"; }
+history=$(history_of "$project")
+demo_projects="checkout ${DEMO_EXTRA:-}"
+for p in $demo_projects; do
+  if [ -e "$HOME/code/$p" ] || [ -e "$(history_of "$HOME/code/$p")" ]; then
+    echo "trails demo: ~/code/$p or its claude history already exists — not touching it" >&2
+    return 1
+  fi
+done
 made_code=
 [ -d "$HOME/code" ] || made_code=1
+demo=$(mktemp -d /tmp/trails-demo.XXXXXX)
 
 # The repo's own trails first, so the demo shows the version you're about to release.
 export XDG_CONFIG_HOME="$demo/config" XDG_STATE_HOME="$demo/state" XDG_CACHE_HOME="$demo/cache" \
@@ -129,6 +135,130 @@ func TestRetrySucceedsAfterFailures(t *testing.T) {
 GO
 (cd "$project" && git init -q && git add . && git -c user.name=demo -c user.email=demo@example.com commit -qm init)
 
+# The map demo's other projects, each a small Go module with a test, so each agent has
+# something real to change and check.
+for p in ${DEMO_EXTRA:-}; do
+  d="$HOME/code/$p"
+  case $p in
+    storefront)
+      mkdir -p "$d/catalog"
+      cat >"$d/catalog/images.go" <<'GO'
+package catalog
+
+import (
+	"fmt"
+	"strings"
+)
+
+// Product is one item on a listing page.
+type Product struct{ Name, ImageURL string }
+
+// ImageTags renders an <img> tag for each product.
+func ImageTags(ps []Product) string {
+	var b strings.Builder
+	for _, p := range ps {
+		fmt.Fprintf(&b, "<img src=%q alt=%q>\n", p.ImageURL, p.Name)
+	}
+	return b.String()
+}
+GO
+      cat >"$d/catalog/images_test.go" <<'GO'
+package catalog
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestImageTags(t *testing.T) {
+	got := ImageTags([]Product{{Name: "Mug", ImageURL: "/mug.jpg"}})
+	if !strings.Contains(got, `src="/mug.jpg"`) {
+		t.Fatalf("got %q", got)
+	}
+}
+GO
+      ;;
+    notify)
+      mkdir -p "$d/mail"
+      cat >"$d/mail/send.go" <<'GO'
+package mail
+
+// Message is one email to send.
+type Message struct{ To, Subject string }
+
+// Sender delivers a batch of messages in one request.
+type Sender interface{ Send(batch []Message) error }
+
+// SendAll sends every message, one request each.
+func SendAll(s Sender, msgs []Message) error {
+	for _, m := range msgs {
+		if err := s.Send([]Message{m}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+GO
+      cat >"$d/mail/send_test.go" <<'GO'
+package mail
+
+import "testing"
+
+type counter struct{ got int }
+
+func (c *counter) Send(batch []Message) error { c.got += len(batch); return nil }
+
+func TestSendAll(t *testing.T) {
+	c := &counter{}
+	if err := SendAll(c, make([]Message, 120)); err != nil || c.got != 120 {
+		t.Fatalf("sent %d, err %v", c.got, err)
+	}
+}
+GO
+      ;;
+    api)
+      mkdir -p "$d/server"
+      cat >"$d/server/log.go" <<'GO'
+package server
+
+import (
+	"log"
+	"net/http"
+)
+
+// Logged logs each request's method and path.
+func Logged(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("%s %s", r.Method, r.URL.Path)
+		next.ServeHTTP(w, r)
+	})
+}
+GO
+      cat >"$d/server/log_test.go" <<'GO'
+package server
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"testing"
+)
+
+func TestLogged(t *testing.T) {
+	h := Logged(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/orders", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d", w.Code)
+	}
+}
+GO
+      ;;
+    *) continue ;;
+  esac
+  printf 'module example.com/%s\n\ngo 1.22\n' "$p" >"$d/go.mod"
+  (cd "$d" && git init -q && git add . && git -c user.name=demo -c user.email=demo@example.com commit -qm init)
+done
+
 # Neovim with no personal config (--clean), on the terminal's own black rather than its
 # default scheme's grey, so the panel reads like the editors trails usually sits in. Its
 # :terminal runs through /bin/sh, not the login shell, whose startup files would put the
@@ -139,11 +269,53 @@ nvim() {
     -c 'hi EndOfBuffer guibg=NONE ctermbg=NONE' -c 'hi SignColumn guibg=NONE ctermbg=NONE' "$@"
 }
 
+# The map demo's off-camera step: hand a running session its task. Claude asks to trust a
+# folder it hasn't seen, and only then — so this reads the screen and answers only when
+# asked; pressing keys blindly could pull an old prompt out of claude's history and send it.
+demo_task() { # session, task
+  for _ in $(seq 60); do
+    screen=$(tmux capture-pane -pt "$1" 2>/dev/null)
+    case $screen in
+      *"Yes, I trust this folder"*) tmux send-keys -t "$1" Down Enter ;;
+      *"for shortcuts"* | *"bypass permissions on"*) break ;;
+      *) ;;
+    esac
+    sleep 0.5
+  done
+  sleep 1
+  tmux send-keys -t "$1" -l "$2"
+  tmux send-keys -t "$1" Enter
+}
+
+# Wait (up to a minute) until session $1's screen matches regex $2 — for the map demo, until
+# the agent running in its normal mode is actually asking, so the map ranks it first.
+demo_wait() {
+  for _ in $(seq 120); do
+    tmux capture-pane -pt "$1" 2>/dev/null | grep -q -E "$2" && return 0
+    sleep 0.5
+  done
+  return 1
+}
+
 # The tape's last, hidden step: the tmux server, the project, its claude history, the sandbox.
 demo_done() {
+  # claude writes its conversation file once more as it dies; deleting the history before it
+  # has would leave the file behind, and the next recording would refuse to start over it. So
+  # note every process under the sandbox's panes, stop the server, and wait for those to go.
+  pids=$(tmux list-panes -a -F '#{pane_pid}' 2>/dev/null)
+  for _ in 1 2 3; do
+    pids="$pids $(for p in $pids; do pgrep -P "$p"; done)"
+  done
   tmux kill-server 2>/dev/null
+  for _ in $(seq 40); do
+    alive=
+    for p in $pids; do kill -0 "$p" 2>/dev/null && alive=1; done
+    [ -n "$alive" ] || break
+    sleep 0.25
+  done
   cd "$HOME" || return
-  rm -rf "$project" "$history" "$demo"
+  for p in $demo_projects; do rm -rf "${HOME:?}/code/$p" "$(history_of "$HOME/code/$p")"; done
+  rm -rf "$demo"
   [ -n "$made_code" ] && rmdir "$HOME/code" 2>/dev/null
   return 0
 }
