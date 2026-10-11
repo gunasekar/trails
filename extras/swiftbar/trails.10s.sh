@@ -69,11 +69,17 @@ SCRIPT_PATH="$(realpath -q "$0")"
 # PATH. macOS asks once to let SwiftBar control the terminal.
 #
 # Which terminal is yours to pick, from "Open sessions in" at the bottom of the menu:
-# Terminal (the default, since every Mac has it), iTerm or Ghostty. The pick lives in
-# SwiftBar's own storage for this plugin, so it outlives a plugin update. One that isn't
+# Terminal (the default, since every Mac has it), iTerm or Ghostty. One that isn't
 # installed falls back to Terminal rather than doing nothing.
+#
+# The pick lives with trails' own settings, in ~/.config/trails/terminal — not in SwiftBar's
+# storage for the plugin, where it first went. SwiftBar names that folder after the plugin's
+# real path once links are followed, and through Homebrew that path has the version in it
+# (…/Cellar/trails/0.3.0/…): every upgrade got a new, empty folder, and the pick quietly
+# went back to Terminal. A pick saved there is still read, until a new one is made.
 TERMINALS="terminal iterm ghostty"
-TERMINAL_FILE="${SWIFTBAR_PLUGIN_DATA_PATH:-${XDG_CACHE_HOME:-${HOME}/.cache}/trails}/terminal"
+TERMINAL_FILE="${XDG_CONFIG_HOME:-${HOME}/.config}/trails/terminal"
+OLD_TERMINAL_FILE="${SWIFTBAR_PLUGIN_DATA_PATH:-}/terminal"
 
 terminal_app() { # terminal id -> app name
   case $1 in
@@ -85,7 +91,7 @@ terminal_app() { # terminal id -> app name
 installed() { open -Ra "$(terminal_app "$1")" 2>/dev/null; }
 
 chosen_terminal() {
-  t=$(cat "$TERMINAL_FILE" 2>/dev/null)
+  t=$(cat "$TERMINAL_FILE" 2>/dev/null || cat "$OLD_TERMINAL_FILE" 2>/dev/null)
   case " $TERMINALS " in *" $t "*) ;; *) t=terminal ;; esac
   installed "$t" || t=terminal
   echo "$t"

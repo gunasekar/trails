@@ -244,7 +244,9 @@ running rows, and draws them.
   a session, so the wait is what keeps the one you're working in quiet.
 - **Resume** runs `tmux attach-session` as the command of a new tab, through the
   chosen terminal's AppleScript. The choice is stored in
-  `$SWIFTBAR_PLUGIN_DATA_PATH/terminal`.
+  `~/.config/trails/terminal`, not in SwiftBar's storage for the plugin: SwiftBar
+  names that after the plugin's resolved path, which through Homebrew carries the
+  version, so every upgrade would start it empty.
 
 `trails swiftbar` links the plugin into SwiftBar's plugin folder (read from
 `defaults read com.ameba.SwiftBar PluginDirectory`). It links through the path the
