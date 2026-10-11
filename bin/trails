@@ -4,6 +4,7 @@
 #
 #   aigent                  pick a running session to rejoin, or an agent to start
 #   aigent new              skip the running sessions, start a fresh one
+#   aigent help             the commands and picker keys (also -h, --help)
 #   aigent ls               every agent session on the box — a table on a terminal, TSV
 #                           when piped, for a notifier to read
 #   aigent restore [-n]     bring back every session that died with tmux (a reboot, a
@@ -1384,9 +1385,39 @@ refuse_bad_cwd() {
 }
 
 # ─── Dispatch ────────────────────────────────────────────────────────────────
+# `aigent help` — the commands and picker keys, for whoever forgot them. Written out rather
+# than scraped from the header comment, which is written for whoever edits this file.
+usage() {
+  cat <<'EOF'
+usage: aigent [command]
+
+  (none)            pick a running session to rejoin, or an agent to start
+  new               skip the running sessions, start a fresh one
+  ls                every agent session on the box (a table, or TSV when piped)
+  cockpit [N|new]   several agents in one window — pick them, or take the N that
+                    most want you; `new` rebuilds instead of re-attaching
+  restore [-n]      bring back every session that died with tmux (-n: list only)
+  help              this
+
+In the picker (each agent, with its sessions for this project beneath it):
+  enter             start the agent, or attach to / restore the session
+  tab               arm the highlighted agent for YOLO (run everything unconfirmed)
+  ctrl-a            hold this Mac awake for as long as that session lives
+  ctrl-x            kill the highlighted session, or forget a ↻ row
+
+Env:
+  AGENT_SETTLE      seconds between the two screen samples (default 0.35)
+  AGENT_ASK_RE      regex meaning "the agent is asking you something"
+EOF
+}
+
 FORCE_NEW=
 case $1 in
   new) FORCE_NEW=1 ;;
+  help | -h | --help)
+    usage
+    exit 0
+    ;;
   ls)
     list_sessions
     exit 0
@@ -1431,7 +1462,7 @@ case $1 in
     ;;
   '') ;;
   *)
-    echo "aigent: unknown argument '$1'" >&2
+    echo "aigent: unknown argument '$1' (try: aigent help)" >&2
     exit 1
     ;;
 esac
