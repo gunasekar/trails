@@ -13,7 +13,9 @@
 #                           full-screen, C-b Space cycle layout, C-b d detach. C-b C-b s
 #                           re-points one pane at a different agent — C-b C-b is send-prefix,
 #                           so the key lands on the pane's own (inner) client rather than on
-#                           the cockpit.
+#                           the cockpit. To add one, split a shell off (C-b |) and run
+#                           `aigent` there: the agent gets its own session as usual and
+#                           that pane becomes its view.
 #
 # In the picker: tab arms the highlighted agent for YOLO, ctrl-a arms any row to hold this
 # Mac awake for as long as that session lives (for the run you start and walk away from —
@@ -127,7 +129,8 @@ is_ours() {
 }
 
 # Wrap the agent in tmux everywhere except inside tmux itself, where the process is
-# persistent anyway and nesting would double every prefix key.
+# persistent anyway and nesting would double every prefix key. The cockpit is the
+# exception, and the dispatch turns USE_TMUX back on for it (see in_cockpit).
 USE_TMUX=
 if [ -z "$TMUX" ] && command -v tmux >/dev/null 2>&1; then
   USE_TMUX=1
@@ -643,7 +646,22 @@ launch() {
   tmux set-option -w -t "$SESSION" remain-on-exit off
 
   apply_policy "$SESSION"
-  exec tmux attach-session -t "=$SESSION"
+  attach_to "$SESSION"
+}
+
+# The last step of every route into a session, launched or picked: attach the terminal
+# you are standing in to it. Normally that is a plain attach. In the cockpit (see
+# in_cockpit) the terminal is a cockpit pane, so the pane becomes a viewer the way
+# cockpit() builds them: an inner client, stamped with @dir/@ag so its border reads like
+# its neighbours'. Exec'd directly rather than through view_cmd's string — no $SHELL is
+# in the way here, so the leading-`=` trap that string quotes around does not apply.
+attach_to() {
+  if [ -n "$IN_COCKPIT" ]; then
+    tmux set-option -pt "$TMUX_PANE" @dir "$(cockpit_dir "$1")"
+    tmux set-option -pt "$TMUX_PANE" @ag "$(cockpit_agent "$1")"
+    exec env -u TMUX tmux attach-session -t "=$1"
+  fi
+  exec tmux attach-session -t "=$1"
 }
 
 # ─── Cockpit ─────────────────────────────────────────────────────────────────
@@ -728,6 +746,23 @@ COCKPIT=cockpit
 # and no "=": the same trap is_ours() documents.
 is_cockpit() {
   [ "$(tmux display-message -pt "$COCKPIT" '#{@cockpit}' 2>/dev/null)" = 1 ]
+}
+
+# Are we in a shell pane of the cockpit itself — one you split off with C-b | to start
+# or pick an agent from? Inside tmux the picker normally runs the agent bare in the
+# current pane (USE_TMUX is off), and here that would be wrong in every way that matters:
+# no aigent- session, so status, the notifier and the picker cannot see it, and the next
+# `aigent cockpit new` kills it along with the session it is squatting in. The cockpit
+# owns nothing, and an agent living inside it would be the one thing it owned.
+#
+# So the dispatch turns USE_TMUX back on here and the agent gets a real session like
+# anywhere else; attach_to then turns this pane into a viewer of it, so the split you made
+# becomes the new grid cell. Asked by $TMUX_PANE, not the current client: the shell may
+# be in a cockpit window you are not looking at.
+in_cockpit() {
+  [ -n "$TMUX" ] && [ -n "$TMUX_PANE" ] || return 1
+  [ "$(tmux display-message -pt "$TMUX_PANE" '#{session_name}' 2>/dev/null)" = "$COCKPIT" ] &&
+    is_cockpit
 }
 
 # fzf's preview: the agent's own screen. It is what makes a name pickable — "aigent-foundry"
@@ -1059,6 +1094,12 @@ esac
 
 refuse_bad_cwd
 
+IN_COCKPIT=
+if in_cockpit; then
+  IN_COCKPIT=1
+  USE_TMUX=1
+fi
+
 # Two per-invocation temp files, exported so the fzf-spawned --toggle-yolo / --print-menu /
 # --kill subprocesses all share them. Both are removed the moment fzf returns and on
 # Esc/interrupt via the trap, since the exec paths below never run to an EXIT trap of their own.
@@ -1137,7 +1178,7 @@ case $choice in
   attach*)
     apply_policy "$target"
     [ -n "$awake" ] && hold_awake "$target"
-    exec tmux attach-session -t "=$target"
+    attach_to "$target"
     ;;
   yolo*) launch "$target" yolo "$awake" ;;
   *) launch "$target" '' "$awake" ;;
