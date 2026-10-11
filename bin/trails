@@ -9,7 +9,7 @@
 #                           when piped, for a notifier to read
 #   aigent restore [-n]     bring back every session that died with tmux (a reboot, a
 #                           crash, kill-server), each resuming its conversation, detached.
-#                           -n lists them instead. See "Surviving tmux" below.
+#                           -n (--dry-run) lists them instead. See "Surviving tmux" below.
 #   aigent cockpit [N]      several agents at once in one window. Pick them, or take the
 #                           N that most want you. Bare `cockpit` re-attaches to a cockpit
 #                           already up rather than rebuilding; `cockpit new` forces a fresh
@@ -938,14 +938,15 @@ restore_one() {
   return 1
 }
 
-# `aigent restore [-n]` — every dead session on the box, each in its own directory. Detached,
+# `aigent restore [-n|--dry-run]` — every dead session on the box, each in its own directory. Detached,
 # because there may be several and you can only sit in one: attach afterwards with the
 # picker or the cockpit, which already know how to find them.
 restore_all() {
   case ${1:-} in
-    '' | -n) ;;
+    '') ;;
+    -n | --dry-run) set -- -n ;; # one spelling below, whichever was typed
     *)
-      echo "aigent: restore takes -n (list only), not '$1'" >&2
+      echo "aigent: restore takes -n or --dry-run (list only), not '$1'" >&2
       exit 1
       ;;
   esac
@@ -1396,7 +1397,8 @@ usage: aigent [command]
   ls                every agent session on the box (a table, or TSV when piped)
   cockpit [N|new]   several agents in one window — pick them, or take the N that
                     most want you; `new` rebuilds instead of re-attaching
-  restore [-n]      bring back every session that died with tmux (-n: list only)
+  restore [-n]      bring back every session that died with tmux
+                    (-n, --dry-run: list them, start nothing)
   help              this
 
 In the picker (each agent, with its sessions for this project beneath it):
