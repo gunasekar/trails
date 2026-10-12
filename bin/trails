@@ -401,19 +401,26 @@ screen_hash() { printf '%s\n' "$1" | cksum; }
 # task is only ever on screen, and a session that dies takes its screen with it. This runs
 # every time anything asks — the SwiftBar plugin polls `trails ls` every 10s — so the
 # record is never more than a poll behind, and a lost row can say what it was doing.
+#
+# The fields rec_note_id needs ride along in the same list-sessions, and ps is read once for
+# the whole pass (PS_TREE, see ps_tree), so the work per session per poll is no tmux clients
+# of its own. '|' and not TAB between them: TAB is IFS whitespace, so `read` would merge an
+# empty @agent or @trails_id into the next field. The task stays last, since it is free text.
 sessions() {
+  PS_TREE=$(ps -A -o pid= -o ppid=)
   tmux list-sessions -F \
-    "#{session_name}|#{?@agent,#{@agent},#{pane_current_command}}|$TASK_FMT" 2>/dev/null |
-    while IFS='|' read -r name label task; do
+    "#{session_name}|#{?@agent,#{@agent},#{pane_current_command}}|#{@agent}|#{@trails_id}|#{session_path}|#{pane_pid}|$TASK_FMT" 2>/dev/null |
+    while IFS='|' read -r name label s_agent s_id s_path s_pid task; do
       case $name in
         "$PREFIX"*)
           rec_note_task "$name" "$task"
-          rec_note_id "$name"
+          rec_note_id "$name" "$s_agent" "$s_id" "$s_path" "$s_pid"
           printf '%s\t%s\t%s\n' "$name" "$label" "$task"
           ;;
         *) ;; # a tmux session you started yourself — not ours to report on
       esac
     done
+  PS_TREE=
 }
 
 # stdin: name/agent/task. stdout: the same with a state in front. The sleep is paid
@@ -524,13 +531,20 @@ rank_dot() {
 # Never an empty field mid-row, for recent_rows' reason, and the title last since it is free
 # text. In STATES order, each state keeping its own: running sessions most-wants-you first,
 # ended ones newest first.
+#
+# Each running row's directory and ID come from one list-sessions for the lot, not two tmux
+# clients per session: the SwiftBar plugin runs this every 10s. Read after sessions() has
+# run, because that pass is what moves @trails_id when the agent has changed conversations.
 ls_rows() {
-  sessions | classify | while IFS="$TAB" read -r state name label task; do
+  live=$(sessions | classify)
+  meta=$(tmux list-sessions -F "#{session_name}$TAB#{session_path}$TAB#{@trails_id}" 2>/dev/null)
+  [ -n "$live" ] && printf '%s\n' "$live" | while IFS="$TAB" read -r state name label task; do
     agent=${label%% *}
     yolo=-
     case $label in *"(YOLO)"*) yolo=yolo ;; *) ;; esac
-    dir=$(tmux display-message -pt "$name" '#{session_path}' 2>/dev/null)
-    id=$(tmux display-message -pt "$name" '#{@trails_id}' 2>/dev/null)
+    m=$(printf '%s\n' "$meta" | awk -F"$TAB" -v n="$name" '$1 == n { print $2 "\t" $3; exit }')
+    dir=${m%%"$TAB"*}
+    id=${m#*"$TAB"}
     printf 'running\t%s\t%s\t%s\t%s\t%s\t%s\t-\t-\t%s\n' \
       "$(state_of "$state")" "$name" "$agent" "$yolo" "${dir:--}" "${id:--}" "$task"
   done | awk -F"$TAB" -v states="$STATES_FLAT" "$STATES_AWK"'
@@ -801,7 +815,8 @@ print_menu() {
   # Closed and elsewhere: recent conversations here that nothing is running, from the
   # dispatch's cache (reading them costs ~150ms, which every Tab would pay). The target is
   # agent:id. One that last ran YOLO resumes YOLO, the way a lost one comes back in its
-  # recorded mode; Tab arms one that didn't ("armed" draws its yolo in yellow). One still open
+  # recorded mode, unless Tab flips it back to prompting; Tab arms one that didn't ("armed"
+  # draws its yolo in yellow). One still open
   # in a claude trails didn't start is shown so you know where it went, under a verb the
   # dispatch refuses.
   recent=
@@ -814,10 +829,16 @@ print_menu() {
         continue
       fi
       verb=resume
-      if [ "$yolo" = yolo ]; then
+      if [ "$agent:$id" = "$armed" ]; then
+        # Tab flips the row from its last mode, both ways: a yolo one back to prompting,
+        # anything else up to yolo.
+        if [ "$yolo" = yolo ]; then
+          yolo=-
+        else
+          verb=resume-yolo yolo=armed
+        fi
+      elif [ "$yolo" = yolo ]; then
         verb='resume-yolo'
-      elif [ "$agent:$id" = "$armed" ]; then
-        verb=resume-yolo yolo=armed
       fi
       printf 'closed\t%s\t%s:%s\t%s\t%s\t-\t%s\t%s\n' \
         "$verb" "$agent" "$id" "$agent" "$yolo" "$(ago "$m" "$now")" "$title"
@@ -1010,14 +1031,27 @@ EOF
   # agent that dies in milliseconds is reaped before a follow-up call can land, which is
   # the exact case worth catching. remain-on-exit-format '' drops tmux's own "Pane is
   # dead" banner, leaving the capture to be the agent's words and nothing else.
+  # -q on that one: the option is tmux 3.3's, and on an older tmux (Ubuntu 22.04, RHEL 9)
+  # it failed the whole chain after the session and its record already existed, leaving an
+  # unstamped orphan per try. Without the option, tmux's banner just joins the capture.
   #
   # The agent runs under $WRAP (see "Surviving tmux"), which forgets the record when the
   # agent exits by itself and is killed alongside it when tmux goes.
+  #
+  # Through env -u, because this is the call that starts the tmux server when none is up, and
+  # a starting server copies its client's whole environment into its global one — every
+  # later pane, agent and trails run inherits it. trails' own variables must not ride along:
+  # a TRAILS_PICKER=old from "resume old trails" opened every later picker on old
+  # conversations only, and LAUNCH_DETACHED (before 0.4.2) made every later trails print the
+  # session name instead of attaching. Stripped here, at the one door, rather than by
+  # watching how each caller sets them.
   # shellcheck disable=SC2086
-  tmux new-session -d -s "$SESSION" -c "$PWD" \
-    sh -c "$WRAP" trails-wrap "$SELF" "$SESSION" "$cmd" $args \
+  env -u TRAILS_PICKER -u TRAILS_YOLO_STATE -u TRAILS_MENU_CACHE -u TRAILS_RECENT_CACHE \
+    -u TRAILS_RESTORE_OK -u USE_TMUX -u LAUNCH_DETACHED \
+    tmux new-session -d -s "$SESSION" -c "$PWD" \
+    sh -c "$WRAP" trails-wrap "$SELF" "$SESSION" "${3:+resume}" "$cmd" $args \
     \; set-option -w -t "$SESSION" remain-on-exit on \
-    \; set-option -w -t "$SESSION" remain-on-exit-format '' || exit 1
+    \; set-option -qw -t "$SESSION" remain-on-exit-format '' || exit 1
   # The picked entry, tagged (YOLO) when armed, so the picker and status table can label the
   # session without inspecting the process. ${2:+ (YOLO)} adds the tag only for a yolo launch.
   tmux set-option -t "$SESSION" @agent "$1${2:+ (YOLO)}"
@@ -1104,6 +1138,14 @@ attach_to() {
 # ctrl-c itself as usual; an inherited ignore would not be reset. HUP is left alone, since
 # dying to it is the entire mechanism.
 #
+# One exit is not a quit: a resume the agent refuses. It can take longer than launch()'s BOOT
+# to come up and say "No conversation found" (claude starting several MCP servers, say), so by
+# then restore has called it a success and the guard is off, and forgetting the record would
+# lose the only pointer to the conversation — the thing restore_one promises not to do. So a
+# resume ($3 non-empty) that exits non-zero inside its first RESUME_GRACE seconds keeps its
+# record: the row comes back as lost, to retry or ctrl-x. A fresh start has no such case, and
+# a resume that ran for a while and then crashed is a session that was used, so both forget.
+#
 # Records begin with this version: a session started before it has none, and so cannot be
 # brought back.
 STATE_DIR=${XDG_STATE_HOME:-$HOME/.local/state}/trails/sessions
@@ -1115,8 +1157,12 @@ case $0 in
   *) SELF=$(cd "$(dirname "$0")" && pwd)/$(basename "$0") ;;
 esac
 
+RESUME_GRACE=20
 # shellcheck disable=SC2016 # expanded by the wrapper's sh, not here
-WRAP='self=$1 name=$2; shift 2; trap : INT QUIT; "$@"; s=$?; "$self" --forget "$name"; exit $s'
+WRAP='self=$1 name=$2 resume=$3; shift 3; trap : INT QUIT; t0=$(date +%s); "$@"; s=$?
+  [ -n "$resume" ] && [ "$s" -ne 0 ] && [ $(($(date +%s) - t0)) -lt '$RESUME_GRACE' ] ||
+    "$self" --forget "$name"
+  exit $s'
 
 # A conversation ID in the shape the agent's session.id asks for.
 new_id() {
@@ -1144,10 +1190,14 @@ rec_write() {
 
 # Called for every live session on every sessions() pass, so it touches the disk only when a
 # record exists and its task actually changed.
+#
+# The task reaches awk through ENVIRON, not -v: -v reads backslash escapes, so a title like
+# `Match \d+ in C:\temp\new` was stored as `Match d+ in C:<tab>emp` and a stray line, then
+# never compared equal to the live title and was rewritten on every poll.
 rec_note_task() {
   [ -n "$2" ] && [ -f "$(rec_path "$1")" ] || return 0
   [ "$(rec_get "$1" task)" = "$2" ] && return 0
-  awk -v t="$2" '/^task=/ { print "task=" t; next } 1' "$(rec_path "$1")" >"$(rec_path "$1").tmp" &&
+  t=$2 awk '/^task=/ { print "task=" ENVIRON["t"]; next } 1' "$(rec_path "$1")" >"$(rec_path "$1").tmp" &&
     mv -f "$(rec_path "$1").tmp" "$(rec_path "$1")"
 }
 
@@ -1155,14 +1205,14 @@ rec_note_task() {
 # running process, ~/.claude/sessions/<pid>.json, naming its sessionId. The pane's process is
 # the wrapper (see "Surviving tmux"), so the claude is its child; a session started before the
 # wrapper existed runs claude as the pane itself, hence both are tried. ps rather than pgrep -P,
-# which missed children here.
+# which missed children here. $2 is the pane's pid when the caller already has it.
 claude_conv_of() {
-  pp=$(tmux display-message -pt "$1" '#{pane_pid}' 2>/dev/null)
+  pp=${2:-$(tmux display-message -pt "$1" '#{pane_pid}' 2>/dev/null)}
   case $pp in
     '' | *[!0-9]*) return 1 ;;
     *) ;; # a pid
   esac
-  for k in "$pp" $(ps -A -o pid= -o ppid= | awk -v p="$pp" '$2 == p { print $1 }'); do
+  for k in "$pp" $(ps_tree | awk -v p="$pp" '$2 == p { print $1 }'); do
     f=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/sessions/$k.json
     [ -f "$f" ] || continue
     grep -o '"sessionId":"[^"]*"' "$f" | head -n 1 | json_field sessionId
@@ -1184,47 +1234,69 @@ claude_conv_of() {
 # Only while the session still carries the ID the record has (none, before the first write),
 # so a record is never rewritten from a session that isn't its own. Only sessions launch()
 # made, too: they carry @agent, and the agent's config row is what names the reader.
+#
+# id_label and id_agent and not label and agent: sh has no locals, and sessions() calls this
+# from inside its own read loop, then prints the label it read — which a plain `label=` here
+# overwrote with an empty one for any session without @agent.
+#
+#   rec_note_id NAME @agent @trails_id session_path pane_pid
+#
+# All but the name come from sessions()' one list-sessions, rather than a tmux client each per
+# session per pass — and the SwiftBar plugin makes a pass every 10s, all day.
 rec_note_id() {
-  label=$(tmux display-message -pt "$1" '#{@agent}' 2>/dev/null)
-  agent=${label%% *}
-  [ -n "$agent" ] || return 0
-  finder=$(agent_row "$agent" | awk -F'|' '{ print $9 }')
+  id_label=$2
+  id_agent=${id_label%% *}
+  [ -n "$id_agent" ] || return 0
+  finder=$(agent_row "$id_agent" | awk -F'|' '{ print $9 }')
   [ -n "$finder" ] || return 0
-  carried=$(tmux display-message -pt "$1" '#{@trails_id}' 2>/dev/null)
+  carried=$3
   was=
   [ -f "$(rec_path "$1")" ] && was=$(rec_get "$1" id)
   [ "$carried" = "$was" ] || return 0
-  now=$(find_conv "$finder" "$1") || return 0
+  now=$(find_conv "$finder" "$1" "$5") || return 0
   [ -n "$now" ] && [ "$now" != "$was" ] || return 0
   if [ -f "$(rec_path "$1")" ]; then
     awk -v i="$now" '/^id=/ { print "id=" i; next } 1' "$(rec_path "$1")" >"$(rec_path "$1").tmp" &&
       mv -f "$(rec_path "$1").tmp" "$(rec_path "$1")" || return 0
   else
     mode=
-    case $label in *"(YOLO)"*) mode=yolo ;; *) ;; esac
-    rec_write "$1" "$agent" "$(tmux display-message -pt "$1" '#{session_path}')" "$now" "$mode"
+    case $id_label in *"(YOLO)"*) mode=yolo ;; *) ;; esac
+    rec_write "$1" "$id_agent" "$4" "$now" "$mode"
   fi
   tmux set-option -t "$1" @trails_id "$now"
 }
 
-# The conversation session $2 has open, by reader $1 (an agent's session.find).
+# The conversation session $2 has open, by reader $1 (an agent's session.find). $3 is its
+# pane's pid, when the caller has it.
 find_conv() {
   case $1 in
-    claude) claude_conv_of "$2" ;;
-    codex) codex_conv_of "$2" ;;
+    claude) claude_conv_of "$2" "$3" ;;
+    codex) codex_conv_of "$2" "$3" ;;
     *) return 1 ;;
   esac
 }
 
+# Every process as `pid ppid`. sessions() takes one snapshot for its whole pass into PS_TREE,
+# so a box with six agents runs ps once per poll rather than once per agent; anything else
+# asks ps directly.
+ps_tree() {
+  if [ -n "${PS_TREE:-}" ]; then
+    printf '%s\n' "$PS_TREE"
+  else
+    ps -A -o pid= -o ppid=
+  fi
+}
+
 # The pids under session $1's pane: the wrapper, the agent, and what the agent runs (an npm-
 # installed codex is a node shim in front of the real binary). Three levels is all of those.
+# $2 is the pane's pid when the caller already has it.
 pane_pids() {
-  pp=$(tmux display-message -pt "$1" '#{pane_pid}' 2>/dev/null)
+  pp=${2:-$(tmux display-message -pt "$1" '#{pane_pid}' 2>/dev/null)}
   case $pp in
     '' | *[!0-9]*) return 1 ;;
     *) ;; # a pid
   esac
-  ps -A -o pid= -o ppid= | awk -v p="$pp" '
+  ps_tree | awk -v p="$pp" '
     { kid[$2] = kid[$2] " " $1 }
     END {
       print p; lvl = p
@@ -1271,11 +1343,11 @@ codex_conv_of() {
   root=${CODEX_HOME:-$HOME/.codex}/sessions
   [ -d "$root" ] || return 1
   f=
-  if command -v lsof >/dev/null 2>&1; then
-    for k in $(pane_pids "$1"); do
-      f=$(lsof -p "$k" -Fn 2>/dev/null | sed -n 's/^n//p' | grep '/rollout-[^/]*\.jsonl$' | head -n 1)
-      [ -n "$f" ] && break
-    done
+  # One lsof for all of the pane's pids (-p takes a comma list), not one per pid: this runs
+  # every poll for as long as the session lives, and each lsof costs hundreds of ms.
+  pids=$(pane_pids "$1" "$2" | paste -sd, -)
+  if [ -n "$pids" ] && command -v lsof >/dev/null 2>&1; then
+    f=$(lsof -p "$pids" -Fn 2>/dev/null | sed -n 's/^n//p' | grep '/rollout-[^/]*\.jsonl$' | head -n 1)
   fi
   if [ -z "$f" ]; then
     dir=$(tmux display-message -pt "$1" '#{session_path}' 2>/dev/null)
@@ -1381,7 +1453,7 @@ restore_all() {
       echo "trails: skipping ${name#"$PREFIX"} — $dir is gone (ctrl-x its lost row, or rm $(rec_path "$name"))" >&2
       continue
     fi
-    new=$(cd "$dir" && USE_TMUX=1 restore_one "$name") || continue
+    new=$(cd "$dir" && USE_TMUX=1 && restore_one "$name") || continue
     if [ "$new" = "$name" ]; then
       echo "restored ${name#"$PREFIX"}"
     else
@@ -1823,26 +1895,33 @@ map() {
     layout=tiled
   fi
 
-  # Unconditional, and this is the line that makes "one map" true (see MAP above).
-  # A window sitting in the old one loses it here: detach-on-destroy sends its client home,
-  # its `tmux attach` exits, and it lands back on a shell. That is the whole cost of asking
-  # for a map while one is already open, and it is bounded — the agents never notice,
-  # because none of them live here.
-  tmux kill-session -t "=$MAP" 2>/dev/null
+  # Built aside under its own name and swapped in at the end, where the old map is killed
+  # unconditionally — the line that makes "one map" true (see MAP above). A window sitting in
+  # the old one loses it there: detach-on-destroy sends its client home, its `tmux attach`
+  # exits, and it lands back on a shell. That is the whole cost of asking for a map while one
+  # is already open, and it is bounded — the agents never notice, because none of them live
+  # here.
+  #
+  # Aside and not in place, because `trails map new` run from a shell split inside the map —
+  # the way the header says to add one — sits in the session being replaced. Killed first, it
+  # took this process with it before anything was rebuilt: no map, and a client sent home.
+  # Not "trails_map…": a -t without "=" (is_map's) prefix-matches, and would find the build.
+  build=trails_newmap
+  tmux kill-session -t "=$build" 2>/dev/null # left by a build that died halfway
   first=$(printf '%s\n' "$names" | head -n1)
 
-  tmux new-session -d -s "$MAP" -x "$w" -y "$h" "$(view_cmd "$first")" || exit 1
+  tmux new-session -d -s "$build" -x "$w" -y "$h" "$(view_cmd "$first")" || exit 1
 
   # new-session's exit status only says the session was created, not that its command
   # lived: a pane whose command exits immediately takes the session down with it and
   # new-session still returns 0. The filter above makes that unlikely, not impossible, and
   # unnoticed it turns every line below into a "no such session" — so ask.
-  tmux has-session -t "=$MAP" 2>/dev/null || {
+  tmux has-session -t "=$build" 2>/dev/null || {
     echo "trails: $first went away as the map opened it" >&2
     exit 1
   }
-  tmux set-option -t "$MAP" @trails_map 1
-  home=$(tmux display-message -pt "$MAP" '#{pane_id}')
+  tmux set-option -t "$build" @trails_map 1
+  home=$(tmux display-message -pt "$build" '#{pane_id}')
   tmux set-option -pt "$home" @dir "$(map_dir "$first")"
   tmux set-option -pt "$home" @ag "$(map_agent "$first")"
 
@@ -1858,12 +1937,12 @@ map() {
     # -P -F to get the new pane's id back, so @dir lands on this split and not whichever
     # pane happened to be current — split-window makes the new pane active, but reading it
     # back by id is exact and does not assume that.
-    pane=$(tmux split-window -t "$MAP" -P -F '#{pane_id}' "$(view_cmd "$n")")
+    pane=$(tmux split-window -t "$build" -P -F '#{pane_id}' "$(view_cmd "$n")")
     tmux set-option -pt "$pane" @dir "$(map_dir "$n")"
     tmux set-option -pt "$pane" @ag "$(map_agent "$n")"
-    tmux select-layout -t "$MAP" tiled >/dev/null
+    tmux select-layout -t "$build" tiled >/dev/null
   done
-  tmux select-layout -t "$MAP" "$layout" >/dev/null
+  tmux select-layout -t "$build" "$layout" >/dev/null
 
   # The border label, free and always current: the inner client emits its session's title
   # (tmux.conf's set-titles-string — "claude · what it is working on") to its terminal,
@@ -1885,17 +1964,29 @@ map() {
   # comparing pane_title to it catches exactly that state and shows "<dir> · claude"; any
   # real task fails the match and prints whole. Transient either way — it self-corrects the
   # moment the agent sets a title — but the doubling is avoided rather than blinked through.
-  tmux set-option -w -t "$MAP" pane-border-status top
-  tmux set-option -w -t "$MAP" pane-border-format \
+  tmux set-option -w -t "$build" pane-border-status top
+  tmux set-option -w -t "$build" pane-border-format \
     ' #{@dir} · #{?#{==:#{pane_title},#{@ag} · #{@dir}},#{@ag},#{pane_title}} '
 
   # Land on the one that most wants you. By pane id, which cannot be re-numbered out from
   # under us by the re-tiling above the way an index can.
   tmux select-pane -t "$home"
 
-  # Already inside tmux (opened from an agent session, or from your own window): attach
-  # would refuse to nest, and switch-client is what "go there" means to a client already here.
-  [ -z "$TMUX" ] || exec tmux switch-client -t "=$MAP"
+  # Swap the new map in for the old as one tmux command list, which the server runs to the end
+  # even when killing the old map hangs up on this very process (run from a shell pane inside
+  # it). A failed command stops a list, so kill-session goes in only when there is an old map.
+  #
+  # Already inside tmux (opened from an agent session, from your own window, or from the old
+  # map), attach would refuse to nest, and switch-client is what "go there" means to a client
+  # already here — switched to the new one before the old goes, so it is never sent home.
+  if [ -n "$TMUX" ]; then
+    if tmux has-session -t "=$MAP" 2>/dev/null; then
+      exec tmux switch-client -t "=$build" \; kill-session -t "=$MAP" \; rename-session -t "=$build" "$MAP"
+    fi
+    exec tmux switch-client -t "=$build" \; rename-session -t "=$build" "$MAP"
+  fi
+  tmux kill-session -t "=$MAP" 2>/dev/null
+  tmux rename-session -t "=$build" "$MAP" || exit 1
   exec tmux attach-session -t "=$MAP"
 }
 
@@ -2123,8 +2214,14 @@ if in_map; then
 fi
 
 # Per-invocation temp files, exported so the fzf-spawned --toggle-yolo / --print-menu /
-# --kill subprocesses all share them. Both are removed the moment fzf returns and on
-# Esc/interrupt via the trap, since the exec paths below never run to an EXIT trap of their own.
+# --kill subprocesses all share them. All three live in one private directory from mktemp -d,
+# not at $$-named paths in a /tmp other users can write to, where a planted symlink would have
+# had the cache write follow it. The directory goes the moment fzf returns and on exit via the
+# trap, since the exec paths below never run to an EXIT trap of their own.
+#
+# INT and TERM exit, and the exit runs the EXIT trap. A trap that only cleaned up let a ctrl-c
+# during the classify below carry straight on, into a picker built from the caches it had
+# just deleted — no running sessions, in the one you had tried to cancel.
 #
 # TRAILS_YOLO_STATE — which agent (if any) you armed for YOLO with Tab. The chosen row's verb
 #                     already carries the mode by the time fzf returns, so nothing reads it after.
@@ -2134,12 +2231,14 @@ fi
 #                     what delayed the Tab relabel. The snapshot does not change over the picker's
 #                     life (fzf never refreshes it on its own), so caching loses no freshness.
 # TRAILS_RECENT_CACHE — the closed rows' raw TSV, for the same reason: read once, drawn per reload.
-TRAILS_YOLO_STATE="${TMPDIR:-/tmp}/trails-yolo.$$"
-TRAILS_MENU_CACHE="${TMPDIR:-/tmp}/trails-menu.$$"
-TRAILS_RECENT_CACHE="${TMPDIR:-/tmp}/trails-recent.$$"
+TRAILS_TMP=$(mktemp -d "${TMPDIR:-/tmp}/trails.XXXXXX") || exit 1
+TRAILS_YOLO_STATE=$TRAILS_TMP/yolo
+TRAILS_MENU_CACHE=$TRAILS_TMP/menu
+TRAILS_RECENT_CACHE=$TRAILS_TMP/recent
 export TRAILS_YOLO_STATE TRAILS_MENU_CACHE TRAILS_RECENT_CACHE
-rm -f "$TRAILS_YOLO_STATE"
-trap 'rm -f "$TRAILS_YOLO_STATE" "$TRAILS_MENU_CACHE" "$TRAILS_RECENT_CACHE"' EXIT INT TERM
+trap 'rm -rf "$TRAILS_TMP"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 # Classify the running sessions once, up front — the only place that pays classify's settle
 # sleep on the picker's happy path. Empty (not absent) with no tmux to look in.
@@ -2211,7 +2310,7 @@ fi
 # Esc leaves the main list, and takes the old list back to the main one.
 choice=$(printf '%s\n' "$MENU" | fzf "$@") || {
   [ "${TRAILS_PICKER:-}" = old ] || exit 0
-  rm -f "$TRAILS_YOLO_STATE" "$TRAILS_MENU_CACHE" "$TRAILS_RECENT_CACHE"
+  rm -rf "$TRAILS_TMP"
   TRAILS_PICKER='' exec "$SELF"
 }
 
@@ -2219,7 +2318,7 @@ choice=$(printf '%s\n' "$MENU" | fzf "$@") || {
 # cut splits on TAB by default, the delimiter the menu is built with.
 target=$(printf '%s' "$choice" | cut -f2)
 
-rm -f "$TRAILS_YOLO_STATE" "$TRAILS_MENU_CACHE" "$TRAILS_RECENT_CACHE"
+rm -rf "$TRAILS_TMP"
 trap - EXIT INT TERM
 
 case $choice in

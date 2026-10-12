@@ -176,12 +176,21 @@ partway through `kill-server`, and `pane-exited` reports the wrong session name.
 So the agent runs under a small `sh` wrapper:
 
 ```sh
-self=$1 name=$2; shift 2; trap : INT QUIT; "$@"; s=$?; "$self" --forget "$name"; exit $s
+self=$1 name=$2 resume=$3; shift 3; trap : INT QUIT; t0=$(date +%s); "$@"; s=$?
+  [ -n "$resume" ] && [ "$s" -ne 0 ] && [ $(($(date +%s) - t0)) -lt 20 ] ||
+    "$self" --forget "$name"
+  exit $s
 ```
 
 When the agent exits by itself, the wrapper forgets the record. When tmux dies,
 it hangs up on the whole process group and the wrapper dies to SIGHUP before it
 can forget anything. A reboot runs nothing at all.
+
+One exit keeps the record: a resume that fails within its first 20 seconds. An
+agent can take longer than the launch check to start and then refuse the resume
+(claude starting several MCP servers, then "No conversation found"). Forgetting
+the record then would lose the only pointer to the conversation, so the session
+comes back as lost, to retry or forget.
 
 **A record is dead** when no session carries its ID as `@trails_id`, not when no
 session has its name. Otherwise a session you created by hand under the same
@@ -244,7 +253,7 @@ way.
 | `new` / `yolo` | launch a fresh agent, with the YOLO flag for `yolo` |
 | `attach` | attach to the running session |
 | `restore` | `restore_one`, then attach |
-| `resume` / `resume-yolo` | launch with the resume flag and that ID, recorded like any launch; `resume-yolo` when it last ran YOLO or Tab armed it |
+| `resume` / `resume-yolo` | launch with the resume flag and that ID, recorded like any launch; `resume-yolo` when it last ran YOLO (unless Tab flipped it back) or Tab armed it |
 | `open` | refuse, naming the process that has it |
 
 `launch` creates the session detached, stamps it, waits 1.5s and checks the pane

@@ -54,13 +54,23 @@
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:${PATH}"
 
+SCRIPT_PATH="$(realpath -q "$0")"
+
 # trails comes from Homebrew (gunasekar/tap). SwiftBar runs plugins from launchd, whose
 # PATH is not the shell's, which is what the export above is for: both Homebrew prefixes
-# go first, so the lookup finds it on Apple Silicon and Intel alike. Not installed, the
-# plugin says nothing, the same as when no agent is running.
-TRAILS=$(command -v trails) || exit 0
-
-SCRIPT_PATH="$(realpath -q "$0")"
+# go first, so the lookup finds it on Apple Silicon and Intel alike.
+#
+# Then the trails this plugin shipped with, found from the plugin's own real path: a by-hand
+# install (bin/trails in ~/.local/bin, say, which launchd's PATH never has) links the plugin
+# out of a checkout, where trails is ../../bin/trails, and Homebrew's Cellar keeps it at
+# ../../../bin/trails. Without this a by-hand install showed nothing, forever, exactly like
+# "no agents running". Found nowhere, the plugin still says nothing.
+TRAILS=$(command -v trails) || {
+  for t in "$(dirname "$SCRIPT_PATH")/../../bin/trails" "$(dirname "$SCRIPT_PATH")/../../../bin/trails"; do
+    [ -x "$t" ] && TRAILS=$t && break
+  done
+  [ -n "$TRAILS" ] || exit 0
+}
 
 # ─── Actions (SwiftBar re-runs this file with the function name as param1) ───
 # Resume: open the session in your terminal, attached to it — a new tab in the front window
@@ -184,15 +194,6 @@ fi
 # skips reading conversation history altogether, the bulk of an ls, every 10 seconds.
 ROWS=$(TRAILS_RECENT_MAX=0 "$TRAILS" ls 2>/dev/null |
   awk -F'\t' '$1 == "running"' | cut -f2-)
-[ -n "$ROWS" ] || exit 0
-
-DIM='#5c6370' # the summary footer
-
-# How long an agent has to sit there wanting you before it is allowed to say so.
-# Default 30 seconds; TRAILS_NOTIFY_AFTER overrides (AGENT_NOTIFY_AFTER, its old name, still does). Zero would make the poll that sees it
-# stop the poll that says so — see the note above for why the default is a wait, not zero.
-GRACE=${TRAILS_NOTIFY_AFTER:-${AGENT_NOTIFY_AFTER:-30}}
-NOW=$(date +%s)
 
 # One line per session: name, state, when it entered that state, whether it has been
 # seen working (so a session that was already idle when the plugin first saw it is not
@@ -200,8 +201,43 @@ NOW=$(date +%s)
 STATE_DIR="${XDG_CACHE_HOME:-${HOME}/.cache}/trails"
 STATE_FILE="${STATE_DIR}/swiftbar-state"
 mkdir -p "$STATE_DIR"
+
+# One run at a time from here to the state file's rename. SwiftBar overlaps runs — the timer,
+# refreshOnOpen when you open the menu, a refresh=true click — and two that both read the
+# same state both saw said=0, and both announced the same stop. mkdir is the lock because it
+# is atomic. A run waits up to 5s for one in progress (a run takes about one), and a lock
+# older than a minute is from a run that was killed, so it is taken over. One that still has
+# no lock after the wait goes ahead without it, and leaves the other run's lock alone.
+LOCK="${STATE_FILE}.lock"
+LOCKED='' NEXT=''
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  mkdir "$LOCK" 2>/dev/null && LOCKED=1 && break
+  [ -n "$(find "$LOCK" -maxdepth 0 -mmin +1 2>/dev/null)" ] && rmdir "$LOCK" 2>/dev/null
+  sleep 0.5
+done
+trap '[ -n "$LOCKED" ] && rmdir "$LOCK" 2>/dev/null; [ -n "$NEXT" ] && rm -f "$NEXT"' EXIT
+
+# No agent running: forget every session rather than leave the last poll's rows behind. Kept,
+# a row outlived its session and was inherited by the next one to take its name — days later,
+# a fresh trails-foo read the old one's seen=1 said=0 and was announced the moment it opened.
+[ -n "$ROWS" ] || {
+  rm -f "$STATE_FILE"
+  exit 0
+}
+
+DIM='#5c6370' # the summary footer
+
+# How long an agent has to sit there wanting you before it is allowed to say so.
+# Default 30 seconds; TRAILS_NOTIFY_AFTER overrides (AGENT_NOTIFY_AFTER, its old name, still does). Zero would make the poll that sees it
+# stop the poll that says so — see the note above for why the default is a wait, not zero.
+# Whole seconds only: anything else ("30s", 0.5) made the comparison below an error on every
+# poll, and no agent was ever announced. Not a number falls back to the default.
+GRACE=${TRAILS_NOTIFY_AFTER:-${AGENT_NOTIFY_AFTER:-30}}
+[[ $GRACE =~ ^[0-9]+$ ]] || GRACE=30
+NOW=$(date +%s)
+
 PREV=$(cat "$STATE_FILE" 2>/dev/null)
-: >"${STATE_FILE}.new"
+NEXT=$(mktemp "${STATE_FILE}.XXXXXX") || exit 0
 
 # 3 -> ³, so the count rides on the icon's shoulder, instead of
 # sitting beside it at full height.
@@ -368,10 +404,10 @@ while IFS=$'\t' read -r state name agent yolo _dir _id _when _pid task; do
     fi
   fi
 
-  printf '%s\t%s\t%s\t%s\t%s\n' "$name" "$state" "$since" "$seen" "$said" >>"${STATE_FILE}.new"
+  printf '%s\t%s\t%s\t%s\t%s\n' "$name" "$state" "$since" "$seen" "$said" >>"$NEXT"
 done <<<"$ROWS"
 
-mv -f "${STATE_FILE}.new" "$STATE_FILE"
+mv -f "$NEXT" "$STATE_FILE"
 
 # Menu bar: the trails mark, its two dots the state — the top one "wants you" (red when an
 # agent is asking you something, amber when one finished its turn, grey otherwise), the

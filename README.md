@@ -152,7 +152,7 @@ stateDiagram-v2
 | Key | Does |
 |---|---|
 | `enter` | open the row: attach, restore, resume, or start the agent |
-| `tab` | toggle YOLO (run everything unconfirmed) on an agent to start or a closed session, flipping it from the config's `mode` |
+| `tab` | toggle YOLO (run everything unconfirmed) on an agent to start or a closed session, flipping a new trail from the config's `mode` and a closed session from the mode it last ran in |
 | `ctrl-x` | end a running session, or forget a lost one |
 
 `trails` refuses to open an agent in `/`. `$HOME` is fine.
@@ -268,7 +268,7 @@ Which agents trails can start, and how, is a list in
 | `yolo` | *(optional)* the flag Tab adds to run everything unconfirmed |
 | `session` | *(optional)* how trails learns which conversation a session is in, so it can come back after tmux dies. See below. |
 | `default_agent` | *(optional)* listed first in the picker |
-| `mode` | *(optional)* `default` (the agent's own, prompting mode) or `yolo`: the mode a *new trail* row starts in. Tab flips a row from it, so with `yolo` Tab is how you start one in default mode. Closed sessions come back in the mode they last ran in, and an agent with no `yolo` flag always runs in default mode. |
+| `mode` | *(optional)* `default` (the agent's own, prompting mode) or `yolo`: the mode a *new trail* row starts in. Tab flips a row from it, so with `yolo` Tab is how you start one in default mode. Closed sessions come back in the mode they last ran in unless Tab flips them, and an agent with no `yolo` flag always runs in default mode. |
 
 Only agents whose command is on `PATH` are offered. Recent conversations are
 read from claude's and opencode's own history, and are filed under the first
