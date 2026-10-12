@@ -5,21 +5,19 @@
   </picture>
 </h1>
 
-**Too many agent sessions? trails keeps the ones you're working on in one view.**
+**Start an agent in VS Code, check on it from a terminal, pick it up in Neovim.**
 
-Each task gets its own tmux session. You see which agents are working and which
-are waiting on you, jump into any of them from any terminal or editor, and bring
-old ones back only when you need them. And when you want to watch several at
-once, a cockpit view puts them side by side in one window.
+trails runs Claude Code, Codex, Gemini, Copilot, Cursor, opencode or any other
+agent CLI in tmux, one session per task, so every editor and terminal sees the
+same agents. It shows which are working and which are waiting on you, and brings
+old ones back when you need them. A cockpit view puts several side by side.
 
 ![Picking a new trail in a Neovim side panel](assets/nvim.gif)
 
 ![Four Claude Code sessions in four projects, side by side in trails map](assets/map.gif)
 
-trails starts Claude Code, Codex, Gemini, Copilot, Cursor, opencode or any other
-agent CLI in a tmux session of its own, then helps you find it again, resume it,
-or end it. That's all it does. There's no TUI or GUI of its own: the sessions are
-tmux, and once an agent is running trails gets out of the way.
+That's all trails does. There's no TUI or GUI of its own: the sessions are tmux,
+and once an agent is running trails gets out of the way.
 
 Because it's just a command, it plugs into whatever you already use:
 
@@ -28,10 +26,7 @@ Because it's just a command, it plugs into whatever you already use:
 - **any terminal** (Ghostty, iTerm, Terminal), in the project you're working on
 - **the macOS menu bar**, which shows the agents waiting on you
 
-Every one of them lands on the same sessions: start an agent in VS Code, check on
-it from a terminal, pick it up in Neovim. And `trails map` puts several in one
-window, a tmux session of tmux sessions, so you can watch them all and answer
-whichever one stops.
+Every one of them lands on the same sessions.
 
 ```console
 ~/code/checkout $ trails
@@ -56,11 +51,8 @@ Resume a trail: █   # enter: resume · tab: toggle YOLO · esc: back
   ○ closed     codex          6d ago  Bump the payment SDK
 ```
 
-`trails` shows the sessions for the directory you're in, running (`●`) and lost
-(`○`) ones, then the agents you can start, then a way into the ones that ended.
-*needs you* is asking you something, *your turn* finished its turn, and *lost* is
-a session tmux took down. Every row does something on Enter; type to filter.
-`trails ls` shows every directory:
+`trails` lists the directory you're in; type to filter. `trails ls` shows every
+directory:
 
 ```console
 ~ $ trails ls
@@ -74,8 +66,13 @@ a session tmux took down. Every row does something on Enter; type to filter.
 
 Because each agent runs inside tmux, it outlives the terminal that started it.
 Close the laptop, drop Wi-Fi or quit the terminal, and the conversation is still
-running when you come back. A plain shell, a Zed thread and an nvim panel all go
-through `trails` and land on the same sessions.
+running when you come back. ssh in from another machine and run `trails`, and
+you're in the very same coding sessions: the same conversations, mid-turn, right
+where you left them.
+
+And if tmux itself goes down, after a reboot, a crash or a `kill-server`, the
+sessions show up as *lost*, not gone. `trails restore` brings each one back on
+the conversation it was in.
 
 ## Install
 
@@ -353,7 +350,7 @@ editor and every shell shares one set of sessions.
   alive across disconnects.
 
   ![A Zed agent thread running claude in a trails session](assets/zed.png)
-- **Neovim:** open a terminal running `trails` in a side panel, like the second
+- **Neovim:** open a terminal running `trails` in a side panel, like the first
   demo at the top.
 - **Anything else:** run `trails` wherever the editor opens a terminal.
 
