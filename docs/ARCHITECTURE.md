@@ -3,6 +3,55 @@
 `trails` is one POSIX `sh` script, [`bin/trails`](../bin/trails). Its comments
 carry the detailed reasoning, much of it measured. This page is the map.
 
+## Scope
+
+trails is a launcher for tmux ([ADR 6](decisions/0006-a-launcher-not-an-app.md)).
+Its job is four verbs on agent sessions: **start** one, **find** it again,
+**resume** it after tmux or the agent is gone, and **end** it. Once an agent is
+running, the session is plain tmux and trails has nothing left to do.
+
+In scope:
+
+- **Starting** any agent CLI the config names, one tmux session per agent, in the
+  directory you're in, in the agent's own mode or its YOLO flag.
+- **Finding:** the picker and `trails ls` for this directory, `trails ls -a` for
+  every one, and whether each agent is working or waiting on you, read off its
+  screen.
+- **Resuming:** a record per session that outlives tmux, `trails restore`, and
+  ended conversations read from the agents' own stores.
+- **Ending** a session, or forgetting a lost one.
+- **The map**, several sessions in one window, as a view that owns nothing.
+- **A TSV contract** (`trails ls`) for other tools to build on, and the menu-bar
+  plugin, which ships with trails but is only a reader of it
+  ([ADR 8](decisions/0008-ship-the-menu-bar-plugin.md)).
+
+Out of scope:
+
+- **A UI around the agents.** No TUI or GUI of trails' own: once you're attached,
+  you're in tmux and the agent's own interface.
+- **A daemon.** Nothing of trails runs between commands, except the small wrapper
+  that forgets a session's record when its agent exits.
+- **Per-agent integrations.** No hooks or APIs into the agents. Status comes from
+  the screen ([ADR 2](decisions/0002-status-from-the-screen.md)), and adding an
+  agent is a config entry, not code
+  ([ADR 7](decisions/0007-agents-in-a-config-file.md)).
+- **The agents' work itself:** git worktrees, branches, diffs, prompts or task
+  queues. trails puts you in the session, and what happens there is the agent's
+  business and yours.
+- **Owning history.** Conversations stay in each agent's own store. trails reads
+  them and imports, copies or syncs nothing.
+- **Configuring tmux.** trails sets options on its own sessions only, never global
+  ones, and never edits `tmux.conf`. What a `tmux.conf` can add is listed under
+  Sessions.
+- **Sandboxing or permissions.** YOLO is the agent's own flag. trails only
+  refuses the sandbox-bypassing ones as root.
+- **Machine concerns,** such as keeping the machine awake (removed in ADR 6), and
+  reaching agents on other machines: trails runs where the agents live, and you
+  reach it over ssh.
+
+The test for a new feature: is it about starting, finding, resuming or ending a
+session? If not, it belongs in a tool built on `trails ls`, not in trails.
+
 ## Sessions
 
 Every agent runs in its own tmux session named `trails-<project>`, where
