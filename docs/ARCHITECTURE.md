@@ -364,10 +364,9 @@ still gets its own session, and that pane becomes a viewer of it.
 
 ## The README demos
 
-`assets/nvim.gif` and `assets/map.gif` (the two in the README) and `assets/demo.gif` are
-recorded with
+`assets/nvim.gif` and `assets/map.gif` are recorded with
 [VHS](https://github.com/charmbracelet/vhs) from `assets/demo/*.tape`, with the real
-Claude Code: the main demo gives it a small task, so a recording costs a few cents
+Claude Code: the map demo gives four agents a small task each, so a recording costs a little
 of your plan. Each tape first sources `assets/demo/sandbox.sh`, which gives trails
 its own config, records and tmux server, and a sample Go project at
 `~/code/checkout` (refused if that exists, removed afterwards). trails reads a
@@ -379,7 +378,6 @@ After a change to what the picker or `ls` shows, re-record from the repo root, w
 `claude` logged in:
 
 ```console
-vhs assets/demo/demo.tape
 vhs assets/demo/nvim.tape
 vhs assets/demo/map.tape
 ```

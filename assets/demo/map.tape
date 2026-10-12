@@ -6,7 +6,7 @@
 #
 # Off camera: a trail is started in each project and detached, and demo_task hands each one its
 # task, answering claude's trust question for a new folder only if it asks. Four real tasks, so
-# a recording costs a few times what the main demo does. Same sandbox as demo.tape.
+# a recording costs a little of your plan. Runs in sandbox.sh's sandbox.
 
 Output assets/map.gif
 

@@ -354,8 +354,6 @@ editor and every shell shares one set of sessions.
 - **Zed:** in `settings.json`, set `"terminal_init_command": "exec trails"` under
   `agent`. In remote mode it runs on the ssh host, where tmux keeps the agent
   alive across disconnects.
-
-  ![A Zed agent thread running claude in a trails session](assets/zed.png)
 - **Neovim:** open a terminal running `trails` in a side panel, like the first
   demo at the top.
 - **Anything else:** run `trails` wherever the editor opens a terminal.

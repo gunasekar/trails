@@ -4,7 +4,7 @@
 #   vhs assets/demo/nvim.tape        (from the repo root; writes assets/nvim.gif)
 #
 # Neovim runs with --clean (sandbox.sh's nvim), so no personal config or plugins are in the
-# shot; the split and the terminal are plain :vsplit and :terminal. Same sandbox as demo.tape.
+# shot; the split and the terminal are plain :vsplit and :terminal. Runs in sandbox.sh's sandbox.
 
 Output assets/nvim.gif
 
