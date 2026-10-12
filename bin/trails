@@ -5,9 +5,10 @@
 #
 #   trails                  pick a running session to rejoin, or an agent to start
 #   trails help             the commands and picker keys (also -h, --help)
-#   trails ls               where every agent session is: running, lost with tmux, or ended
-#                           in the last 10 days. A table on a terminal, TSV when piped, for
-#                           a notifier to read. See "Session states" below.
+#   trails ls [-a | DIR]    this directory's agent sessions: running, lost with tmux, or
+#                           ended in the last 10 days; DIR's instead, or -a for every one.
+#                           A table on a terminal, TSV when piped, for a notifier to read.
+#                           See "Session states" below.
 #   trails restore          bring back every session that died with tmux (a reboot, a
 #                           crash, kill-server), each resuming its conversation, detached.
 #                           See "Surviving tmux" below.
@@ -395,11 +396,11 @@ screen_of() { tmux capture-pane -pt "$1" 2>/dev/null; }
 screen_hash() { printf '%s\n' "$1" | cksum; }
 
 # Every agent session on the box, TSV: name, agent, task. Unclassified and unfiltered —
-# is_ours narrows it to this project for the picker, `trails ls` keeps the lot.
+# is_ours narrows it to this project for the picker, `trails ls -a` keeps the lot.
 #
 # Also the one place a session's record learns what it is working on (rec_note_task): the
 # task is only ever on screen, and a session that dies takes its screen with it. This runs
-# every time anything asks — the SwiftBar plugin polls `trails ls` every 10s — so the
+# every time anything asks — the SwiftBar plugin polls `trails ls -a` every 10s — so the
 # record is never more than a poll behind, and a lost row can say what it was doing.
 #
 # The fields rec_note_id needs ride along in the same list-sessions, and ps is read once for
@@ -512,12 +513,17 @@ rank_dot() {
   esac
 }
 
-# `trails ls` — where every agent session on this machine is: running, lost with tmux, or
-# ended recently. Deliberately not scoped to $PWD: the picker answers "what's here", this
-# answers "what did I leave where" — the question the menu-bar plugin asks too
-# (extras/swiftbar, the caller the TSV was built for).
+# `trails ls` — this directory's agent sessions: running, lost with tmux, or ended recently.
+# The same rows the picker shows, as text: `ls` reads as "here", as plain ls does, and the
+# picker already taught that trails means this directory. `trails ls -a` is every directory
+# on the machine — "what did I leave where", the question the menu-bar plugin asks
+# (extras/swiftbar, the caller the TSV was built for). See docs/decisions/0010.
 #
-# ls_rows is the one list, TSV, in display order:
+# `trails ls DIR` is DIR's, the same list as if you had cd'd there and run `trails ls`.
+#
+# ls_rows DIR is the one list, TSV, in display order — DIR's sessions, or with DIR empty
+# every directory's. "Here" is the exact directory, as is_ours has it for the picker, so
+# `trails` and `trails ls` never disagree about what is here:
 #
 #   life  state  session  agent  yolo  dir  id  when  pid  title
 #
@@ -537,25 +543,27 @@ rank_dot() {
 # run, because that pass is what moves @trails_id when the agent has changed conversations.
 ls_rows() {
   live=$(sessions | classify)
-  meta=$(tmux list-sessions -F "#{session_name}$TAB#{session_path}$TAB#{@trails_id}" 2>/dev/null)
-  [ -n "$live" ] && printf '%s\n' "$live" | while IFS="$TAB" read -r state name label task; do
-    agent=${label%% *}
-    yolo=-
-    case $label in *"(YOLO)"*) yolo=yolo ;; *) ;; esac
-    m=$(printf '%s\n' "$meta" | awk -F"$TAB" -v n="$name" '$1 == n { print $2 "\t" $3; exit }')
-    dir=${m%%"$TAB"*}
-    id=${m#*"$TAB"}
-    printf 'running\t%s\t%s\t%s\t%s\t%s\t%s\t-\t-\t%s\n' \
-      "$(state_of "$state")" "$name" "$agent" "$yolo" "${dir:--}" "${id:--}" "$task"
-  done | awk -F"$TAB" -v states="$STATES_FLAT" "$STATES_AWK"'
-    { n++; row[n] = $0; st[n] = $2 }
-    END { for (r = 1; r <= ns; r++) for (i = 1; i <= n; i++) if (rank[st[i]] == r) print row[i] }'
-  rec_dead | while read -r name; do
-    yolo=$(rec_get "$name" yolo)
-    printf 'stopped\tlost\t%s\t%s\t%s\t%s\t%s\t-\t-\t%s\n' "$name" "$(rec_get "$name" agent)" \
-      "${yolo:--}" "$(rec_get "$name" dir)" "$(rec_get "$name" id)" "$(rec_get "$name" task)"
-  done
-  recent_rows "" | while IFS="$TAB" read -r m agent dir id yolo pid title; do
+  {
+    meta=$(tmux list-sessions -F "#{session_name}$TAB#{session_path}$TAB#{@trails_id}" 2>/dev/null)
+    [ -n "$live" ] && printf '%s\n' "$live" | while IFS="$TAB" read -r state name label task; do
+      agent=${label%% *}
+      yolo=-
+      case $label in *"(YOLO)"*) yolo=yolo ;; *) ;; esac
+      m=$(printf '%s\n' "$meta" | awk -F"$TAB" -v n="$name" '$1 == n { print $2 "\t" $3; exit }')
+      dir=${m%%"$TAB"*}
+      id=${m#*"$TAB"}
+      printf 'running\t%s\t%s\t%s\t%s\t%s\t%s\t-\t-\t%s\n' \
+        "$(state_of "$state")" "$name" "$agent" "$yolo" "${dir:--}" "${id:--}" "$task"
+    done | awk -F"$TAB" -v states="$STATES_FLAT" "$STATES_AWK"'
+      { n++; row[n] = $0; st[n] = $2 }
+      END { for (r = 1; r <= ns; r++) for (i = 1; i <= n; i++) if (rank[st[i]] == r) print row[i] }'
+    rec_dead | while read -r name; do
+      yolo=$(rec_get "$name" yolo)
+      printf 'stopped\tlost\t%s\t%s\t%s\t%s\t%s\t-\t-\t%s\n' "$name" "$(rec_get "$name" agent)" \
+        "${yolo:--}" "$(rec_get "$name" dir)" "$(rec_get "$name" id)" "$(rec_get "$name" task)"
+    done
+  } | d=$1 awk -F"$TAB" 'ENVIRON["d"] == "" || $6 == ENVIRON["d"]'
+  recent_rows "$1" | while IFS="$TAB" read -r m agent dir id yolo pid title; do
     state=closed
     [ "$pid" = - ] || state=elsewhere
     printf 'stopped\t%s\t-\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$state" "$agent" "$yolo" "$dir" "$id" "$m" "$pid" "$title"
@@ -575,13 +583,51 @@ ls_rows() {
 # the first agent there and trails-<dir>-N the Nth, but the name alone could equally be
 # project <dir>-N's first, so a name that doesn't match its own directory gets no badge.
 list_sessions() {
-  rows=$(ls_rows)
+  [ $# -le 1 ] || {
+    echo "trails: ls takes one directory, or -a for every one" >&2
+    exit 1
+  }
+  case ${1:-} in
+    '') scope=$PWD ;;
+    -a | --all) scope= ;;
+    -*)
+      echo "trails: ls takes -a (every directory), a directory, or nothing (this one), not '$1'" >&2
+      exit 1
+      ;;
+    # Spelled the way sessions record it: launch() passes -c "$PWD", the logical path you cd'd
+    # by, so `cd && pwd` and not pwd -P, which would resolve a symlink the record kept. A
+    # directory that is gone can still have lost or ended sessions, so it is made absolute by
+    # hand rather than refused.
+    *)
+      if [ -d "$1" ]; then
+        scope=$(cd "$1" && pwd) || exit 1
+      else
+        case $1 in
+          /*) scope=$1 ;;
+          *) scope=$PWD/$1 ;;
+        esac
+        while :; do
+          case $scope in
+            ?*/) scope=${scope%/} ;;
+            *) break ;;
+          esac
+        done
+      fi
+      ;;
+  esac
+  rows=$(ls_rows "$scope")
   [ -t 1 ] || {
     [ -z "$rows" ] || printf '%s\n' "$rows"
     return 0
   }
   [ -n "$rows" ] || {
-    echo "trails: no agent sessions, and none ended in the last $RECENT_DAYS days"
+    if [ -n "$scope" ]; then
+      where=here
+      [ "$scope" = "$PWD" ] || where="in $scope"
+      echo "trails: no agent sessions $where, and none ended in the last $RECENT_DAYS days — trails ls -a for every directory"
+    else
+      echo "trails: no agent sessions, and none ended in the last $RECENT_DAYS days"
+    fi
     return 0
   }
 
@@ -1427,11 +1473,11 @@ restore_one() {
 
 # `trails restore` — every dead session on the box, each in its own directory. Detached,
 # because there may be several and you can only sit in one: attach afterwards with the
-# picker or the map, which already know how to find them. `trails ls` lists them first,
+# picker or the map, which already know how to find them. `trails ls -a` lists them first,
 # as its lost rows.
 restore_all() {
   [ -z "${1:-}" ] || {
-    echo "trails: restore takes no arguments — trails ls shows what it would bring back (lost)" >&2
+    echo "trails: restore takes no arguments — trails ls -a shows what it would bring back (lost)" >&2
     exit 1
   }
   command -v tmux >/dev/null 2>&1 || {
@@ -1628,7 +1674,7 @@ ago() {
 # when there is no state to keep, so `trails map` always builds a fresh one rather
 # than reconciling an old one against a new pick.
 #
-# Not $PWD-scoped, for list_sessions()'s reason: the picker asks what is running *here*, the
+# Not $PWD-scoped, for `trails ls -a`'s reason: the picker asks what is running *here*, the
 # map asks what is running *at all*.
 #
 # What it costs, and it is not nothing. A tmux window has one grid, so a session two
@@ -1992,7 +2038,7 @@ map() {
 
 # ─── Menu bar ────────────────────────────────────────────────────────────────
 # A SwiftBar plugin ships with trails (extras/swiftbar in the repo, share/trails/swiftbar
-# once installed): the agents that want you, in the macOS menu bar. It reads `trails ls`
+# once installed): the agents that want you, in the macOS menu bar. It reads `trails ls -a`
 # like any other caller, so it is not part of trails' job — this only puts it where SwiftBar
 # looks, so that installing it is one command and not a path to copy out of `brew info`.
 #
@@ -2083,8 +2129,8 @@ swiftbar_link() {
 # Measured with `pwd -P` rather than $PWD, which keeps whatever path you walked in by: a
 # symlink pointing at / is the same directory and reads as a different string.
 #
-# Only starting is refused, never reporting: `trails ls` answers for the whole box and
-# is read-only, so it works from anywhere, and the fzf internals run from a picker that has
+# Only starting is refused, never reporting: `trails ls` is read-only, and with -a answers for
+# the whole box, so it works from anywhere, and the fzf internals run from a picker that has
 # already passed through here.
 refuse_bad_cwd() {
   [ "$(pwd -P)" = / ] || return 0
@@ -2100,8 +2146,8 @@ usage() {
 usage: trails [command]
 
   (none)            this directory's sessions, then the agents you can start
-  ls                where every agent session is, running or not — a table, or TSV
-                    when piped
+  ls [-a | DIR]     this directory's sessions, running or not; DIR's, or -a for
+                    every directory — a table, or TSV when piped
   map [N|new]       several agents in one window — pick them, or take the N that
                     most want you; `new` rebuilds instead of re-attaching
   restore           bring back every session that died with tmux (the lost ones)
@@ -2153,7 +2199,8 @@ case $1 in
     exit 0
     ;;
   ls)
-    list_sessions
+    shift
+    list_sessions "$@"
     exit 0
     ;;
   # Above refuse_bad_cwd with ls, and for the same reason: it opens no agent, so

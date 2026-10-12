@@ -16,7 +16,7 @@
 # The picker (`trails`) only tells you when you go and look, and it is scoped to the
 # project you are standing in. This is the other half: every agent on the box, polled,
 # whether or not you are looking — the "what did I leave running while I walked away"
-# view. All the thinking lives in `trails ls`, which decides blocked/idle/working
+# view. All the thinking lives in `trails ls -a`, which decides blocked/idle/working
 # by diffing each session's screen (see trails' docs/ARCHITECTURE.md); this file only
 # renders it.
 #
@@ -188,11 +188,13 @@ if [[ $# -ge 2 && $2 == trails-* ]]; then
   exit 0
 fi
 
-# Running sessions only (`life` is running): `trails ls` also lists ones lost with tmux and
-# ended conversations, and neither is anything to announce. The life column is cut off, so
-# what's read below starts at the state. TRAILS_RECENT_MAX=0
-# skips reading conversation history altogether, the bulk of an ls, every 10 seconds.
-ROWS=$(TRAILS_RECENT_MAX=0 "$TRAILS" ls 2>/dev/null |
+# Every directory's (-a: plain `trails ls` is only the directory it runs in, which for a
+# launchd job is nobody's project). Running sessions only (`life` is running): `trails ls`
+# also lists ones lost with tmux and ended conversations, and neither is anything to
+# announce. The life column is cut off, so what's read below starts at the state.
+# TRAILS_RECENT_MAX=0 skips reading conversation history altogether, the bulk of an ls,
+# every 10 seconds.
+ROWS=$(TRAILS_RECENT_MAX=0 "$TRAILS" ls -a 2>/dev/null |
   awk -F'\t' '$1 == "running"' | cut -f2-)
 
 # One line per session: name, state, when it entered that state, whether it has been

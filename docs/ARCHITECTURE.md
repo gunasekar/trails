@@ -120,9 +120,11 @@ alert bookkeeping, not bytes written to the pane.
 
 ## trails ls
 
-`ls` answers "where is everything", box-wide, in one list built by `ls_rows`, in
-`STATES` order: running sessions most-wants-you first, then lost ones, then ended
-conversations newest first.
+`ls` answers "what's here", the picker's rows as text (`ls DIR` the same for
+another directory), and `ls -a` answers "where is everything", box-wide
+([ADR 10](decisions/0010-ls-is-this-directory.md)). All three are one list built
+by `ls_rows`, in `STATES` order: running sessions most-wants-you first, then lost
+ones, then ended conversations newest first.
 
 Piped, it is TSV, a contract for notifiers: `life state session agent yolo dir id
 when pid title`, `life` being `running` or `stopped`. An empty field is written `-`, never left empty, because tab counts
@@ -227,7 +229,8 @@ turn records its `permissionMode`, and `bypassPermissions` is what
 `--dangerously-skip-permissions` runs as. A closed row resumes in that mode, the way a
 lost row comes back in its recorded one. opencode records nothing like it.
 
-The picker shows this directory's; `trails ls` shows every directory's.
+The picker and `trails ls` show this directory's; `trails ls -a` shows every
+directory's.
 
 Conversations a record holds are left out, since they're already running or lost
 rows. A conversation still open in a `claude` that `trails` didn't start is
@@ -265,8 +268,8 @@ instead of nesting.
 ## The menu-bar plugin
 
 `extras/swiftbar/trails.10s.sh` is a SwiftBar plugin, installed into
-`share/trails/swiftbar/` with its icons. It is a reader of `trails ls`, not part
-of trails: every 10 seconds it runs `TRAILS_RECENT_MAX=0 trails ls`, keeps the
+`share/trails/swiftbar/` with its icons. It is a reader of `trails ls -a`, not
+part of trails: every 10 seconds it runs `TRAILS_RECENT_MAX=0 trails ls -a`, keeps the
 running rows, and draws them.
 
 - **Icon:** twelve pre-drawn PNGs in `icons/` (three top-dot states, two bottom,
@@ -319,7 +322,7 @@ Claude Code: the main demo gives it a small task, so a recording costs a few cen
 of your plan. Each tape first sources `assets/demo/sandbox.sh`, which gives trails
 its own config, records and tmux server, and a sample Go project at
 `~/code/checkout` (refused if that exists, removed afterwards). trails reads a
-sandboxed Claude history holding only two example conversations, so `trails ls`
+sandboxed Claude history holding only two example conversations, so `trails ls -a`
 never lists the machine's own projects; a wrapper drops that setting before running
 the real `claude`, whose demo conversation is removed afterwards too. The repo's own
 `bin/trails` comes first on `PATH`, so a re-record shows the version being released.

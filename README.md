@@ -51,11 +51,11 @@ Resume a trail: █   # enter: resume · tab: toggle YOLO · esc: back
   ○ closed     codex          6d ago  Bump the payment SDK
 ```
 
-`trails` lists the directory you're in; type to filter. `trails ls` shows every
+`trails` lists the directory you're in; type to filter. `trails ls -a` shows every
 directory:
 
 ```console
-~ $ trails ls
+~ $ trails ls -a
 ● needs you  claude · yolo  ~/code/checkout              Add idempotency keys to payment retries
 ● your turn  claude         ~/code/checkout #2           Fix the flaky cart-total test
 ● working    codex          ~/code/checkout              Migrate orders to Postgres 17
@@ -94,7 +94,9 @@ ships `jq`; Homebrew installs all three. Reading recent opencode conversations u
 ```console
 cd ~/code/my-project
 trails              # pick an agent to start, or a session to rejoin or resume
-trails ls           # where every session is, in every directory
+trails ls           # this directory's sessions, as a list
+trails ls ~/code/x  # that directory's
+trails ls -a        # where every session is, in every directory
 trails map 4        # the four that most want you, side by side in one window
 ```
 
@@ -103,7 +105,7 @@ trails map 4        # the four that most want you, side by side in one window
 | Command | Does |
 |---|---|
 | `trails` | the picker for this directory: start an agent, or rejoin, restore or resume a session |
-| `trails ls` | where every agent session is: running, lost when tmux died, or finished in the last 10 days |
+| `trails ls [-a \| DIR]` | this directory's agent sessions: running, lost when tmux died, or finished in the last 10 days. `DIR` lists that directory instead, `-a` every directory |
 | `trails restore` | bring back every session lost when tmux died, each on its own conversation, detached |
 | `trails map [N]` | several running agents side by side in one window: re-attach to the map already up, pick a set, or take the `N` that most want you (`map new` forces a fresh pick) |
 | `trails swiftbar` | put the menu-bar plugin into SwiftBar (macOS); `--remove` takes it out |
@@ -159,8 +161,12 @@ stateDiagram-v2
 
 ### trails ls
 
+Plain `trails ls` lists the directory you're in, the same sessions as the picker.
+`trails ls ~/code/api` lists that directory, as if you'd run `trails ls` there.
+`trails ls -a` lists every directory:
+
 ```console
-$ trails ls
+$ trails ls -a
 ● needs you  claude · yolo  ~/code/api                Rework the retry budget
 ● your turn  claude         ~/.dotfiles #2            Fix the flaky test
 ○ lost       claude · yolo  ~/code/foundry            Improve observability
@@ -226,7 +232,7 @@ trails swiftbar                 # link the plugin in; --remove takes it out
 - It hides itself when no agent is running.
 
 The plugin is linked, not copied, so `brew upgrade trails` updates it along with
-the `trails ls` it reads.
+the `trails ls -a` it reads.
 
 ### Environment
 

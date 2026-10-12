@@ -6,7 +6,7 @@
 #   claude   the real one, with the real HOME, since its login lives there; the conversation it
 #            records under ~/.claude/projects is removed by demo_done. trails itself reads a
 #            sandboxed claude history (CLAUDE_CONFIG_DIR) holding only the demo's two ended
-#            conversations — otherwise `trails ls` would list every project on the machine —
+#            conversations — otherwise `trails ls -a` would list every project on the machine —
 #            and a wrapper drops that setting before running the real claude
 #   projects ~/code/checkout, plus any in DEMO_EXTRA (storefront, notify, api — the map demo's),
 #            so paths read as they would for anyone; created here and removed by demo_done,
