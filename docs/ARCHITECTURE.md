@@ -76,6 +76,13 @@ restore brings it back by itself. Resuming a named closed conversation asks for
 named claude's title is its name, so that title is dropped from the row rather
 than shown twice.
 
+Every running claude also gets `@<peer>`, the name Claude's peer messaging lists it by,
+read from `name` in the same sessions file as its state, in the same `classify` pass.
+An unnamed trail's peer name is one Claude derived, like `trails-20`, and this is the
+only place trails shows it. When it matches the `#<name>` badge, only `@<name>` is
+shown. A `/rename` inside Claude shows up here at once, while the tmux name waits for
+the next resume. The TSV carries it as `peer`, before `title`.
+
 "A session of ours, for this directory" is never read off the name, because the
 name can't answer it: `trails-foo-2` is equally foo's second agent and project
 foo-2's first. `is_ours` asks tmux instead. Each session is created with
@@ -218,7 +225,7 @@ by `ls_rows`, in `STATES` order: running sessions most-wants-you first, then los
 ones, then ended conversations newest first.
 
 Piped, it is TSV, a contract for notifiers: `life state session agent yolo dir id
-when pid title`, `life` being `running` or `stopped`. An empty field is written `-`, never left empty, because tab counts
+when pid peer title`, `life` being `running` or `stopped`. An empty field is written `-`, never left empty, because tab counts
 as whitespace to `read` and two tabs in a row collapse, shifting every later field.
 The title goes last because it is free text. On a terminal it is a padded table,
 with `#N` on the Nth session in a directory. The badge is read off the session

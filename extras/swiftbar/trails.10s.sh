@@ -294,9 +294,14 @@ TERMINAL_NAME=$(terminal_app "$CURRENT_TERMINAL")
 blocked=0 idle=0 working=0
 menu=''
 
-# The TSV is `life state session agent yolo dir id when pid title`, with - for an empty
-# field (see trails' README) — the title last, so a task with spaces arrives whole.
-while IFS=$'\t' read -r state name agent yolo _dir _id _when _pid task; do
+# The TSV is `life state session agent yolo dir id when pid peer title`, with - for an empty
+# field (see trails' README). Read as fields, and the title taken as the last one rather
+# than by position: a trails from before the peer column has one field fewer, and a plugin linked out of a checkout can meet an older trails from Homebrew.
+while IFS=$'\t' read -ra f; do
+  state=${f[0]:-} name=${f[1]:-} agent=${f[2]:-} yolo=${f[3]:-}
+  task='' peer=''
+  ((${#f[@]} >= 9)) && task=${f[${#f[@]} - 1]}
+  ((${#f[@]} >= 10)) && [ "${f[8]}" != - ] && peer=${f[8]}
   [ -n "$name" ] || continue
   # trails names a running agent's state needs-you, your-turn or working; this file's logic
   # keeps its own shorter names for them, and shows trails' words.
@@ -349,8 +354,11 @@ while IFS=$'\t' read -r state name agent yolo _dir _id _when _pid task; do
       ;;
   esac
 
+  # @peer is the name another Claude session messages this one by. Left out when the
+  # session's own name already says it (a named trail), and so is a task that repeats it.
   line="${word} · ${label} · ${proj}${badge}"
-  [ -n "$task" ] && line+=" — ${task}"
+  [ -n "$peer" ] && [ "$peer" != "${name#trails-}" ] && line+=" @${peer}"
+  [ -n "$task" ] && [ "$task" != "$peer" ] && line+=" — ${task}"
   menu+="${line//|/－} | sfimage=${icon} refresh=true"$'\n'
   # What to do about it, one level down. Resume for every state — even a working one is
   # worth watching. End only once it has gone idle: killing a session mid-turn, or one that

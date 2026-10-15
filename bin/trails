@@ -443,7 +443,8 @@ sessions() {
   PS_TREE=
 }
 
-# stdin: name/agent/task. stdout: the same with a state in front.
+# stdin: name/agent/task. stdout: state, name, agent, peer, task — peer being the name the
+# agent answers to (claude_peer_of), or - for an agent that has none.
 #
 # An agent that reports its own state is asked first (agent_state): exact, and no sleep.
 # The rest are read off the screen, and the sleep is paid once for all of them: hash every
@@ -461,12 +462,15 @@ classify() {
     finder=$(agent_row "${label%% *}" | awk -F'|' '{ print $9 }')
     [ -n "$finder" ] || continue
     m=$(printf '%s\n' "$pids" | awk -F"$TAB" -v n="$name" '$1 == n { print $2 "|" $3; exit }')
-    st=$(agent_state "$finder" "$name" "${m%%|*}" "${m#*|}") && printf '%s\t%s\n' "$name" "$st"
+    st=$(agent_state "$finder" "$name" "${m%%|*}" "${m#*|}") || st=
+    peer=
+    [ "$finder" = claude ] && peer=$(claude_peer_of "$name" "${m%%|*}")
+    [ -n "$st$peer" ] && printf '%s\t%s\t%s\n' "$name" "${st:--}" "${peer:--}"
   done)
   PS_TREE=
 
   unknown=$(printf '%s\n' "$rows" | cut -f1 | while read -r name; do
-    printf '%s\n' "$known" | awk -F"$TAB" -v n="$name" '$1 == n { f = 1 } END { exit !f }' ||
+    printf '%s\n' "$known" | awk -F"$TAB" -v n="$name" '$1 == n && $2 != "-" { f = 1 } END { exit !f }' ||
       printf '%s\n' "$name"
   done)
   before=
@@ -478,7 +482,10 @@ classify() {
   fi
 
   printf '%s\n' "$rows" | while IFS="$TAB" read -r name label task; do
-    state=$(printf '%s\n' "$known" | awk -F"$TAB" -v n="$name" '$1 == n { print $2; exit }')
+    k=$(printf '%s\n' "$known" | awk -F"$TAB" -v n="$name" '$1 == n { print $2 "|" $3; exit }')
+    state=${k%%|*} peer=${k#*|}
+    [ "$state" = - ] && state=
+    [ -n "$peer" ] || peer=-
     if [ -z "$state" ]; then
       now=$(screen_of "$name")
       was=$(printf '%s\n' "$before" | awk -F"$TAB" -v n="$name" '$1 == n { print $2 }')
@@ -490,8 +497,22 @@ classify() {
         state=idle
       fi
     fi
-    printf '%s\t%s\t%s\t%s\n' "$state" "$name" "$label" "$task"
+    printf '%s\t%s\t%s\t%s\t%s\n' "$state" "$name" "$label" "$peer" "$task"
   done
+}
+
+# The badge after a running session's directory, the names to call it by: #2 or #<name> for
+# its tmux session (ordinal), then @<peer> for the name the agent answers to, unless that
+# is the same word. "-" for neither. $1 is the session, $2 its peer or -.
+badge_of() {
+  b=$(ordinal "$1")
+  [ "$b" = - ] && b=
+  if [ "$2" != - ] && [ "$b" != "#$2" ]; then
+    b="${b:+$b }@$2"
+  elif [ "$2" != - ]; then
+    b="@$2"
+  fi
+  printf '%s' "${b:--}"
 }
 
 # ─── Session states ───────────────────────────────────────────────────────────
@@ -569,7 +590,7 @@ rank_dot() {
 # every directory's. "Here" is the exact directory, as is_ours has it for the picker, so
 # `trails` and `trails ls` never disagree about what is here:
 #
-#   life  state  session  agent  yolo  dir  id  when  pid  title
+#   life  state  session  agent  yolo  dir  id  when  pid  peer  title
 #
 #   life     running (the tmux session is there) or stopped (it isn't)
 #   state    a STATES id: needs-you, your-turn, working · lost, closed, elsewhere
@@ -577,6 +598,9 @@ rank_dot() {
 #   yolo     yolo or -
 #   when     when an ended conversation was last active (Unix time), - otherwise
 #   pid      the process holding an "elsewhere" one, - otherwise
+#   peer     the name a claude answers to, what other claude sessions message it by:
+#            running and elsewhere rows, - otherwise and for other agents. Added before
+#            title, so a reader that splits on tabs must name it to keep title whole.
 #
 # Never an empty field mid-row, for recent_rows' reason, and the title last since it is free
 # text. In STATES order, each state keeping its own: running sessions most-wants-you first,
@@ -589,28 +613,32 @@ ls_rows() {
   live=$(sessions | classify)
   {
     meta=$(tmux list-sessions -F "#{session_name}$TAB#{session_path}$TAB#{@trails_id}" 2>/dev/null)
-    [ -n "$live" ] && printf '%s\n' "$live" | while IFS="$TAB" read -r state name label task; do
+    [ -n "$live" ] && printf '%s\n' "$live" | while IFS="$TAB" read -r state name label peer task; do
       agent=${label%% *}
       yolo=-
       case $label in *"(YOLO)"*) yolo=yolo ;; *) ;; esac
       m=$(printf '%s\n' "$meta" | awk -F"$TAB" -v n="$name" '$1 == n { print $2 "\t" $3; exit }')
       dir=${m%%"$TAB"*}
       id=${m#*"$TAB"}
-      printf 'running\t%s\t%s\t%s\t%s\t%s\t%s\t-\t-\t%s\n' \
-        "$(state_of "$state")" "$name" "$agent" "$yolo" "${dir:--}" "${id:--}" "$task"
+      printf 'running\t%s\t%s\t%s\t%s\t%s\t%s\t-\t-\t%s\t%s\n' \
+        "$(state_of "$state")" "$name" "$agent" "$yolo" "${dir:--}" "${id:--}" "$peer" "$task"
     done | awk -F"$TAB" -v states="$STATES_FLAT" "$STATES_AWK"'
       { n++; row[n] = $0; st[n] = $2 }
       END { for (r = 1; r <= ns; r++) for (i = 1; i <= n; i++) if (rank[st[i]] == r) print row[i] }'
     rec_dead | while read -r name; do
       yolo=$(rec_get "$name" yolo)
-      printf 'stopped\tlost\t%s\t%s\t%s\t%s\t%s\t-\t-\t%s\n' "$name" "$(rec_get "$name" agent)" \
+      printf 'stopped\tlost\t%s\t%s\t%s\t%s\t%s\t-\t-\t-\t%s\n' "$name" "$(rec_get "$name" agent)" \
         "${yolo:--}" "$(rec_get "$name" dir)" "$(rec_get "$name" id)" "$(rec_get "$name" task)"
     done
   } | d=$1 awk -F"$TAB" 'ENVIRON["d"] == "" || $6 == ENVIRON["d"]'
   recent_rows "$1" | while IFS="$TAB" read -r m agent dir id yolo pid title; do
-    state=closed
-    [ "$pid" = - ] || state=elsewhere
-    printf 'stopped\t%s\t-\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$state" "$agent" "$yolo" "$dir" "$id" "$m" "$pid" "$title"
+    state=closed peer=-
+    if [ "$pid" != - ]; then
+      state=elsewhere
+      peer=$(claude_peer_by_pid "$pid") || peer=
+      [ -n "$peer" ] || peer=-
+    fi
+    printf 'stopped\t%s\t-\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$state" "$agent" "$yolo" "$dir" "$id" "$m" "$pid" "$peer" "$title"
   done
 }
 
@@ -689,13 +717,19 @@ list_sessions() {
     {
       n++; st[n] = $2; nm = $3; dir = $6
       ag[n] = $4 ($5 == "yolo" ? " · yolo" : ""); aw[n] = length($4 ($5 == "yolo" ? " - yolo" : ""))
-      badge = ""; ti[n] = $10
+      badge = ""; ti[n] = $11; peer = $10
       if (nm != "-" && index(nm, pfx) == 1) {
         base = dir; sub(/.*\//, "", base); gsub(/[:. ]/, "_", base); base = pfx base
         rest = substr(nm, length(base) + 2)
         if (index(nm, base "-") == 1 && rest ~ /^[0-9]+$/) badge = " #" rest
         else if (nm != base) badge = " #" substr(nm, length(pfx) + 1)
         if (ti[n] == substr(nm, length(pfx) + 1)) ti[n] = ""
+      }
+      # @peer: the name the agent answers to, unless the #name already says it.
+      if (peer != "-") {
+        if (badge == " #" peer) badge = ""
+        badge = badge " @" peer
+        if (ti[n] == peer) ti[n] = ""
       }
       if (index(dir, home) == 1) dir = "~" substr(dir, length(home) + 1)
       c3[n] = dir badge
@@ -740,16 +774,16 @@ live_sessions() {
   sessions | while IFS="$TAB" read -r name label task; do
     is_ours "$name" || continue
     printf '%s\t%s\t%s\n' "$name" "$label" "$task"
-  done | classify | while IFS="$TAB" read -r state name label task; do
+  done | classify | while IFS="$TAB" read -r state name label peer task; do
     # launch() writes @agent as "claude (YOLO)" for an armed launch: the first word is the
     # agent, and the YOLO it ran with goes in its own field.
     agent=${label%% *}
     yolo=-
     case $label in *"(YOLO)"*) yolo=yolo ;; *) ;; esac
     # A named claude shows its name as its title, which the badge already says.
-    [ "$task" = "${name#"$PREFIX"}" ] && task=
+    { [ "$task" = "${name#"$PREFIX"}" ] || [ "$task" = "$peer" ]; } && task=
     printf '%s\tattach\t%s\t%s\t%s\t%s\t-\t%s\n' \
-      "$(state_of "$state")" "$name" "$agent" "$yolo" "$(ordinal "$name")" "$task"
+      "$(state_of "$state")" "$name" "$agent" "$yolo" "$(badge_of "$name" "$peer")" "$task"
   done
 }
 
@@ -921,8 +955,11 @@ print_menu() {
     now=$(date +%s)
     recent=$(while IFS="$TAB" read -r m agent _ id yolo pid title; do
       if [ "$pid" != - ]; then
-        printf 'elsewhere\topen\t%s:%s\t%s\t%s\t-\t%s\t%s  (open in %s, pid %s)\n' \
-          "$agent" "$id" "$agent" "$yolo" "$(ago "$m" "$now")" "$title" "$agent" "$pid"
+        peer=$(claude_peer_by_pid "$pid") || peer=
+        badge=-
+        [ -n "$peer" ] && badge="@$peer "
+        printf 'elsewhere\topen\t%s:%s\t%s\t%s\t%s\t%s\t%s  (open in %s, pid %s)\n' \
+          "$agent" "$id" "$agent" "$yolo" "$badge" "$(ago "$m" "$now")" "$title" "$agent" "$pid"
         continue
       fi
       verb=resume
@@ -1362,6 +1399,22 @@ claude_state_of() {
     idle) echo idle ;;
     *) return 1 ;;
   esac
+}
+
+# The name session $1's claude answers to: what other claude sessions list it as and message
+# it by. --name or /rename set it; otherwise claude derives one (trails-20). Same file as
+# claude_state_of, which is why classify reads both in one pass.
+claude_peer_of() {
+  f=$(claude_file_of "$1" "$2") || return 1
+  claude_peer_in "$f"
+}
+claude_peer_in() { grep -o '"name":"[^"]*"' "$1" | head -n 1 | json_field name | json_text; }
+
+# The same for the claude running as pid $1, for a conversation open in a claude trails
+# didn't start (an elsewhere row).
+claude_peer_by_pid() {
+  f=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/sessions/$1.json
+  [ -f "$f" ] && claude_peer_in "$f"
 }
 
 # Session $2's state by reader $1 (an agent's session.find), when that reader can tell.
@@ -1963,8 +2016,10 @@ map_agent() { tmux display-message -pt "$1" '#{@agent}' 2>/dev/null; }
 # is exempt from: box-wide, `trails-foo-2` is equally foo's second agent and project
 # foo-2's only one, so the `#2` badge would be a guess. Print the name and let it be read.
 map_menu() {
-  sessions | classify | while IFS="$TAB" read -r state name label task; do
+  sessions | classify | while IFS="$TAB" read -r state name label peer task; do
     rank_dot "$state"
+    [ "$peer" = - ] || [ "$peer" = "${name#"$PREFIX"}" ] || label="$label @$peer"
+    [ "$task" = "$peer" ] && task=
     [ -n "$task" ] && task="  $task"
     # Sort key up front, stripped after — leaving name, then what fzf draws.
     printf '%s\t%s\t%s● %-9s%s  %s · %s%s\n' \

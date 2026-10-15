@@ -203,12 +203,13 @@ $ trails ls -a
 ○ elsewhere  not running here: open in a claude trails did not start
 ```
 
-`#2` marks the second session in the same directory, and the dim legend covers
-the states on screen. Piped, `ls` prints one tab-separated line per row, in the
+`#2` marks the second session in the same directory, `#name` a named trail, and
+`@name` the name a running Claude answers to: the one to give another Claude session
+when you want it to reach this one. The dim legend covers the states on screen. Piped, `ls` prints one tab-separated line per row, in the
 same order, with `-` for an empty field:
 
 ```text
-life  state  session  agent  yolo  dir  id  when  pid  title
+life  state  session  agent  yolo  dir  id  when  pid  peer  title
 ```
 
 | Field | Values |
@@ -219,6 +220,7 @@ life  state  session  agent  yolo  dir  id  when  pid  title
 | `yolo` | `yolo` or `-` |
 | `when` | when an ended conversation was last active (Unix time), else `-` |
 | `pid` | the process holding an `elsewhere` one, else `-` |
+| `peer` | the name a running or `elsewhere` Claude answers to, for messaging it from another Claude session, else `-` |
 
 That is what the menu-bar plugin below reads, and anything else can too. Set
 `TRAILS_RECENT_MAX=0` for a poll that only wants running sessions; it skips
