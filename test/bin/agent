@@ -1,0 +1,58 @@
+#!/bin/sh
+# A stand-in for an agent CLI. It takes the flags trails passes (see test/lib.sh's config),
+# prints what it got, and then reads commands a line at a time, so a test can drive it
+# with `tmux send-keys`:
+#
+#   ask         put a question on screen, the kind classify reads as "needs you"
+#   busy        print a line every 0.1s for two seconds, so two screen samples differ
+#   title TEXT  set the pane title, which trails reads as the task
+#   exit        exit 0, as /exit would
+#   crash       exit 1
+#   anything    echo it back
+#
+# Each conversation ID gets a transcript file under $HOME/.agent/, so a resume of an ID
+# that was never started fails the way a real agent's would.
+id=; name=; resume=; yolo=; other=
+while [ $# -gt 0 ]; do
+  case $1 in
+    --session-id) id=$2; shift ;;
+    --resume) id=$2 resume=1; shift ;;
+    --name) name=$2; shift ;;
+    --yolo) yolo=1 ;;
+    --other) other=1 ;;
+    *) ;;
+  esac
+  shift
+done
+
+store=$HOME/.agent
+mkdir -p "$store"
+if [ -n "$resume" ]; then
+  [ -f "$store/$id" ] || {
+    echo "No conversation found with session ID: $id" >&2
+    exit 1
+  }
+elif [ -n "$id" ]; then
+  : >"$store/$id"
+fi
+
+printf 'agent%s id=%s name=%s resume=%s yolo=%s\n' "${other:+ (other)}" "$id" "$name" "${resume:-0}" "${yolo:-0}"
+printf '\033]2;%s\033\\' "${name:-agent} ready"
+
+while IFS= read -r line; do
+  case $line in
+    ask) echo "Do you want to run the tests? (y/n)" ;;
+    busy)
+      i=0
+      while [ "$i" -lt 20 ]; do
+        echo "tick $i"
+        i=$((i + 1))
+        sleep 0.1
+      done
+      ;;
+    title\ *) printf '\033]2;%s\033\\' "${line#title }" ;;
+    exit) exit 0 ;;
+    crash) exit 1 ;;
+    *) echo "> $line" ;;
+  esac
+done

@@ -430,3 +430,27 @@ After a change to what the picker or `ls` shows, re-record from the repo root, w
 vhs assets/demo/nvim.tape
 vhs assets/demo/map.tape
 ```
+
+## Tests
+
+`test/run.sh` runs the integration tests in `test/t-*.sh`, one per area (launch, ls,
+classify, picker, restore, and the popup check behind
+[D4 of the 1.0 design](design/trails-1.0.md)). CI runs them after ShellCheck. Each test
+is its own process on its own tmux server in a throwaway `HOME`: `TMUX_TMPDIR` puts the
+socket there, `XDG_CONFIG_HOME` and `XDG_STATE_HOME` give it a config and records of its
+own, and `TMUX` is unset so trails sees itself outside tmux even when the tests run inside
+one. Nothing in `bin/trails` knows it is under test.
+
+Two stand-ins on `PATH` from `test/bin` do what a person and a CLI would:
+
+- **`agent`** plays the agent. It takes the flags trails passes and then reads commands
+  from its pane, so a test drives it with `tmux send-keys`: `ask` puts a question on
+  screen, `busy` changes the screen for two seconds, `title` sets the task, `exit` quits.
+- **`fzf`** plays the picker's keyboard. It prints the first row matching `$FZF_PICK`,
+  copies the rows it was given to `$FZF_DUMP`, and with `$FZF_KEYS=ctrl-n` runs the
+  bound command so `$FZF_QUERY` becomes the trail's name. No match is Esc.
+
+A test that needs trails attached, or fzf on a terminal, runs it in a *driver*: a session
+on the test server whose pane is the terminal, with `TMUX` unset so trails attaches as a
+nested client, the way the map does. Not `script(1)`: it passes an EOF on its own stdin
+through the pty as ^D, which the agent reads as the end of its input.

@@ -393,7 +393,7 @@ fewest things.
 | D1 | A session already has the workspace's name | Plain workspace name, marked `@trails_workspace`; refuse on a collision |
 | D2 | An `open` list of codebases on entry | Not in 1.0 |
 | D3 | Editor view names | The trail's name when it has one, else `<codebase>[-N]` |
-| D4 | `$TMUX` inside `display-popup` | Expected yes; the first case in the test suite |
+| D4 | `$TMUX` inside `display-popup` | Verified on tmux 3.8 by `test/t-popup.sh` |
 | D5 | The map | Stays its own session; its cells attach to editor views |
 | D6 | Migration from 0.6 | Running sessions left alone; records migrated |
 | D7 | The Air on its own | Out of scope; trails works the same on any machine |
@@ -423,11 +423,10 @@ gives `lattiq/payments`; an unnamed second trail in augur gives
 `lattiq/augur-2`. This is 0.6's `#name` / `#2` rule carried over, and the name
 you chose is what you type in `tmux a -t lattiq/payments`.
 
-**D4. Verify, then rely on it.** fzf in a popup followed by `switch-client` is
-a common tmux pattern, so `$TMUX` is expected inside `display-popup`. It needs
-an attached client to check, so it is the first case in the integration
-suite. Fallback if it fails: `run-shell` with the client passed in via
-`#{client_name}`.
+**D4. Verified.** Inside `display-popup`, `$TMUX` is set, `display-message`
+resolves the client that opened the popup, and `switch-client` from there
+returns 0; `$TMUX_PANE` is empty, since a popup is not a pane, and nothing
+needs it there. `test/t-popup.sh` checks this on every run.
 
 **D5. The map stays a session.** It shows the trails that most want you
 across workspaces, so it can't live inside one. Its cells are nested clients;

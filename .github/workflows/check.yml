@@ -13,7 +13,7 @@ jobs:
       - name: Parse as POSIX sh
         run: sh -n bin/trails
       - name: ShellCheck
-        run: shellcheck --severity=warning bin/trails extras/swiftbar/trails.10s.sh
+        run: shellcheck --severity=warning bin/trails extras/swiftbar/trails.10s.sh test/*.sh test/bin/*
       - name: Parse the plugin as bash
         run: bash -n extras/swiftbar/trails.10s.sh
       - name: Smoke test
@@ -21,3 +21,7 @@ jobs:
           ./bin/trails help | grep -q '^usage: trails'
           ./bin/trails ls
           TRAILS_RECENT_MAX=0 ./bin/trails ls
+      - name: Install tmux
+        run: sudo apt-get update -q && sudo apt-get install -y -q tmux
+      - name: Integration tests
+        run: test/run.sh
