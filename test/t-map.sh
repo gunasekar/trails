@@ -37,5 +37,5 @@ assert_match "$(cd "$T" && "$TRAILS" end nope 2>&1)" 'no trail nope' "unknown re
 
 # trails keys prints bindings, and changes nothing.
 before=$(tmux list-keys | wc -l)
-assert_match "$("$TRAILS" keys)" "^bind a display-popup .* trails$" "the picker binding"
+assert_match "$("$TRAILS" keys)" "^bind a display-popup .* '$TRAILS'$" "the picker binding, by absolute path"
 assert_eq "$(tmux list-keys | wc -l)" "$before" "nothing bound"
