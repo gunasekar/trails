@@ -1,6 +1,6 @@
 # 2. Read agent status off the screen
 
-- Status: accepted
+- Status: accepted, amended by ADR 11
 - Date: 2026-07
 
 ## Context
@@ -26,3 +26,7 @@ is `blocked`; otherwise `idle`.
   "Approve". Both sort above `working`, so a wrong guess only changes a colour.
 - A resize is a screen change, so an agent can read as `working` for one poll
   after a map attaches.
+
+ADR 11 amends this: an agent that writes its own state down is read from that
+record first, and the screen is the fallback. Today that is Claude, fully, and
+codex, for whether it is between turns.

@@ -240,7 +240,7 @@ the `trails ls -a` it reads.
 |---|---|---|
 | `TRAILS_RECENT_DAYS` | `10` | how far back closed sessions are listed |
 | `TRAILS_RECENT_MAX` | `5` | how many of them to show (`0` for none) |
-| `AGENT_SETTLE` | `0.35` | seconds between the two screen samples that tell *working* from *your turn* |
+| `AGENT_SETTLE` | `0.35` | seconds between the two screen samples that tell *working* from *your turn*, for agents that don't report their own state |
 | `AGENT_ASK_RE` | *(see script)* | regex meaning "this agent is asking you something" |
 
 ### Agents
@@ -361,7 +361,7 @@ editor and every shell shares one set of sessions.
 ## How it works
 
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) covers how sessions are named and
-found, how *working*, *your turn* and *needs you* are read off the screen, how sessions
+found, how *working*, *your turn* and *needs you* are read from the agent or off the screen, how sessions
 survive tmux dying, where recent conversations come from, and how the map
 borrows sessions without owning them. Key design decisions are recorded in
 [docs/decisions/](docs/decisions/).

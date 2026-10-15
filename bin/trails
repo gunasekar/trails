@@ -89,7 +89,9 @@ unset LAUNCH_DETACHED
 #                       "uuid" or "ses_hex" (ses_ + 32 hex, what opencode insists on)
 #               create  a command that prints a fresh ID (cursor-agent create-chat)
 #               find    a reader for the agent's own files, built in below: "claude" (also
-#                       follows /resume inside claude), "codex"
+#                       follows /resume inside claude, and reads its working/waiting/idle
+#                       state instead of the screen), "codex" (also reads whether it is
+#                       between turns)
 #             Without it the agent still runs, it just isn't brought back after a reboot.
 #   default_agent  listed first in the picker.
 #   mode           "default" (the agent's own, prompting mode) or "yolo": which a "+ new" row
@@ -357,6 +359,14 @@ TASK_FMT='#{=45:#{?#{==:#{pane_title},#{host}},,#{s|^[^A-Za-z0-9 ]+ ||:pane_titl
 # have nothing, so a hook-built status would light one row and leave the rest blank.
 # Repainting a pty is the one thing all four already do.
 #
+# Except where an agent writes its state down for itself, and then its word wins (ADR 11).
+# Claude keeps a status in ~/.claude/sessions/<pid>.json, the file trails already reads for
+# its conversation, so agent_state asks there first. Codex's rollout says whether a turn is
+# running, which settles idle and leaves the rest to the screen. That matters because the screen stopped
+# being still: a Claude status line that refreshes on a timer redraws an idle screen, and
+# two captures that straddle the redraw read a finished turn as working. A file trails
+# reads anyway is not a hook — nothing to install, nothing running between commands.
+#
 # And not a tmux timestamp: #{session_activity} tracks tmux's sticky alert bookkeeping,
 # not pty bytes — a detached pane printing every 200ms still had its "activity" age
 # grow 0 → 3 → 5s. Two captures is the honest way, and costs one sleep for the list.
@@ -424,27 +434,52 @@ sessions() {
   PS_TREE=
 }
 
-# stdin: name/agent/task. stdout: the same with a state in front. The sleep is paid
-# once for the whole list: hash every screen, wait, hash every screen again.
+# stdin: name/agent/task. stdout: the same with a state in front.
+#
+# An agent that reports its own state is asked first (agent_state): exact, and no sleep.
+# The rest are read off the screen, and the sleep is paid once for all of them: hash every
+# screen, wait, hash every screen again. A list of only claudes skips it entirely.
+#
+# Pane pids and the process tree are read once for the pass, not per session: the menu-bar
+# plugin runs this every 10 seconds.
 classify() {
   rows=$(cat)
   [ -n "$rows" ] || return 0
 
-  before=$(printf '%s\n' "$rows" | cut -f1 | while read -r name; do
-    printf '%s\t%s\n' "$name" "$(screen_hash "$(screen_of "$name")")"
+  PS_TREE=$(ps -A -o pid= -o ppid=)
+  pids=$(tmux list-sessions -F "#{session_name}$TAB#{pane_pid}$TAB#{@trails_id}" 2>/dev/null)
+  known=$(printf '%s\n' "$rows" | while IFS="$TAB" read -r name label _task; do
+    finder=$(agent_row "${label%% *}" | awk -F'|' '{ print $9 }')
+    [ -n "$finder" ] || continue
+    m=$(printf '%s\n' "$pids" | awk -F"$TAB" -v n="$name" '$1 == n { print $2 "|" $3; exit }')
+    st=$(agent_state "$finder" "$name" "${m%%|*}" "${m#*|}") && printf '%s\t%s\n' "$name" "$st"
   done)
-  sleep "$SETTLE"
+  PS_TREE=
+
+  unknown=$(printf '%s\n' "$rows" | cut -f1 | while read -r name; do
+    printf '%s\n' "$known" | awk -F"$TAB" -v n="$name" '$1 == n { f = 1 } END { exit !f }' ||
+      printf '%s\n' "$name"
+  done)
+  before=
+  if [ -n "$unknown" ]; then
+    before=$(printf '%s\n' "$unknown" | while read -r name; do
+      printf '%s\t%s\n' "$name" "$(screen_hash "$(screen_of "$name")")"
+    done)
+    sleep "$SETTLE"
+  fi
 
   printf '%s\n' "$rows" | while IFS="$TAB" read -r name label task; do
-    now=$(screen_of "$name")
-    was=$(printf '%s\n' "$before" | awk -F"$TAB" -v n="$name" '$1 == n { print $2 }')
-
-    if [ "$(screen_hash "$now")" != "$was" ]; then
-      state=working
-    elif printf '%s\n' "$now" | awk 'NF' | tail -n 15 | grep -Eq "$ASK_RE"; then
-      state=blocked
-    else
-      state=idle
+    state=$(printf '%s\n' "$known" | awk -F"$TAB" -v n="$name" '$1 == n { print $2; exit }')
+    if [ -z "$state" ]; then
+      now=$(screen_of "$name")
+      was=$(printf '%s\n' "$before" | awk -F"$TAB" -v n="$name" '$1 == n { print $2 }')
+      if [ "$(screen_hash "$now")" != "$was" ]; then
+        state=working
+      elif printf '%s\n' "$now" | awk 'NF' | tail -n 15 | grep -Eq "$ASK_RE"; then
+        state=blocked
+      else
+        state=idle
+      fi
     fi
     printf '%s\t%s\t%s\t%s\n' "$state" "$name" "$label" "$task"
   done
@@ -1253,6 +1288,14 @@ rec_note_task() {
 # wrapper existed runs claude as the pane itself, hence both are tried. ps rather than pgrep -P,
 # which missed children here. $2 is the pane's pid when the caller already has it.
 claude_conv_of() {
+  f=$(claude_file_of "$1" "$2") || return 1
+  grep -o '"sessionId":"[^"]*"' "$f" | head -n 1 | json_field sessionId
+}
+
+# The ~/.claude/sessions/<pid>.json of session $1's claude: the pane's process or its child.
+# Both readers above and below go through here, so they can't disagree about which claude
+# a session is.
+claude_file_of() {
   pp=${2:-$(tmux display-message -pt "$1" '#{pane_pid}' 2>/dev/null)}
   case $pp in
     '' | *[!0-9]*) return 1 ;;
@@ -1261,7 +1304,70 @@ claude_conv_of() {
   for k in "$pp" $(ps_tree | awk -v p="$pp" '$2 == p { print $1 }'); do
     f=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/sessions/$k.json
     [ -f "$f" ] || continue
-    grep -o '"sessionId":"[^"]*"' "$f" | head -n 1 | json_field sessionId
+    printf '%s\n' "$f"
+    return 0
+  done
+  return 1
+}
+
+# What session $1's claude says it is doing, as a classify() verdict. Claude keeps a
+# `status` in the same file, from its own state rather than its screen (ADR 11):
+#
+#   busy      a turn or delegated work is running           working
+#   waiting   a dialog wants you: a permission prompt, a     blocked
+#             question, a sandbox request (waitingFor says which)
+#   idle      neither                                       idle
+#
+# Any other value, or no field, is a claude this reader doesn't understand: it fails, and
+# classify falls back to the screen, so a release that renames the field costs accuracy
+# for that release, not the state.
+claude_state_of() {
+  f=$(claude_file_of "$1" "$2") || return 1
+  case $(grep -o '"status":"[^"]*"' "$f" | head -n 1 | json_field status) in
+    busy) echo working ;;
+    waiting) echo blocked ;;
+    idle) echo idle ;;
+    *) return 1 ;;
+  esac
+}
+
+# Session $2's state by reader $1 (an agent's session.find), when that reader can tell.
+# The agent's own word beats the screen; an agent without one, or a reader that can't
+# answer, falls back to classify()'s two captures. $3 is the pane's pid, $4 its @trails_id.
+agent_state() {
+  case $1 in
+    claude) claude_state_of "$2" "$3" ;;
+    codex) codex_state_of "$4" ;;
+    *) return 1 ;;
+  esac
+}
+
+# Whether conversation $1's codex is between turns. Codex writes each turn's start and end
+# to its rollout, as event_msg lines whose payload type is task_started, then task_complete
+# or turn_aborted (turn_started and turn_complete are the v2 spellings it also reads). What it
+# never writes is an approval prompt: those are transient events, left out of the rollout.
+#
+# So the rollout answers only half: after a turn ended, codex is idle, exactly, whatever its
+# screen redraws. Inside a turn it is either working or waiting on an approval, which only
+# the screen can tell apart, so that, like no rollout yet, fails back to the screen.
+#
+# The rollout is found by name: rollout-<time>-<id>.jsonl, under a date directory. The ID is
+# the session's @trails_id, which rec_note_id has just set in the same pass, so this costs
+# a glob, not the lsof that finding an unrecorded one takes. The match is on the bare
+# `"type":"task_complete"`: inside a message's text the quotes would be escaped, so only the
+# event itself has them plain.
+codex_state_of() {
+  case $1 in
+    '' | *[!A-Za-z0-9-]*) return 1 ;;
+    *) ;; # an ID
+  esac
+  for f in "${CODEX_HOME:-$HOME/.codex}"/sessions/*/*/*/rollout-*-"$1".jsonl; do
+    [ -f "$f" ] || continue
+    case $(grep -oE '"type":"(task_started|turn_started|task_complete|turn_complete|turn_aborted)"' "$f" |
+      tail -n 1) in
+      *_complete\" | *_aborted\") echo idle ;;
+      *) return 1 ;;
+    esac
     return 0
   done
   return 1

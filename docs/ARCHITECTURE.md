@@ -32,7 +32,9 @@ Out of scope:
 - **A daemon.** Nothing of trails runs between commands, except the small wrapper
   that forgets a session's record when its agent exits.
 - **Per-agent integrations.** No hooks or APIs into the agents. Status comes from
-  the screen ([ADR 2](decisions/0002-status-from-the-screen.md)), and adding an
+  the screen ([ADR 2](decisions/0002-status-from-the-screen.md)), or from a file
+  the agent already writes for itself
+  ([ADR 11](decisions/0011-an-agents-own-state-beats-its-screen.md)), and adding an
   agent is a config entry, not code
   ([ADR 7](decisions/0007-agents-in-a-config-file.md)).
 - **The agents' work itself:** git worktrees, branches, diffs, prompts or task
@@ -106,11 +108,12 @@ the ID being resumed, else `start` with a fresh ID, else `resume` with one that
 `rec_note_id` writes the record once the reader can see the conversation.
 
 The readers are built in. `claude` asks claude's `~/.claude/sessions/<pid>.json`
-for the session's process. `codex` looks for the rollout file the codex process
-holds open (`lsof`), else the newest `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`
-whose first line names this directory, written since the session started, that no
-other record claims. An agent without a `session` block
-still launches; it just gets no record, so it can't be restored.
+for the session's process, and reads the session's state from the same file.
+`codex` looks for the rollout file the codex process holds open (`lsof`), else the
+newest `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` whose first line names this
+directory, written since the session started, that no other record claims. An
+agent without a `session` block still launches; it just gets no record, so it can't
+be restored.
 
 The record and the tmux `@agent` option hold the agent *name*. Rename or remove
 an agent and its lost rows fail to restore with "unknown agent" and keep their
@@ -146,12 +149,31 @@ ranks `●` and `○` equal.
 ## Who wants you: working, your turn, needs you
 
 There are no per-agent hooks. Claude Code's hooks would report this exactly, but
-only for Claude, and the other CLIs have nothing. The signal every agent already
-gives is its screen: each TUI animates while it works (spinner, timer, token
-count), and a stopped one sits still.
+only for Claude, and they need setting up. Two signals are used instead, in order
+([ADR 11](decisions/0011-an-agents-own-state-beats-its-screen.md)).
 
-So `classify` captures every session's visible screen, waits `AGENT_SETTLE`
-(0.35s), and captures again:
+**The agent's own record, where it keeps one.** `agent_state` asks the reader the
+agent's config names as `session.find`. `claude` reads `status` from
+`~/.claude/sessions/<pid>.json`, the same file it reads the conversation from:
+
+| `status` | State |
+|---|---|
+| `busy` | `working` |
+| `waiting` (a dialog is open, `waitingFor` says which) | `blocked` |
+| `idle` | `idle` |
+
+`codex` reads the last turn event in the session's rollout,
+`rollout-<time>-<id>.jsonl`, found by the session's `@trails_id`. A
+`task_complete` or `turn_aborted` there is `idle`. A `task_started` falls through,
+because codex doesn't write approval prompts to the rollout, so only the screen can
+tell working from blocked.
+
+No file, or a value the reader doesn't know, falls through to the screen.
+
+**The screen, for everything else.** Each TUI animates while it works (spinner,
+timer, token count), and a stopped one sits still. So `classify` captures the
+visible screen of every session left over, waits `AGENT_SETTLE` (0.35s), and
+captures again:
 
 | State | Rule |
 |---|---|
@@ -159,10 +181,15 @@ So `classify` captures every session's visible screen, waits `AGENT_SETTLE`
 | `blocked` | still, and the bottom 15 lines match `AGENT_ASK_RE` |
 | `idle` | still, and not asking |
 
-The error is one-sided by construction: `working` needs two samples to differ,
-so a still screen can never read as working. The bad case is a slow agent read
-as idle. `blocked` vs `idle` is the one heuristic, and both sort above
-`working`, so a wrong guess costs a colour, not a missed agent.
+The sleep is paid once for the whole list, and not at all when every session
+answered from its record. Pane pids and the process tree are read once per pass.
+
+The screen's error is mostly one-sided: `working` needs two samples to differ, so
+the bad case is a slow agent read as idle. The exception is anything an idle agent
+redraws on a timer. A Claude status line with a `refreshInterval` did exactly that,
+and is why Claude is read from its record. `blocked` vs `idle` is the screen's one
+heuristic, and both sort above `working`, so a wrong guess costs a colour, not a
+missed agent.
 
 A tmux timestamp doesn't work instead: `#{session_activity}` tracks tmux's own
 alert bookkeeping, not bytes written to the pane.
