@@ -15,10 +15,11 @@ if [ -n "$keys" ] && [ -f "$keys" ]; then
   keys=$(head -n 1 "$f")
   sed -i.bak 1d "$f" && rm -f "$f.bak"
 fi
-query=
+query=; expect=
 for a in "$@"; do
   case $a in
     --print-query) query=1 ;;
+    --expect=*) expect=1 ;;
     --bind=ctrl-n:execute-silent\(*)
       case ",$keys," in
         *,ctrl-n,*)
@@ -54,5 +55,7 @@ pick=$(printf '%s\n' "$rows" | while IFS= read -r row; do
   fi
 done)
 [ -n "$pick" ] || exit 130
+# --expect prints the key that ended fzf after the query: $FZF_KEY, or an empty line for Enter.
 [ -n "$query" ] && printf '%s\n' "${FZF_QUERY:-}"
+[ -n "$expect" ] && printf '%s\n' "${FZF_KEY:-}"
 printf '%s\n' "$pick"

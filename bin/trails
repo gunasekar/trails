@@ -1192,6 +1192,11 @@ kill_session() {
   else
     [ "$(trail_dir "$1")" = "$PWD" ] || return 0
   fi
+  # A companion goes as a window, and has no record.
+  if [ -n "$(tmux display-message -pt "$1" '#{@trails_companion}' 2>/dev/null)" ]; then
+    tmux kill-window -t "$1" 2>/dev/null
+    return 0
+  fi
   key=$(trail_key "$1")
   case $key in
     */*) tmux kill-window -t "$1" 2>/dev/null ;;
@@ -1329,11 +1334,16 @@ print_menu() {
     done <"$TRAILS_RECENT_CACHE")
   fi
 
+  # Companions here, or in the workspace: read fresh, one list-windows, and ctrl-x on one
+  # has to see it gone.
+  comp=$(companions $in_ws)
+
   # `$(...)` eats trailing newlines, so each block gets its own back or the last row of one
   # welds onto the first of the next.
   rows=$(
     [ -n "$running" ] && printf '%s\n' "$running"
     [ -n "$lost" ] && printf '%s\n' "$lost"
+    [ -n "$comp" ] && printf '%s\n' "$comp"
     [ -n "$recent" ] && printf '%s\n' "$recent"
   )
 
@@ -1341,8 +1351,9 @@ print_menu() {
   # newest first — and all at once, so the columns line up across both groups below. Widths
   # off the widest cell, the agent column measured on an ASCII stand-in: awk counts bytes, and
   # the · in "claude · yolo" is two of them. Each line comes out tagged M (main list: running
-  # and lost), O (old list: closed and elsewhere) or, on a workspace's screen, N: a "<codebase>
-  # · new <agent>" row for each codebase seen above, per agent, under the same codebase column.
+  # and lost, then the companions, drawn with their kind where the state goes), O (old list:
+  # closed and elsewhere) or, on a workspace's screen, N: a "<codebase> · new <agent>" row for
+  # each codebase seen above, per agent, under the same codebase column.
   # An N row is YOLO when the config's mode says so or Tab flipped it, not both — and only if
   # the agent has a flag at all. Then its verb is "yolo" and it says so in yellow.
   yoloable=
@@ -1355,6 +1366,7 @@ print_menu() {
     -v armed="$armed" -v mode="$MODE" -v yoloable="$yoloable" "$STATES_AWK"'
     NF >= 10 {
       n++; st[n] = $1; vb[n] = $2; tg[n] = $3; cb[n] = $5; ag[n] = $6; yo[n] = $7; ti[n] = $10
+      if ($1 == "companion") { comp[++nc] = n; if (length(cb[n]) > wc) wc = length(cb[n]); next }
       if (!($4 in seen)) { seen[$4] = 1; dirs[++nd] = $4; label[$4] = $5 }
       aw[n] = length($6 ($7 == "-" ? "" : " - yolo")); if (aw[n] > w2) w2 = aw[n]
       if (length(cb[n]) > wc) wc = length(cb[n])
@@ -1373,6 +1385,13 @@ print_menu() {
         # By state name, never by glyph: macOS awk compares strings by locale collation,
         # which ranks ● and ○ equal.
         print (st[i] ~ /^(needs-you|your-turn|working|lost)$/ ? "M" : "O"), vb[i], tg[i], line
+      }
+      for (c = 1; c <= nc; c++) {
+        i = comp[c]
+        line = dim sprintf("%-11s", ag[i]) rst
+        if (inws != "") line = line "  " sprintf("%-*s", wc, cb[i])
+        line = line "  " dim ti[i] rst
+        print "M", vb[i], tg[i], line
       }
       if (inws == "") exit
       na = split(agents, A, " ")
@@ -2557,6 +2576,149 @@ ago() {
   fi
 }
 
+# ─── Companions ──────────────────────────────────────────────────────────────
+# The editor or a shell for one codebase: an ordinary window in the workspace, beside that
+# codebase's trails, named like them (augur·nvim, augur·shell, augur·ide) and marked
+# @trails_companion so the picker can list it and `trails edit` can find it again. Not a
+# split in a trail's window — editors attached to that trail would see it — and never a
+# shell at the workspace level: every window runs in some codebase.
+#
+#   trails edit    $EDITOR (nvim if unset) in the codebase
+#   trails shell   a shell in the codebase: the window's default command, plain tmux
+#   trails ide     a layout window — the editor beside a nested client of the trail's editor
+#                  view, the way a map cell views an agent — for the trail you are on, else
+#                  the codebase's trail that most wants you
+#
+# The window you are on decides the codebase, since a workspace holds unrelated repos: run
+# from a trail or another companion, the command acts on that codebase; from a plain window
+# in the workspace, on the pane's directory; outside tmux, on $PWD. One of each kind per
+# codebase: run again it selects the one there, and run from the companion itself it goes
+# back to the window you came from (last-window). The agent exits, the view goes, the ide's
+# nested client with it, and the window keeps the editor. Nothing here is restored: an
+# editor or a shell is reopened with one command.
+companion() {
+  ck=$1
+  here=${2:-$PWD}
+  ws='' cur_wid='' cur_kind='' cur_agent=''
+  if [ -n "$TMUX" ] && [ -z "${2:-}" ]; then
+    IFS='|' read -r cur_wid w_dir w_ws cur_kind cur_agent p_path <<EOF
+$(tmux display-message -p '#{window_id}|#{@trails_dir}|#{@trails_ws}|#{@trails_companion}|#{@agent}|#{pane_current_path}' 2>/dev/null)
+EOF
+    here=${w_dir:-${p_path:-$PWD}}
+    ws=$w_ws
+    [ -n "$ws" ] || ws=$(tmux display-message -p '#{@trails_workspace}' 2>/dev/null)
+  fi
+  [ -d "$here" ] || {
+    echo "trails: no such directory: $here" >&2
+    exit 1
+  }
+  [ -n "$ws" ] || ws=$(workspace_of "$here") || ws=${TRAILS_WS:-default}
+  label=$(codebase_label "$here")
+
+  # On it already: back to where you came from.
+  if [ "$cur_kind" = "$ck" ] && same_dir "$(trail_dir "$cur_wid")" "$here"; then
+    exec tmux last-window
+  fi
+  wid=$(tmux list-windows -t "=$ws" -F '#{window_id}|#{@trails_companion}|#{@trails_dir}' 2>/dev/null |
+    while IFS='|' read -r w k d; do
+      [ "$k" = "$ck" ] && same_dir "$d" "$here" && printf '%s\n' "$w" && break
+    done)
+  if [ -z "$wid" ]; then
+    wid=$(companion_make "$ck" "$here" "$ws" "$label" "$cur_agent" "$cur_wid") || exit 1
+  fi
+  [ -z "$TMUX" ] || exec tmux switch-client -t "=$ws:$wid"
+  exec tmux attach-session -t "=$ws:$wid"
+}
+
+# Make the companion window: kind, dir, workspace, label, and for ide the @agent and window
+# of the trail you are on (empty otherwise). Prints its window id. The workspace session is
+# made around it when there is none (D1's refusal applies), as a trail's launch would.
+companion_make() {
+  cm_kind=$1 cm_dir=$2 cm_ws=$3 cm_label=$4
+  ed=${EDITOR:-nvim}
+  edname=$(basename "${ed%% *}")
+  case $cm_kind in
+    edit) cm_name="${cm_label}·${edname}" ;;
+    *) cm_name="${cm_label}·${cm_kind}" ;;
+  esac
+  # ide: the trail you are on, or the codebase's trail that most wants you.
+  cm_key=
+  if [ "$cm_kind" = ide ]; then
+    if [ -n "$5" ]; then
+      cm_key=$(trail_key "$6")
+    else
+      cm_key=$(sessions | while IFS="$TAB" read -r row; do
+        same_dir "$(printf '%s\n' "$row" | cut -f5)" "$cm_dir" && printf '%s\n' "$row"
+      done | classify | awk -F"$TAB" '
+        $1 == "blocked" && !b { b = $3 }
+        $1 == "idle" && !i { i = $3 }
+        NR == 1 { f = $3 }
+        END { print b ? b : (i ? i : f) }')
+    fi
+    [ -n "$cm_key" ] || {
+      echo "trails: no trail in $(tilde_path "$cm_dir") to put the editor beside — start one first" >&2
+      return 1
+    }
+    cm_wid=$(trail_wid "$cm_key")
+    ensure_view "$cm_wid" "$cm_key" || return 1
+  fi
+  if tmux has-session -t "=$cm_ws" 2>/dev/null; then
+    [ "$(tmux display-message -pt "$cm_ws" '#{@trails_workspace}' 2>/dev/null)" = "$cm_ws" ] || {
+      echo "trails: a tmux session named \"$cm_ws\" exists and isn't a trails workspace." >&2
+      echo "        Rename it (tmux rename-session -t $cm_ws NEW) or the workspace in $CONFIG." >&2
+      return 1
+    }
+    set -- new-window -d -t "=$cm_ws:" -n "$cm_name" -c "$cm_dir" -P -F '#{window_id}'
+  else
+    set -- new-session -d -s "$cm_ws" -n "$cm_name" -c "$cm_dir" -P -F '#{window_id}'
+  fi
+  case $cm_kind in
+    shell) w=$(tmux "$@") ;;
+    *) w=$(tmux "$@" "$ed") ;;
+  esac
+  [ -n "$w" ] || return 1
+  tmux set-option -t "$cm_ws" @trails_workspace "$cm_ws" \
+    \; set-option -w -t "$w" @trails_companion "$cm_kind" \
+    \; set-option -w -t "$w" @trails_dir "$cm_dir" \
+    \; set-option -w -t "$w" @trails_ws "$cm_ws" \
+    \; set-option -w -t "$w" @trails_label "$cm_label"
+  if [ "$cm_kind" = ide ]; then
+    tmux split-window -d -h -t "$w" -c "$cm_dir" "$(view_cmd "$cm_key")" \
+      \; select-layout -t "$w" even-horizontal >/dev/null
+    tmux set-option -w -t "$w" @trails_of "$cm_key"
+  fi
+  printf '%s\n' "$w"
+}
+
+# The same directory, however spelled: a trail keeps the path you cd'd by, tmux reports a
+# pane's path resolved, and the two differ through a symlink.
+same_dir() {
+  [ "$1" = "$2" ] && return 0
+  [ "$(cd "$1" 2>/dev/null && pwd -P)" = "$(cd "$2" 2>/dev/null && pwd -P)" ]
+}
+
+# The companions in workspace $1, or with none this directory's, as the picker's raw rows
+# (print_menu): the state is "companion", the agent column its kind, and the title what it
+# runs — the editor the window was named for, the shell's command, or for an ide the editor
+# and the trail beside it.
+companions() {
+  tmux list-windows -a -F "#{window_id}|#{session_name}|#{@trails_companion}|#{@trails_dir}|#{@trails_ws}|#{@trails_label}|#{pane_current_command}|#{window_name}|#{@trails_of}" 2>/dev/null |
+    while IFS='|' read -r wid sname kind dir ws label cmd wname of; do
+      [ -n "$kind" ] && [ "$sname" = "$ws" ] || continue
+      if [ -n "${1:-}" ]; then
+        [ "$ws" = "$1" ] || continue
+      else
+        same_dir "$dir" "$PWD" || continue
+      fi
+      case $kind in
+        edit) word=editor title=${wname#*·} ;;
+        ide) word=ide title="$(basename "${EDITOR:-nvim}") · $(rec_label "$of")" ;;
+        *) word=$kind title=$cmd ;;
+      esac
+      printf 'companion\tcompanion\t%s\t%s\t%s\t%s\t-\t-\t-\t%s\n' "$wid" "$dir" "$label" "$word" "$title"
+    done
+}
+
 # ─── Map ─────────────────────────────────────────────────────────────────────
 # Several agents at once, in one window. The picker answers "what do I open here" and
 # `trails ls` answers "who wants me"; this is the third question — watch four of them work,
@@ -3129,6 +3291,10 @@ usage: trails [command]
   ws list           the workspaces in the config, and the codebases each holds
   ws of [DIR]       the workspace DIR (here) belongs to
   ws add NAME [DIR] put DIR (here) in workspace NAME, creating it if new
+  edit | shell | ide  the codebase's editor ($EDITOR), a shell, or the editor beside the
+                    trail, as a window in the workspace: made once, then selected; run
+                    from it, back to where you were. The window you are on says which
+                    codebase, or DIR after the command
   swiftbar          link the menu-bar plugin into SwiftBar (macOS); --remove unlinks
   config            the agents file: written from the built-ins the first
                     time, then opened in $EDITOR (~/.config/trails/config.json)
@@ -3142,6 +3308,7 @@ trails", which lists the ones that ended (esc comes back):
                     closed trail; "mode": "yolo" in the config starts new rows armed
   ctrl-n            name the new trail under the cursor: type the name, then enter
                     (on the workspace picker: a new workspace)
+  ctrl-e            the editor for the row's codebase (trails edit)
   ctrl-/            show or hide the preview: the trail's screen as it is now
   ctrl-x            end a running trail, or forget a lost one
 
@@ -3200,6 +3367,11 @@ case $1 in
     ;;
   swiftbar)
     swiftbar_link "$2"
+    exit 0
+    ;;
+  # The codebase's companions (see "Companions"): the window you are on says which codebase.
+  edit | shell | ide)
+    companion "$1" "${2:-}"
     exit 0
     ;;
   # Box-wide like ls: each session comes back in its own recorded directory, so where you
@@ -3392,7 +3564,7 @@ hidden=
 case ${TRAILS_PICKER:-} in
   ws) ;;
   *) set -- "$@" --preview="$0 --peek {2}" --preview-window="right,50%,border-left$hidden" \
-    --bind='ctrl-/:toggle-preview' \
+    --bind='ctrl-/:toggle-preview' --expect=ctrl-e \
     --bind="tab:execute-silent($0 --toggle-yolo {2})+reload($0 --print-menu)" ;;
 esac
 
@@ -3412,7 +3584,7 @@ want=$(printf '%s\n' "$MENU" | awk -F"$TAB" '
 case ${TRAILS_PICKER:-} in
   old | workspace-old)
     set -- "$@" --prompt='Resume a trail: ' \
-      --info-command="echo '# enter: resume · tab: toggle YOLO · ctrl-/: preview · esc: back'"
+      --info-command="echo '# enter: resume · tab: toggle YOLO · ctrl-e: editor · ctrl-/: preview · esc: back'"
     ;;
   ws)
     # ctrl-n names a new workspace: the name is the query, as a trail's is below.
@@ -3436,10 +3608,10 @@ case ${TRAILS_PICKER:-} in
     printf '%s\n' "$MENU" | grep -q '^attach' && x=end
     printf '%s\n' "$MENU" | grep -q '^restore' && x=${x:+$x or }forget
     if [ -n "$x" ]; then
-      set -- "$@" --info-command="echo '# enter: open · tab: toggle YOLO · ctrl-n: name it · ctrl-/: preview · ctrl-x: $x'" \
+      set -- "$@" --info-command="echo '# enter: open · tab: toggle YOLO · ctrl-n: name it · ctrl-e: editor · ctrl-/: preview · ctrl-x: $x'" \
         --bind="ctrl-x:execute-silent($0 --kill {2})+reload($0 --print-menu)"
     else
-      set -- "$@" --info-command="echo '# enter: open · tab: toggle YOLO · ctrl-n: name it · ctrl-/: preview'"
+      set -- "$@" --info-command="echo '# enter: open · tab: toggle YOLO · ctrl-n: name it · ctrl-e: editor · ctrl-/: preview'"
     fi
     ;;
 esac
@@ -3455,14 +3627,25 @@ choice=$(printf '%s\n' "$MENU" | fzf "$@") || {
   esac
 }
 
-# The main lists print the query first (--print-query), the old lists don't.
+# The main lists print the query first (--print-query), the old lists don't; the trail
+# screens print the key that ended fzf next (--expect: ctrl-e, or empty for enter).
 query=
 named=
+key=
 case ${TRAILS_PICKER:-} in
-  old | workspace-old) ;;
-  *)
+  old | workspace-old)
+    key=$(printf '%s\n' "$choice" | head -n 1)
+    choice=$(printf '%s\n' "$choice" | sed 1d)
+    ;;
+  ws)
     query=$(printf '%s\n' "$choice" | head -n 1)
     choice=$(printf '%s\n' "$choice" | sed 1d)
+    [ -f "$TRAILS_TMP/naming" ] && named=1
+    ;;
+  *)
+    query=$(printf '%s\n' "$choice" | head -n 1)
+    key=$(printf '%s\n' "$choice" | sed -n 2p)
+    choice=$(printf '%s\n' "$choice" | sed 1,2d)
     [ -f "$TRAILS_TMP/naming" ] && named=1
     ;;
 esac
@@ -3507,6 +3690,25 @@ case $target in
   *) ;;
 esac
 
+# ctrl-e: the editor for the row's codebase — a running trail's or companion's window says
+# it, a lost one's record, and a new or closed row has just cd'd there.
+if [ "$key" = ctrl-e ]; then
+  case $choice in
+    attach* | companion*) companion edit "$(trail_dir "$target")" ;;
+    restore*) companion edit "$(rec_get "$target" dir)" ;;
+    browse* | more*)
+      case ${TRAILS_PICKER:-} in
+        workspace*)
+          echo "trails: ctrl-e opens a codebase's editor — put the cursor on one of its rows" >&2
+          exit 1
+          ;;
+        *) companion edit "$PWD" ;;
+      esac
+      ;;
+    *) companion edit "$PWD" ;;
+  esac
+fi
+
 case $choice in
   # "↩ resume old trails": the same picker, on the old list.
   more*)
@@ -3524,6 +3726,11 @@ case $choice in
     TRAILS_PICKER='' TRAILS_WS='' exec "$SELF"
     ;;
   attach*) attach_key "$(trail_key "$target")" "$target" ;;
+  # A companion's window, in its workspace: switched to or attached, never nested.
+  companion*)
+    [ -z "$TMUX" ] || exec tmux switch-client -t "=$(trail_ws "$target"):$target"
+    exec tmux attach-session -t "=$(trail_ws "$target"):$target"
+    ;;
   # A lost row comes back in its own directory, which on a workspace's screen is not here.
   restore*)
     new=$(cd "$(rec_get "$target" dir)" && restore_one "$target") || exit 1

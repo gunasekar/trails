@@ -406,6 +406,7 @@ fewest things.
 | D12 | Which screen a bare `trails` shows | Editor's terminal: the codebase's; a shell in a workspace session: the workspace's; `~` or `/`: the workspaces; else the codebase's |
 | D13 | "New" rows on a workspace's screen | One per codebase with something running, lost or recent, per available agent |
 | D14 | `trails ws` | The picker on a terminal, the list when piped or as `ws list`; `ws NAME` goes there |
+| D15 | Companions | Marked `@trails_companion`; toggle back is `last-window`; `ide` takes the trail you are on, else the codebase's most wanting; ctrl-e in the picker |
 
 **D1. Plain names, refuse on collision.** A workspace session is named after
 the workspace (`lattiq`), as a tmux user expects in `tmux ls`
@@ -512,3 +513,20 @@ runs there, since no session is made for an empty workspace), and the slice 2
 listing moved to `trails ws list`, which bare `trails ws` still gives when
 piped. The picker marks the workspace whose session was attached last and
 starts the cursor there.
+
+**D15. Companions are marked windows, and toggle with `last-window`.**
+`trails edit`, `shell` and `ide` make an ordinary window in the workspace,
+named like a trail's (`augur·nvim`, `augur·shell`, `augur·ide`) and marked
+`@trails_companion` with the codebase on it, so the picker lists them (kind
+where the state goes, then codebase and what runs) and a second `trails
+edit` selects the one there instead of making another. Run from the
+companion itself it goes back with `last-window`, plain tmux's "where I
+was", which may be a trail or any other window. `ide` puts the editor beside
+a nested client of a trail's editor view, as a map cell does: the trail you
+run it from, else the codebase's trail that most wants you, and with none it
+says so and makes nothing. The shell window runs tmux's own default command,
+not `$SHELL`. Directories are compared resolved (`pwd -P`), since tmux
+reports a pane's path resolved and a trail keeps the path it was started by.
+ctrl-e in the picker opens the editor for the row's codebase, with `--expect`
+rather than a bound command, so the editor gets the terminal fzf had.
+Companions are never restored and never split a trail's window.
