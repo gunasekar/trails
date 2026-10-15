@@ -501,7 +501,7 @@ classify() {
   done
 }
 
-# The badge after a running session's directory, the names to call it by: #2 or #<name> for
+# A running session's badge in the picker, the names to call it by: #2 or #<name> for
 # its tmux session (ordinal), then @<peer> for the name the agent answers to, unless that
 # is the same word. "-" for neither. $1 is the session, $2 its peer or -.
 badge_of() {
@@ -721,28 +721,30 @@ list_sessions() {
       if (nm != "-" && index(nm, pfx) == 1) {
         base = dir; sub(/.*\//, "", base); gsub(/[:. ]/, "_", base); base = pfx base
         rest = substr(nm, length(base) + 2)
-        if (index(nm, base "-") == 1 && rest ~ /^[0-9]+$/) badge = " #" rest
-        else if (nm != base) badge = " #" substr(nm, length(pfx) + 1)
+        if (index(nm, base "-") == 1 && rest ~ /^[0-9]+$/) badge = "#" rest
+        else if (nm != base) badge = "#" substr(nm, length(pfx) + 1)
         if (ti[n] == substr(nm, length(pfx) + 1)) ti[n] = ""
       }
       # @peer: the name the agent answers to, unless the #name already says it.
       if (peer != "-") {
-        if (badge == " #" peer) badge = ""
-        badge = badge " @" peer
+        if (badge == "#" peer) badge = ""
+        badge = (badge != "" ? badge " " : "") "@" peer
         if (ti[n] == peer) ti[n] = ""
       }
       if (index(dir, home) == 1) dir = "~" substr(dir, length(home) + 1)
-      c3[n] = dir badge
+      c3[n] = dir; cb[n] = badge
       c4[n] = $8 != "-" ? ago($8) : ""
       ti[n] = ti[n] ($2 == "elsewhere" ? "  (open in " $4 ", pid " $9 ")" : "")
       if (aw[n] > w2) w2 = aw[n]
       if (length(c3[n]) > w3) w3 = length(c3[n])
+      if (length(cb[n]) > wb) wb = length(cb[n])
       if (length(c4[n]) > w4) w4 = length(c4[n])
       seen[$2] = 1
     }
     END {
       for (i = 1; i <= n; i++) {
-        line = show(st[i]) "  " ag[i] sprintf("%*s", w2 - aw[i], "") "  " sprintf("%-*s", w3, c3[i])
+        line = wb ? sprintf("%-*s", wb, cb[i]) "  " : ""
+        line = line show(st[i]) "  " ag[i] sprintf("%*s", w2 - aw[i], "") "  " sprintf("%-*s", w3, c3[i])
         if (w4) line = line "  " sprintf("%-*s", w4, c4[i])
         line = line "  " ti[i]
         sub(/ +$/, "", line)

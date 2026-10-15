@@ -56,12 +56,12 @@ directory:
 
 ```console
 ~ $ trails ls -a
-● needs you  claude · yolo  ~/code/checkout              Add idempotency keys to payment retries
-● your turn  claude         ~/code/checkout #2           Fix the flaky cart-total test
-● working    codex          ~/code/checkout              Migrate orders to Postgres 17
-● working    claude         ~/code/storefront            Lazy-load product images
-○ lost       claude         ~/code/checkout              Spike: replay Stripe webhooks
-○ closed     claude · yolo  ~/code/checkout      2d ago  Release notes for v2.3
+@checkout-3         ● needs you  claude · yolo  ~/code/checkout              Add idempotency keys to payment retries
+#2 @checkout-7      ● your turn  claude         ~/code/checkout              Fix the flaky cart-total test
+                    ● working    codex          ~/code/checkout              Migrate orders to Postgres 17
+@storefront-2       ● working    claude         ~/code/storefront            Lazy-load product images
+                    ○ lost       claude         ~/code/checkout              Spike: replay Stripe webhooks
+                    ○ closed     claude · yolo  ~/code/checkout      2d ago  Release notes for v2.3
 ```
 
 Because each agent runs inside tmux, it outlives the terminal that started it.
@@ -168,8 +168,8 @@ Name a trail when you start it, and that one name is how everything refers to it
 ```console
 ~/code/checkout $ trails new payments
 ~/code/checkout $ trails ls
-● working    claude · yolo  ~/code/checkout #payments
-● your turn  claude         ~/code/checkout #2         Fix the flaky cart-total test
+@payments        ● working    claude · yolo  ~/code/checkout
+#2 @checkout-7   ● your turn  claude         ~/code/checkout  Fix the flaky cart-total test
 ```
 
 - **tmux** has it as `trails-payments`, so `tmux a -t trails-payments` works.
@@ -190,11 +190,11 @@ Plain `trails ls` lists the directory you're in, the same sessions as the picker
 
 ```console
 $ trails ls -a
-● needs you  claude · yolo  ~/code/api                Rework the retry budget
-● your turn  claude         ~/.dotfiles #2            Fix the flaky test
-○ lost       claude · yolo  ~/code/foundry            Improve observability
-○ closed     claude · yolo  ~/notes         2h ago    Weekly review
-○ elsewhere  claude         ~/scratch       1d ago    Spike on caching  (open in claude, pid 812)
+@api-4             ● needs you  claude · yolo  ~/code/api               Rework the retry budget
+#2 @dotfiles-9     ● your turn  claude         ~/.dotfiles              Fix the flaky test
+                   ○ lost       claude · yolo  ~/code/foundry           Improve observability
+                   ○ closed     claude · yolo  ~/notes         2h ago   Weekly review
+@scratch-1         ○ elsewhere  claude         ~/scratch       1d ago   Spike on caching  (open in claude, pid 812)
 
 ● needs you  running, asking you something
 ● your turn  running, finished its turn
@@ -203,6 +203,7 @@ $ trails ls -a
 ○ elsewhere  not running here: open in a claude trails did not start
 ```
 
+The first column names each running session, so you can call it something:
 `#2` marks the second session in the same directory, `#name` a named trail, and
 `@name` the name a running Claude answers to: the one to give another Claude session
 when you want it to reach this one. The dim legend covers the states on screen. Piped, `ls` prints one tab-separated line per row, in the
