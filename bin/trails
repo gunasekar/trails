@@ -264,6 +264,200 @@ edit_config() {
   printf '%s\n' "$CONFIG"
 }
 
+# ─── Workspaces ──────────────────────────────────────────────────────────────
+# A workspace is a set of codebases you declare, related or not — one per company, say —
+# that trails will keep together (docs/design/trails-1.0.md). Which codebases: paths or
+# globs under "workspaces" in the config, with an optional root:
+#
+#   "workspaces": {
+#     "lattiq":   { "root": "~/workspace/lattiq", "codebases": ["~/workspace/lattiq/*"] },
+#     "personal": { "codebases": ["~/workspace/gunasekar/*", "~/.dotfiles"] }
+#   }
+#
+# No "workspaces" key means one workspace, "default", holding everything. The config
+# decides what is listed, never where a trail may run: a directory no entry claims has no
+# workspace until `trails ws add` gives it one. trails never infers a workspace from how
+# the directories are laid out — the globs are the user's to write.
+
+# The workspaces as one line per codebase entry, name|root|pattern, ~ expanded. A workspace
+# with no codebases gets one line with an empty pattern, so it still lists. Empty with no
+# "workspaces" key. A bare list is taken as the codebases. A name is letters, digits, - and
+# _: it becomes a tmux session name, and "/" is kept for the editor views; anything else is
+# skipped with a warning rather than failing the lot.
+load_workspaces() {
+  [ -f "$CONFIG" ] || return 0
+  jq -r --arg home "$HOME" '
+    def tilde: if type != "string" then empty
+      elif startswith("~/") then $home + .[1:] elif . == "~" then $home else . end;
+    (.workspaces // {}) | if type != "object" then {} else . end | to_entries[]
+    | .key as $n
+    | (if (.value | type) == "array" then { codebases: .value }
+       elif (.value | type) == "object" then .value else {} end) as $w
+    | if ($n | test("^[A-Za-z0-9_-]+$") | not) then "!" + $n
+      else (($w.root // "") | if type == "string" then tilde else "" end) as $r
+        | ([$w.codebases[]? | tilde | rtrimstr("/")] | if length == 0 then [""] else . end)[]
+        | [$n, $r, .] | join("|")
+      end' "$CONFIG" 2>/dev/null | while IFS= read -r line; do
+    case $line in
+      "!"*) echo "trails: skipping workspace \"${line#!}\" — a name is letters, digits, - and _" >&2 ;;
+      *) printf '%s\n' "$line" ;;
+    esac
+  done
+}
+
+# The directories a workspace entry may claim $1 by, one per line: itself, the repository
+# it is inside, and that repository's main checkout when it is a worktree. So a directory
+# inside a listed repo, or a worktree of one wherever it lives (../augur-retry-budget,
+# .claude/worktrees/), goes where the repo goes without being listed. Physical paths
+# throughout: the config's globs are matched against what `pwd -P` would say.
+workspace_candidates() {
+  d=$(cd "$1" 2>/dev/null && pwd -P) || return 1
+  printf '%s\n' "$d"
+  command -v git >/dev/null 2>&1 || return 0
+  top=$(git -C "$d" rev-parse --show-toplevel 2>/dev/null) || return 0
+  [ "$top" = "$d" ] || printf '%s\n' "$top"
+  common=$(git -C "$d" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 0
+  main=${common%/.git}
+  [ "$main" = "$common" ] || [ "$main" = "$top" ] || printf '%s\n' "$main"
+}
+
+# The workspace directory $1 belongs to, by the config. The most specific entry wins: an
+# exact path over a glob, and a longer glob over a shorter one — so "~/work/lattiq/*" and
+# "~/work/lattiq/special" both claiming special give it to the second. A glob's * crosses
+# "/", as case's does, so a listed repo's subdirectories match it too. The candidates are
+# tried in order, nearest first, and the first that any entry claims decides.
+#
+# "default" with no workspaces configured. Nothing, and status 1, when some are and none
+# claims the directory: the caller's cue to ask which it should join.
+workspace_of() {
+  [ -n "$WORKSPACES" ] || {
+    printf 'default\n'
+    return 0
+  }
+  workspace_candidates "$1" | while IFS= read -r d; do
+    best=; score=-1
+    while IFS='|' read -r n _ p; do
+      [ -n "$p" ] || continue
+      # shellcheck disable=SC2254 # a case pattern is the point
+      case $d in
+        $p) ;;
+        *) continue ;;
+      esac
+      case $p in
+        *[\*\?\[]*) s=${#p} ;;
+        *) s=$((100000 + ${#p})) ;;
+      esac
+      [ "$s" -gt "$score" ] && best=$n score=$s
+    done <<EOF
+$WORKSPACES
+EOF
+    [ -n "$best" ] || continue
+    printf '%s\n' "$best"
+    break
+  done | head -n 1 | grep .
+}
+
+# A workspace name a session and a config key can both carry.
+check_ws_name() {
+  case $1 in
+    '' | *[!A-Za-z0-9_-]*)
+      echo "trails: a workspace name is letters, digits, - and _ (got '$1')" >&2
+      return 1
+      ;;
+    *) ;;
+  esac
+}
+
+# $1 as the config would list it: ~-relative under $HOME, so the file reads the same on
+# another machine with the same layout.
+tilde_path() {
+  case $1 in
+    "$HOME") printf '~' ;;
+    "$HOME"/*) printf '~%s' "${1#"$HOME"}" ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+# trails ws — the workspaces, one per line, TSV when piped: name, root (- for none), and
+# the codebase entries joined by ", ". The config's own spelling, ~ and all.
+ws_list() {
+  [ -n "$WORKSPACES" ] || {
+    echo "trails: no workspaces in $CONFIG — everything is in \"default\" (trails ws add NAME puts this directory in one)" >&2
+    return 0
+  }
+  printf '%s\n' "$WORKSPACES" | awk -F'|' -v home="$HOME" '
+    function tilde(p) { if (p == home) return "~"; if (index(p, home "/") == 1) return "~" substr(p, length(home) + 1); return p }
+    {
+      if (!($1 in seen)) { seen[$1] = 1; order[++n] = $1; root[$1] = $2 == "" ? "-" : tilde($2) }
+      if ($3 != "") pats[$1] = ($1 in pats ? pats[$1] ", " : "") tilde($3)
+    }
+    END {
+      for (i = 1; i <= n; i++) {
+        w = order[i]
+        if (tty) printf "%-14s %-24s %s\n", w, root[w], pats[w]
+        else printf "%s\t%s\t%s\n", w, root[w], pats[w]
+      }
+    }' tty="$([ -t 1 ] && echo 1)"
+}
+
+# trails ws of [DIR] — the workspace DIR (here) belongs to, or why none does.
+ws_of() {
+  d=${1:-$PWD}
+  [ -d "$d" ] || {
+    echo "trails: no such directory: $d" >&2
+    return 1
+  }
+  workspace_of "$d" && return 0
+  echo "trails: no workspace claims $(tilde_path "$(cd "$d" && pwd -P)") — trails ws add NAME to put it in one" >&2
+  return 1
+}
+
+# trails ws add NAME [DIR] — put DIR (here) in workspace NAME, in the config, creating the
+# workspace if it is new and the config from the built-ins if there is none. Written through
+# jq and a temp file: the file is the user's, and a half-written one is worse than none.
+ws_add() {
+  check_ws_name "${1:-}" || return 1
+  d=${2:-$PWD}
+  d=$(cd "$d" 2>/dev/null && pwd -P) || {
+    echo "trails: no such directory: ${2:-$PWD}" >&2
+    return 1
+  }
+  entry=$(tilde_path "$d")
+  if [ ! -f "$CONFIG" ]; then
+    mkdir -p "$(dirname "$CONFIG")" || return 1
+    printf '%s\n' "$DEFAULT_CONFIG" | jq . >"$CONFIG" || return 1
+    echo "trails: wrote the built-in agents to $CONFIG" >&2
+  fi
+  if jq -e --arg n "$1" --arg e "$entry" '
+      (.workspaces // {})[$n] | (if type == "array" then . else (.codebases // []) end) | index($e) != null
+    ' "$CONFIG" >/dev/null 2>&1; then
+    echo "trails: $entry is already in $1" >&2
+    return 0
+  fi
+  jq --arg n "$1" --arg e "$entry" '
+      .workspaces = (.workspaces // {})
+      | .workspaces[$n] = (.workspaces[$n] | if type == "array" then { codebases: . } elif type == "object" then . else {} end)
+      | .workspaces[$n].codebases = ((.workspaces[$n].codebases // []) + [$e])
+    ' "$CONFIG" >"$CONFIG.tmp" && mv -f "$CONFIG.tmp" "$CONFIG" || {
+    rm -f "$CONFIG.tmp"
+    echo "trails: could not write $CONFIG" >&2
+    return 1
+  }
+  echo "added $entry to $1"
+}
+
+ws_cmd() {
+  case ${1:-} in
+    '') ws_list ;;
+    of) ws_of "${2:-}" ;;
+    add) ws_add "${2:-}" "${3:-}" ;;
+    *)
+      echo "trails: ws takes nothing, 'of [DIR]' or 'add NAME [DIR]' (try: trails help)" >&2
+      return 1
+      ;;
+  esac
+}
+
 # The flag that turns on an agent's YOLO (run-everything-unconfirmed) mode, empty for an agent
 # that has none. toggle_yolo and launch both ask through here, so "which agents can be armed"
 # has a single answer and a session name (an attach row) simply misses.
@@ -2427,6 +2621,9 @@ usage: trails [command]
   map [N|new]       several agents in one window — pick them, or take the N that
                     most want you; `new` rebuilds instead of re-attaching
   restore           bring back every session that died with tmux (the lost ones)
+  ws                the workspaces in the config, and the codebases each holds
+  ws of [DIR]       the workspace DIR (here) belongs to
+  ws add NAME [DIR] put DIR (here) in workspace NAME, creating it if new
   swiftbar          link the menu-bar plugin into SwiftBar (macOS); --remove unlinks
   config            the agents file: written from the built-ins the first
                     time, then opened in $EDITOR (~/.config/trails/config.json)
@@ -2460,10 +2657,12 @@ EOF
 # and the wrapper's --forget, which has to work even when the config is broken. ls carries on
 # without them (only its closed rows need them), so a typo in the file can't blank a menu bar.
 case $1 in
-  help | -h | --help | config | swiftbar | --forget | --peek) AGENTS= ;;
+  help | -h | --help | config | swiftbar | ws | --forget | --peek) AGENTS= ;;
   ls) AGENTS=$(load_agents) || AGENTS= ;;
   *) AGENTS=$(load_agents) || exit 1 ;;
 esac
+# The workspaces, read once per run too; empty means none configured (see workspace_of).
+WORKSPACES=$(load_workspaces)
 MODE=default
 case $1 in
   '' | --print-menu) MODE=$(load_mode) ;;
@@ -2500,6 +2699,12 @@ case $1 in
   restore)
     restore_all "$2"
     exit 0
+    ;;
+  # About the config, not about opening anything, so no cwd check either.
+  ws)
+    shift
+    ws_cmd "$@"
+    exit $?
     ;;
   # Called by the wrapper launch() puts around every agent, when the agent exits.
   --forget)
