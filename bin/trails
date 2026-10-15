@@ -2675,9 +2675,12 @@ companion_make() {
   else
     set -- new-session -d -s "$cm_ws" -n "$cm_name" -c "$cm_dir" -P -F '#{window_id}'
   fi
+  # The editor gets the codebase as its argument, `nvim .`, the way you would open it by
+  # hand: nvim, vim, helix, emacs and the desktop editors all take a directory, and
+  # without one nvim sits on an empty buffer in the right place.
   case $cm_kind in
     shell) w=$(tmux "$@") ;;
-    *) w=$(tmux "$@" "$ed") ;;
+    *) w=$(tmux "$@" "$ed .") ;;
   esac
   [ -n "$w" ] || return 1
   tmux set-option -t "$cm_ws" @trails_workspace "$cm_ws" \
