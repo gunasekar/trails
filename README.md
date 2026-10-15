@@ -30,7 +30,7 @@ Every one of them lands on the same sessions.
 
 ```console
 ~/code/checkout $ trails
-Pick a trail: █   # enter: open · tab: toggle YOLO · ctrl-x: end or forget
+Pick a trail: █   # enter: open · tab: toggle YOLO · ctrl-n: name it · ctrl-x: end or forget
 ▌ ● needs you  claude · yolo  Add idempotency keys to payment retries
   ● your turn  claude    #2   Fix the flaky cart-total test
   ● working    codex          Migrate orders to Postgres 17
@@ -105,6 +105,7 @@ trails map 4        # the four that most want you, side by side in one window
 | Command | Does |
 |---|---|
 | `trails` | the picker for this directory: start an agent, or rejoin, restore or resume a session |
+| `trails new NAME [AGENT]` | start a trail named `NAME`, with `-y` for YOLO: its session is `trails-NAME`, and claude takes `NAME` as its own name, so other Claude sessions can message it by that name |
 | `trails ls [-a \| DIR]` | this directory's agent sessions: running, lost when tmux died, or finished in the last 10 days. `DIR` lists that directory instead, `-a` every directory |
 | `trails restore` | bring back every session lost when tmux died, each on its own conversation, detached |
 | `trails map [N]` | several running agents side by side in one window: re-attach to the map already up, pick a set, or take the `N` that most want you (`map new` forces a fresh pick) |
@@ -155,9 +156,31 @@ stateDiagram-v2
 |---|---|
 | `enter` | open the row: attach, restore, resume, or start the agent |
 | `tab` | toggle YOLO (run everything unconfirmed) on an agent to start or a closed session, flipping a new trail from the config's `mode` and a closed session from the mode it last ran in |
+| `ctrl-n` | name the new trail under the cursor: type the name, then Enter |
 | `ctrl-x` | end a running session, or forget a lost one |
 
 `trails` refuses to open an agent in `/`. `$HOME` is fine.
+
+### Named trails
+
+Name a trail when you start it, and that one name is how everything refers to it:
+
+```console
+~/code/checkout $ trails new payments
+~/code/checkout $ trails ls
+● working    claude · yolo  ~/code/checkout #payments
+● your turn  claude         ~/code/checkout #2         Fix the flaky cart-total test
+```
+
+- **tmux** has it as `trails-payments`, so `tmux a -t trails-payments` works.
+- **The picker and `trails ls`** show `#payments` where an unnamed trail shows `#2`.
+- **Claude** runs with `--name payments`, the name its peers use. In another
+  Claude session, "ask payments how the retries look" reaches it.
+
+A name is letters, digits, `-` and `_`, not digits alone, and unused by any running
+or lost session. A named Claude shows its name as its title instead of a summary of
+what it's doing. Resuming or restoring a named conversation brings its name back.
+Unnamed trails work as before, with a name Claude picks for itself.
 
 ### trails ls
 
@@ -295,6 +318,10 @@ goes), plus one of three ways to learn the ID:
 `id` is the shape `start` generates: `uuid`, or `ses_hex` for opencode. `find`
 also follows a conversation that changes inside the agent, such as `/resume` in
 claude.
+
+`session.name` is the flag that gives the agent a name of its own, `{name}` marking
+where it goes. Only a named trail passes it. The built-in claude has
+`"name": "--name {name}"`, and an agent without it still gets the tmux name.
 
 #### Built-in agents
 

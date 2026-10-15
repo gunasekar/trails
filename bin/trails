@@ -60,6 +60,11 @@
 # can't stop this run from attaching.
 unset LAUNCH_DETACHED
 
+# TRAILS_NAME is the name of the trail being started, set by `trails new` and the picker's
+# ctrl-n, never read from outside: one inherited from an agent's shell would name every trail
+# started there the same.
+TRAILS_NAME=
+
 # ─── Agents ──────────────────────────────────────────────────────────────────
 # Which agents trails can start, and how, come from a JSON file you edit — never from this
 # script. The shape follows claude-squad's, so an agent is a name and the command it runs:
@@ -93,6 +98,9 @@ unset LAUNCH_DETACHED
 #                       state instead of the screen), "codex" (also reads whether it is
 #                       between turns)
 #             Without it the agent still runs, it just isn't brought back after a reboot.
+#             session.name is the flag that gives the agent a name of its own, {name} where it
+#             goes: claude's --name, which is the name other claude sessions message it by.
+#             Only a trail you name (trails new NAME, or ctrl-n in the picker) passes it.
 #   default_agent  listed first in the picker.
 #   mode           "default" (the agent's own, prompting mode) or "yolo": which a "+ new" row
 #                  starts in. Tab flips a row from it, so with "yolo" Tab is how you start one
@@ -118,7 +126,8 @@ DEFAULT_CONFIG='{
       "name": "claude",
       "program": "claude",
       "yolo": "--dangerously-skip-permissions",
-      "session": { "start": "--session-id {id}", "resume": "--resume {id}", "id": "uuid", "find": "claude" }
+      "session": { "start": "--session-id {id}", "resume": "--resume {id}", "id": "uuid", "find": "claude",
+                   "name": "--name {name}" }
     },
     {
       "name": "codex",
@@ -153,7 +162,7 @@ DEFAULT_CONFIG='{
   ]
 }'
 
-# The agents as one line each, name|command|args|yolo|start|resume|idform|create|find,
+# The agents as one line each, name|command|args|yolo|start|resume|idform|create|find|naming,
 # default first.
 # A bar, not a tab: tab is whitespace to `read`, which would merge the empty fields most
 # agents have. jq does the JSON, because sed on hand-edited JSON is how a stray space in
@@ -184,7 +193,7 @@ load_agents() {
       then "!" + (.name // "(no name)" | tostring)
       else [.name, (.program | words | .[0]), (.program | words | .[1:] | join(" ")),
             (.yolo // ""), (.session.start // ""), (.session.resume // ""), (.session.id // ""),
-            (.session.create // ""), (.session.find // "")]
+            (.session.create // ""), (.session.find // ""), (.session.name // "")]
            | map(tostring | gsub("\\|"; "")) | join("|")
       end' 2>&1) || {
     echo "trails: can't read $src: $out" >&2
@@ -680,16 +689,18 @@ list_sessions() {
     {
       n++; st[n] = $2; nm = $3; dir = $6
       ag[n] = $4 ($5 == "yolo" ? " · yolo" : ""); aw[n] = length($4 ($5 == "yolo" ? " - yolo" : ""))
-      badge = ""
-      if (nm != "-") {
+      badge = ""; ti[n] = $10
+      if (nm != "-" && index(nm, pfx) == 1) {
         base = dir; sub(/.*\//, "", base); gsub(/[:. ]/, "_", base); base = pfx base
         rest = substr(nm, length(base) + 2)
         if (index(nm, base "-") == 1 && rest ~ /^[0-9]+$/) badge = " #" rest
+        else if (nm != base) badge = " #" substr(nm, length(pfx) + 1)
+        if (ti[n] == substr(nm, length(pfx) + 1)) ti[n] = ""
       }
       if (index(dir, home) == 1) dir = "~" substr(dir, length(home) + 1)
       c3[n] = dir badge
       c4[n] = $8 != "-" ? ago($8) : ""
-      ti[n] = $10 ($2 == "elsewhere" ? "  (open in " $4 ", pid " $9 ")" : "")
+      ti[n] = ti[n] ($2 == "elsewhere" ? "  (open in " $4 ", pid " $9 ")" : "")
       if (aw[n] > w2) w2 = aw[n]
       if (length(c3[n]) > w3) w3 = length(c3[n])
       if (length(c4[n]) > w4) w4 = length(c4[n])
@@ -735,20 +746,25 @@ live_sessions() {
     agent=${label%% *}
     yolo=-
     case $label in *"(YOLO)"*) yolo=yolo ;; *) ;; esac
+    # A named claude shows its name as its title, which the badge already says.
+    [ "$task" = "${name#"$PREFIX"}" ] && task=
     printf '%s\tattach\t%s\t%s\t%s\t%s\t-\t%s\n' \
       "$(state_of "$state")" "$name" "$agent" "$yolo" "$(ordinal "$name")" "$task"
   done
 }
 
-# The #2 a session's name earns in the picker: the -N on $SESSION-<digits>, and only that.
-# is_ours admits any trails- session started here, so a name that isn't $SESSION-<digits>
-# (one you made by hand) would otherwise badge itself with the whole leftover string. "-"
-# for none: these feed tab-separated rows, where an empty field would collapse.
+# The badge a session's name earns in the picker: #2 for the -N on $SESSION-<digits>, and
+# #<name> for any other name, which is a trail you named (or a session you made by hand) and
+# the name to call it by. None for $SESSION itself. "-" for none: these feed tab-separated
+# rows, where an empty field would collapse.
 ordinal() {
-  n=${1#"$SESSION"}
-  n=${n#-}
+  [ "$1" = "$SESSION" ] && {
+    echo -
+    return
+  }
+  n=${1#"$SESSION"-}
   case $n in
-    '' | *[!0-9]*) echo - ;;
+    "$1" | '' | *[!0-9]*) echo "#${1#"$PREFIX"}" ;;
     *) echo "#$n" ;;
   esac
 }
@@ -1026,7 +1042,7 @@ launch() {
   }
   # args is normally empty; the yolo flag is appended only when this launch was armed (see
   # mode below), and the session templates only matter to agents that can be restored.
-  IFS='|' read -r _ cmd args yolo start resume idform create find <<EOF
+  IFS='|' read -r _ cmd args yolo start resume idform create find naming <<EOF
 $row
 EOF
 
@@ -1058,6 +1074,13 @@ EOF
         ;;
     esac
   fi
+
+  # A trail you named (TRAILS_NAME, set by `trails new` and the picker's ctrl-n) tells the
+  # agent its name, for an agent that takes one. Only on a fresh start: claude keeps the name
+  # in the conversation, so a resume or a restore brings it back by itself, and passing the
+  # old one again would undo a /rename made inside the session.
+  [ -n "$TRAILS_NAME" ] && [ -z "$3" ] && [ -n "$naming" ] &&
+    args="${args:+$args }$(printf '%s' "$naming" | sed "s/{name}/$TRAILS_NAME/g")"
 
   # $args is a controlled, space-separated field from the table above; splitting it into
   # separate arguments is the point. A closed row resumes here too, with nothing to record: there
@@ -1091,8 +1114,18 @@ EOF
   # Restore asks for its old name back, and gets it unless something has since taken it —
   # a fresh agent you started in that project after the reboot, say. Then it lands on the
   # next free -N like any second agent would, and the old name's record goes with it below.
+  #
+  # A named trail's session is trails-<name>, so the name you gave is the one tmux, trails ls
+  # and claude's peers all use. check_name made sure it is free.
   if [ -n "$4" ] && ! tmux has-session -t "=$4" 2>/dev/null; then
     SESSION=$4
+  elif [ -n "$TRAILS_NAME" ] && [ -z "$3" ]; then
+    SESSION=$PREFIX$TRAILS_NAME
+  elif [ -n "$3" ] && [ "$find" = claude ] && rn=$(claude_name_of "$3") && [ -n "$rn" ] &&
+    check_name "$rn" 2>/dev/null; then
+    # Resuming a conversation that has a name: its session takes the name again, if free,
+    # so a closed #payments comes back as trails-payments, not trails-<project>-2.
+    SESSION=$PREFIX$rn
   else
     SESSION=$(next_free)
   fi
@@ -1128,7 +1161,7 @@ EOF
   # watching how each caller sets them.
   # shellcheck disable=SC2086
   env -u TRAILS_PICKER -u TRAILS_YOLO_STATE -u TRAILS_MENU_CACHE -u TRAILS_RECENT_CACHE \
-    -u TRAILS_RESTORE_OK -u USE_TMUX -u LAUNCH_DETACHED \
+    -u TRAILS_RESTORE_OK -u USE_TMUX -u LAUNCH_DETACHED -u TRAILS_NAME \
     tmux new-session -d -s "$SESSION" -c "$PWD" \
     sh -c "$WRAP" trails-wrap "$SELF" "$SESSION" "${3:+resume}" "$cmd" $args \
     \; set-option -w -t "$SESSION" remain-on-exit on \
@@ -1686,6 +1719,19 @@ claude_open_pid() {
 #
 # Scoped, it opens the one folder claude files that directory under and checks each file's
 # own cwd, since the folder name is lossy (/a.b and /a-b share one).
+# The name a claude conversation was given, by --name or /rename: its last custom-title.
+claude_name_in() {
+  grep -F '"type":"custom-title"' "$1" | tail -n 1 | json_field customTitle | json_text
+}
+
+# The same for conversation $1, wherever its transcript is.
+claude_name_of() {
+  for f in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/projects/*/"$1".jsonl; do
+    [ -f "$f" ] && claude_name_in "$f" && return 0
+  done
+  return 1
+}
+
 claude_recent() {
   root=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects
   if [ -n "$1" ]; then
@@ -1707,6 +1753,10 @@ claude_recent() {
       title=$(grep -F '"type":"ai-title"' "$f" | tail -n 1 | json_field aiTitle | json_text)
       [ -n "$title" ] ||
         title=$(grep -F '"type":"last-prompt"' "$f" | tail -n 1 | json_field lastPrompt | json_text | cut -c1-80)
+      # A named conversation (--name, /rename) gets no ai-title, since its name is its title.
+      # Lead with the name, the handle you'd resume it by, then what it was last asked.
+      name=$(claude_name_in "$f")
+      [ -n "$name" ] && title="#$name${title:+ · $title}"
       [ -n "$title" ] || continue
       yolo=-
       [ "$(grep -o '"permissionMode":"[^"]*"' "$f" | tail -n 1)" = '"permissionMode":"bypassPermissions"' ] && yolo=yolo
@@ -2238,6 +2288,67 @@ swiftbar_link() {
 # Only starting is refused, never reporting: `trails ls` is read-only, and with -a answers for
 # the whole box, so it works from anywhere, and the fzf internals run from a picker that has
 # already passed through here.
+# A name for a new trail, checked before anything starts: it becomes the tmux session
+# trails-<name> and the agent's own name (claude's --name, what its peers message it by), so
+# it must be a word both take, and free. Letters, digits, - and _: tmux refuses . and :, and
+# a space would need quoting at every `tmux a -t`. Not digits alone, which would read as
+# the #2 badge of an unnamed trail. Free means no session and no record hold it, the same
+# test next_free uses, so a lost session keeps its name until it is restored or forgotten.
+check_name() {
+  case $1 in
+    '') echo "trails: a name can't be empty" >&2 ;;
+    *[!A-Za-z0-9_-]*) echo "trails: '$1' won't do as a name — letters, digits, - and _ only" >&2 ;;
+    *[!0-9]*)
+      if name_taken "$PREFIX$1"; then
+        echo "trails: '$1' is taken — trails ls -a shows what by" >&2
+      else
+        return 0
+      fi
+      ;;
+    *) echo "trails: '$1' is all digits, which reads as the #N of an unnamed trail" >&2 ;;
+  esac
+  return 1
+}
+
+# `trails new NAME [AGENT] [-y]`: start a named trail without the picker. AGENT is the
+# default agent when left out, -y runs it YOLO and without -y the config's mode decides,
+# the way a picker row starts.
+new_trail() {
+  nt_name='' nt_agent='' nt_mode=''
+  for a in "$@"; do
+    case $a in
+      -y | --yolo) nt_mode=yolo ;;
+      -*)
+        echo "trails: new takes a name, an agent and -y, not '$a'" >&2
+        exit 1
+        ;;
+      *)
+        if [ -z "$nt_name" ]; then nt_name=$a
+        elif [ -z "$nt_agent" ]; then nt_agent=$a
+        else
+          echo "trails: new takes one name and one agent (try: trails help)" >&2
+          exit 1
+        fi
+        ;;
+    esac
+  done
+  [ -n "$nt_name" ] || {
+    echo "trails: new needs a name — trails new NAME [AGENT]" >&2
+    exit 1
+  }
+  check_name "$nt_name" || exit 1
+  [ -n "$nt_agent" ] || nt_agent=$(printf '%s\n' "$AGENTS" | awk -F'|' 'NR == 1 { print $1 }')
+  [ -n "$(agent_row "$nt_agent")" ] || {
+    echo "trails: unknown agent '$nt_agent' — trails config lists them" >&2
+    exit 1
+  }
+  if [ -z "$nt_mode" ] && [ "$(load_mode)" = yolo ] && [ -n "$(yolo_flag "$nt_agent")" ]; then
+    nt_mode=yolo
+  fi
+  TRAILS_NAME=$nt_name
+  launch "$nt_agent" "$nt_mode"
+}
+
 refuse_bad_cwd() {
   [ "$(pwd -P)" = / ] || return 0
   echo "trails: refusing to open an agent in / — cd into a project directory" >&2
@@ -2252,6 +2363,8 @@ usage() {
 usage: trails [command]
 
   (none)            this directory's sessions, then the agents you can start
+  new NAME [AGENT]  start a trail named NAME: session trails-NAME, and the agent's own
+                    name where it takes one (claude's peers message it as NAME); -y for YOLO
   ls [-a | DIR]     this directory's sessions, running or not; DIR's, or -a for
                     every directory — a table, or TSV when piped
   map [N|new]       several agents in one window — pick them, or take the N that
@@ -2267,6 +2380,7 @@ In the picker — running and lost sessions, then "<agent> · new trail" rows, t
   enter             open it: attach, restore, resume, or start the agent
   tab               toggle YOLO (run everything unconfirmed) on an agent to start or a
                     closed session; "mode": "yolo" in the config starts new rows armed
+  ctrl-n            name the new trail under the cursor: type the name, then enter
   ctrl-x            end a running session, or forget a lost one
 
 States — ● running, ○ not:
@@ -2351,7 +2465,7 @@ case $1 in
     toggle_yolo "$2"
     exit 0
     ;;
-  '') ;;
+  new | '') ;;
   *)
     echo "trails: unknown argument '$1' (try: trails help)" >&2
     exit 1
@@ -2364,6 +2478,12 @@ IN_MAP=
 if in_map; then
   IN_MAP=1
   USE_TMUX=1
+fi
+
+if [ "${1:-}" = new ]; then
+  shift
+  new_trail "$@"
+  exit 0
 fi
 
 # Per-invocation temp files, exported so the fzf-spawned --toggle-yolo / --print-menu /
@@ -2445,7 +2565,11 @@ else
     !b && index(s, "● needs you") { b = NR }
     !i && index(s, "● your turn") { i = NR }
     END { print b ? b : i }')
-  set -- "$@" --prompt='Pick a trail: '
+  # ctrl-n turns the query into the name for the new trail under the cursor: the prompt says
+  # so, and search goes off so typing the name doesn't filter that row away. The marker file
+  # is how the dispatch below tells a name from a filter, since --print-query prints both.
+  set -- "$@" --prompt='Pick a trail: ' --print-query \
+    --bind="ctrl-n:execute-silent(touch '$TRAILS_TMP/naming')+change-prompt(Name this trail: )+disable-search+clear-query"
   [ -n "$want" ] && set -- "$@" --bind="load:pos($want)+unbind(load)"
   # ctrl-x ends a running session and forgets a lost one, and the hint names only what this
   # list has: "end", "forget", both, or — with neither — no ctrl-x at all.
@@ -2453,10 +2577,10 @@ else
   printf '%s\n' "$MENU" | grep -q '^attach' && x=end
   printf '%s\n' "$MENU" | grep -q '^restore' && x=${x:+$x or }forget
   if [ -n "$x" ]; then
-    set -- "$@" --info-command="echo '# enter: open · tab: toggle YOLO · ctrl-x: $x'" \
+    set -- "$@" --info-command="echo '# enter: open · tab: toggle YOLO · ctrl-n: name it · ctrl-x: $x'" \
       --bind="ctrl-x:execute-silent($0 --kill {2})+reload($0 --print-menu)"
   else
-    set -- "$@" --info-command="echo '# enter: open · tab: toggle YOLO'"
+    set -- "$@" --info-command="echo '# enter: open · tab: toggle YOLO · ctrl-n: name it'"
   fi
 fi
 
@@ -2466,6 +2590,23 @@ choice=$(printf '%s\n' "$MENU" | fzf "$@") || {
   rm -rf "$TRAILS_TMP"
   TRAILS_PICKER='' exec "$SELF"
 }
+
+# The main list prints the query first (--print-query), the old list doesn't.
+if [ "${TRAILS_PICKER:-}" != old ]; then
+  query=$(printf '%s\n' "$choice" | head -n 1)
+  choice=$(printf '%s\n' "$choice" | sed 1d)
+  if [ -f "$TRAILS_TMP/naming" ]; then
+    case $choice in
+      new* | yolo*) ;;
+      *)
+        echo "trails: ctrl-n names a new trail — pick an \"<agent> · new trail\" row to name" >&2
+        exit 1
+        ;;
+    esac
+    check_name "$query" || exit 1
+    TRAILS_NAME=$query
+  fi
+fi
 
 # Field 2 is the target either way — a session name to attach to, or an agent to start.
 # cut splits on TAB by default, the delimiter the menu is built with.

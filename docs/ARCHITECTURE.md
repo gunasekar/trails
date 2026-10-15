@@ -61,6 +61,21 @@ Every agent runs in its own tmux session named `trails-<project>`, where
 `_`. A second agent in the same project gets `-2`, `-3` and so on. `$PREFIX` is
 the only place the prefix is spelled.
 
+A named trail (`trails new NAME`, or ctrl-n in the picker) is `trails-<name>`
+instead ([ADR 12](decisions/0012-one-name-for-a-trail.md)). The same name goes to
+the agent through its `session.name` template, which for claude is `--name`, the
+name Claude's peer messaging addresses it by. tmux keeps session names unique on
+the server, and `check_name` refuses one that a session or a record already holds,
+so the name is unique on the machine for both. The name is passed only on a fresh
+start: claude stores it in the conversation as a `custom-title`, so a resume or
+restore brings it back by itself. Resuming a named closed conversation asks for
+`trails-<name>` again, the way a restore asks for its old session name.
+
+`ordinal` and the `ls` table badge a session `#N` when its name is
+`trails-<project>-N`, and `#<name>` when it is anything else under the prefix. A
+named claude's title is its name, so that title is dropped from the row rather
+than shown twice.
+
 "A session of ours, for this directory" is never read off the name, because the
 name can't answer it: `trails-foo-2` is equally foo's second agent and project
 foo-2's first. `is_ours` asks tmux instead. Each session is created with
@@ -93,7 +108,7 @@ None of this is required, but a tmux.conf can use those options:
 What trails can start comes from `~/.config/trails/config.json`, or the built-in
 agents (the same JSON, inside the script) when there is no file. `load_agents`
 reads it once per run with `jq` and turns each agent into one line,
-`name|command|args|yolo|start|resume|idform`, default agent first. Everything
+`name|command|args|yolo|start|resume|idform|create|find|naming`, default agent first. Everything
 else asks through `agent_row`. A bar, not a tab, separates the fields, because
 most agents leave some empty and tab counts as whitespace to `read`.
 
