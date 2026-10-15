@@ -56,7 +56,9 @@ assert_eq "$(printf '%s\n' "$list" | awk -F'\t' '$1 == "empty" { print $2 "|" $3
 # On a terminal, padded columns rather than tabs.
 driver "sh -c '$TRAILS ws list; sleep 30'"
 wait_for 5 screen_has driver-1 'personal' || fail "no table on the terminal"
-assert_match "$(screen driver-1 | grep '^personal')" '^personal {7}-  +~/workspace/gunasekar' "padded columns"
+assert_match "$(screen driver-1 | grep '^personal')" '^personal +~/workspace/gunasekar/\* +1 codebase$' "the first entry, with its count"
+assert_match "$(screen driver-1 | grep '^lattiq')" '^lattiq +~/workspace/lattiq/\* +2 codebases +root ~/workspace/lattiq$' "the glob, its count, the root"
+assert_match "$(screen driver-1)" '^ +~/\.dotfiles$' "a second entry on its own line"
 
 # Adding: a new workspace, an existing one, the same entry twice, a bad name.
 assert_eq "$(cd "$T/infra" && ws add infra)" "added ~/infra to infra" "add here to a new workspace"

@@ -378,28 +378,62 @@ tilde_path() {
   esac
 }
 
-# trails ws — the workspaces, one per line, TSV when piped: name, root (- for none), and
-# the codebase entries joined by ", ". The config's own spelling, ~ and all.
+# trails ws list — the workspaces. Piped, TSV: name, root (- for none), and the codebase
+# entries joined by ", ", the config's own spelling. On a terminal, a table with one entry
+# per line under its workspace, what each glob matches today (a listed path that is not
+# there says so), and the root as a dim note where one is set:
+#
+#   lattiq    ~/workspace/lattiq/*     53 codebases   root ~/workspace/lattiq
+#   personal  ~/workspace/gunasekar/*  10 codebases
+#             ~/.dotfiles
 ws_list() {
   [ -n "$WORKSPACES" ] || {
     echo "trails: no workspaces in $CONFIG — everything is in \"default\" (trails ws add NAME puts this directory in one)" >&2
     return 0
   }
-  # Decided here, not inside awk's argument list: a `$(...)` there runs with its stdout as a
-  # pipe, so `-t 1` in it is never true and the table came out as TSV on a terminal.
-  tty=
-  [ -t 1 ] && tty=1
-  printf '%s\n' "$WORKSPACES" | awk -F'|' -v home="$HOME" -v tty="$tty" '
-    function tilde(p) { if (p == home) return "~"; if (index(p, home "/") == 1) return "~" substr(p, length(home) + 1); return p }
-    {
-      if (!($1 in seen)) { seen[$1] = 1; order[++n] = $1; root[$1] = $2 == "" ? "-" : tilde($2) }
-      if ($3 != "") pats[$1] = ($1 in pats ? pats[$1] ", " : "") tilde($3)
-    }
+  [ -t 1 ] || {
+    printf '%s\n' "$WORKSPACES" | awk -F'|' -v home="$HOME" '
+      function tilde(p) { if (p == home) return "~"; if (index(p, home "/") == 1) return "~" substr(p, length(home) + 1); return p }
+      {
+        if (!($1 in seen)) { seen[$1] = 1; order[++n] = $1; root[$1] = $2 == "" ? "-" : tilde($2) }
+        if ($3 != "") pats[$1] = ($1 in pats ? pats[$1] ", " : "") tilde($3)
+      }
+      END { for (i = 1; i <= n; i++) { w = order[i]; printf "%s\t%s\t%s\n", w, root[w], pats[w] } }'
+    return 0
+  }
+  last=
+  printf '%s\n' "$WORKSPACES" | while IFS='|' read -r n r p; do
+    name='' note=''
+    if [ "$n" != "$last" ]; then
+      name=$n
+      [ -z "$r" ] || note="root $(tilde_path "$r")"
+      last=$n
+    fi
+    entry='' count=''
+    if [ -n "$p" ]; then
+      entry=$(tilde_path "$p")
+      case $p in
+        *[\*\?\[]*)
+          # shellcheck disable=SC2086 # the glob is the point
+          set -- $p
+          c=0
+          for d; do [ -d "$d" ] && c=$((c + 1)); done
+          count="$c codebase$([ "$c" -eq 1 ] || echo s)"
+          ;;
+        *) [ -d "$p" ] || count="not there" ;;
+      esac
+    fi
+    printf '%s\t%s\t%s\t%s\n' "$name" "$entry" "$count" "$note"
+  done | awk -F"$TAB" -v dim="$DIM" -v rst="$RST" '
+    { n++; a[n] = $1; b[n] = $2; c[n] = $3; d[n] = $4
+      if (length($1) > wa) wa = length($1); if (length($2) > wb) wb = length($2); if (length($3) > wc) wc = length($3) }
     END {
       for (i = 1; i <= n; i++) {
-        w = order[i]
-        if (tty) printf "%-14s %-24s %s\n", w, root[w], pats[w]
-        else printf "%s\t%s\t%s\n", w, root[w], pats[w]
+        line = sprintf("%-*s  %-*s", wa, a[i], wb, b[i])
+        if (wc) line = line "  " (c[i] != "" ? dim sprintf("%-*s", wc, c[i]) rst : sprintf("%-*s", wc, ""))
+        if (d[i] != "") line = line "   " dim d[i] rst
+        sub(/ +$/, "", line)
+        print line
       }
     }'
 }
