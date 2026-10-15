@@ -385,7 +385,11 @@ ws_list() {
     echo "trails: no workspaces in $CONFIG — everything is in \"default\" (trails ws add NAME puts this directory in one)" >&2
     return 0
   }
-  printf '%s\n' "$WORKSPACES" | awk -F'|' -v home="$HOME" '
+  # Decided here, not inside awk's argument list: a `$(...)` there runs with its stdout as a
+  # pipe, so `-t 1` in it is never true and the table came out as TSV on a terminal.
+  tty=
+  [ -t 1 ] && tty=1
+  printf '%s\n' "$WORKSPACES" | awk -F'|' -v home="$HOME" -v tty="$tty" '
     function tilde(p) { if (p == home) return "~"; if (index(p, home "/") == 1) return "~" substr(p, length(home) + 1); return p }
     {
       if (!($1 in seen)) { seen[$1] = 1; order[++n] = $1; root[$1] = $2 == "" ? "-" : tilde($2) }
@@ -397,7 +401,7 @@ ws_list() {
         if (tty) printf "%-14s %-24s %s\n", w, root[w], pats[w]
         else printf "%s\t%s\t%s\n", w, root[w], pats[w]
       }
-    }' tty="$([ -t 1 ] && echo 1)"
+    }'
 }
 
 # trails ws of [DIR] — the workspace DIR (here) belongs to, or why none does.
