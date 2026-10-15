@@ -1466,7 +1466,10 @@ ws_menu() {
     printf '%s\n' "$WORKSPACES" | cut -d'|' -f1
     [ -n "$WORKSPACES" ] || echo default
     printf '%s\n' "$counts" | cut -f1
-    rec_keys | while read -r k; do rec_ws "$k"; done
+    rec_keys | while read -r k; do
+      rec_ws "$k"
+      echo
+    done
     tmux list-sessions -F '#{@trails_workspace}' 2>/dev/null
   } | awk 'NF && $0 != "-" && !seen[$0]++' | while read -r w; do
     c=$(printf '%s\n' "$counts" | awk -F"$TAB" -v w="$w" '$1 == w { print $2 "\t" $3 "\t" $4; exit }')
