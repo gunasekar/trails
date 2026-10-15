@@ -1,6 +1,7 @@
 # 1. Agents live in tmux sessions
 
-- Status: accepted
+- Status: superseded by [ADR 13](0013-workspaces-are-sessions-trails-are-windows.md)
+  for "one session per agent" and "bare inside tmux"; the reasons for tmux stand
 - Date: 2026-07
 
 ## Context

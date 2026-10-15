@@ -1,6 +1,8 @@
 # 6. A launcher for tmux, not an app
 
-- Status: accepted
+- Status: accepted; amended 2026-10 by [ADR 13](0013-workspaces-are-sessions-trails-are-windows.md),
+  which keeps the four verbs and the shell script, and adds workspaces and
+  companions as the places those verbs act in
 - Date: 2026-10
 
 ## Context

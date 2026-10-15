@@ -1,6 +1,9 @@
 # trails 1.0: design
 
-Status: draft · 2026-10-16
+Status: implemented · 2026-10-16. Decisions D8 to D15 were taken while
+building it; [ADR 13](../decisions/0013-workspaces-are-sessions-trails-are-windows.md),
+[14](../decisions/0014-editor-views.md) and [15](../decisions/0015-companions-are-marked-windows.md)
+record the ones that outlive this document.
 
 trails 1.0 groups agent sessions into workspaces you define and keeps every one
 reachable from any editor. The features are specific to that use case. The
