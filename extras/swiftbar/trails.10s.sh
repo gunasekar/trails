@@ -164,12 +164,12 @@ OSA
   esac
 }
 
-# End: stop the session for good — a hard stop, the agent gets no chance to tidy up, though
-# its transcript stays on disk for its own --resume. The kill is on purpose, so the restore
-# record goes too — `trails restore` exists for sessions tmux took down, not ones you closed.
+# End: stop the trail for good — a hard stop, the agent gets no chance to tidy up, though
+# its transcript stays on disk for its own --resume. `trails end` closes its window (and the
+# editor view that holds it) or, for a session from before 1.0, the session, and forgets the
+# restore record — `trails restore` exists for trails tmux took down, not ones you closed.
 function end() {
-  tmux kill-session -t "=$1" 2>/dev/null
-  "$TRAILS" --forget "$1"
+  "$TRAILS" end "$1" >/dev/null 2>&1
 }
 
 # Picking a terminal from the menu: param2 is a terminal id, checked against the list.
@@ -178,9 +178,10 @@ if [[ $# -ge 2 && $1 == set_terminal ]]; then
   exit 0
 fi
 
-# Only ever act on a trails session: param2 comes back from our own menu, but a stray
-# `name=` reaching kill-session is not a thing to leave to trust.
-if [[ $# -ge 2 && $2 == trails-* ]]; then
+# Only ever act on a trail: param2 comes back from our own menu, but a stray `name=` reaching
+# an attach or an end is not a thing to leave to trust. A key is <workspace>/<name> since
+# 1.0, or trails-<project> from before.
+if [[ $# -ge 2 && ($2 == */* || $2 == trails-*) ]]; then
   case $1 in
     resume | end) "$1" "$2" ;;
     *) ;;
@@ -294,9 +295,10 @@ TERMINAL_NAME=$(terminal_app "$CURRENT_TERMINAL")
 blocked=0 idle=0 working=0
 menu=''
 
-# The TSV is `life state session agent yolo dir id when pid peer title`, with - for an empty
-# field (see trails' README). Read as fields, and the title taken as the last one rather
-# than by position: a trails from before the peer column has one field fewer, and a plugin linked out of a checkout can meet an older trails from Homebrew.
+# The TSV is `life state session agent yolo dir id when pid peer workspace title`, with - for
+# an empty field (see trails' README). Read as fields, and the title taken as the last one
+# rather than by position: a trails from before the peer or workspace columns has fewer
+# fields, and a plugin linked out of a checkout can meet an older trails from Homebrew.
 while IFS=$'\t' read -ra f; do
   state=${f[0]:-} name=${f[1]:-} agent=${f[2]:-} yolo=${f[3]:-}
   task='' peer=''
@@ -313,9 +315,11 @@ while IFS=$'\t' read -ra f; do
   label=$agent
   [ "$yolo" = yolo ] && label+=" (YOLO)"
 
-  # trails-my_api-2  ->  project "my_api", badge "#2". A project name may itself contain
-  # a dash, so only a *trailing* -<digits> is the sibling counter.
+  # lattiq/my_api-2 (or trails-my_api-2 before 1.0)  ->  project "my_api", badge "#2". A
+  # project name may itself contain a dash, so only a *trailing* -<digits> is the sibling
+  # counter.
   proj=${name#trails-}
+  proj=${proj##*/}
   badge=''
   if [[ $proj =~ ^(.*)-([0-9]+)$ ]]; then
     proj="${BASH_REMATCH[1]}"

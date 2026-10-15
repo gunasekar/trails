@@ -2719,6 +2719,51 @@ companions() {
     done
 }
 
+# ─── Keys ────────────────────────────────────────────────────────────────────
+# trails binds nothing (principle 2 of the design). `trails keys` prints lines for a
+# tmux.conf, to paste or ignore: the picker and the workspace picker in a popup, which
+# leaves no window behind, and the companions. a, W, e, v and S are free in tmux 3.8's
+# default prefix table (T is pane title, E even layout, so neither of those).
+keys() {
+  cat <<'EOF'
+# trails: paste what you want into tmux.conf
+bind a display-popup -E -w 80% -h 70% trails
+bind W display-popup -E -w 60% -h 50% 'trails ws'
+bind e run-shell 'trails edit'
+bind v run-shell 'trails ide'
+bind S run-shell 'trails shell'
+# an editor view (what an editor attaches to) with no status line, if you want that only there:
+# set-hook -g session-created 'if -F "#{m:*/*,#{session_name}}" "set -t #{session_name} status off"'
+EOF
+}
+
+# `trails end KEY`: end a trail by its key — its editor view's name, or a 0.6 session's — from
+# anywhere, for a caller that is not in its directory (the menu-bar plugin). The window goes,
+# and the editor view with it; a 0.6 session goes as a session; the record goes too, as
+# ctrl-x's does.
+end_trail() {
+  [ -n "${1:-}" ] || {
+    echo "trails: end takes a trail's key, as trails ls prints it (lattiq/augur-2)" >&2
+    exit 1
+  }
+  et_wid=$(trail_wid "$1")
+  [ -n "$et_wid" ] || {
+    if rec_is_dead "$1"; then
+      rec_forget "$1"
+      echo "forgot $(rec_label "$1")"
+      exit 0
+    fi
+    echo "trails: no trail $1 — trails ls -a lists them" >&2
+    exit 1
+  }
+  case $1 in
+    */*) tmux kill-window -t "$et_wid" 2>/dev/null ;;
+    *) tmux kill-session -t "=$1" 2>/dev/null ;;
+  esac
+  rec_forget "$1"
+  echo "ended $(rec_label "$1")"
+}
+
 # ─── Map ─────────────────────────────────────────────────────────────────────
 # Several agents at once, in one window. The picker answers "what do I open here" and
 # `trails ls` answers "who wants me"; this is the third question — watch four of them work,
@@ -3295,6 +3340,8 @@ usage: trails [command]
                     trail, as a window in the workspace: made once, then selected; run
                     from it, back to where you were. The window you are on says which
                     codebase, or DIR after the command
+  end KEY           end a trail by its key, as trails ls prints it, from anywhere
+  keys              print tmux.conf lines that bind the picker and the companions
   swiftbar          link the menu-bar plugin into SwiftBar (macOS); --remove unlinks
   config            the agents file: written from the built-ins the first
                     time, then opened in $EDITOR (~/.config/trails/config.json)
@@ -3332,7 +3379,7 @@ EOF
 # and the wrapper's --forget, which has to work even when the config is broken. ls carries on
 # without them (only its closed rows need them), so a typo in the file can't blank a menu bar.
 case $1 in
-  help | -h | --help | config | swiftbar | --forget | --peek) AGENTS= ;;
+  help | -h | --help | config | swiftbar | keys | end | --forget | --peek) AGENTS= ;;
   ls | ws) AGENTS=$(load_agents) || AGENTS= ;;
   *) AGENTS=$(load_agents) || exit 1 ;;
 esac
@@ -3372,6 +3419,15 @@ case $1 in
   # The codebase's companions (see "Companions"): the window you are on says which codebase.
   edit | shell | ide)
     companion "$1" "${2:-}"
+    exit 0
+    ;;
+  keys)
+    keys
+    exit 0
+    ;;
+  # Box-wide like ls: the key says which trail, wherever you stand.
+  end)
+    end_trail "${2:-}"
     exit 0
     ;;
   # Box-wide like ls: each session comes back in its own recorded directory, so where you
