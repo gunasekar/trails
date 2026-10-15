@@ -16,4 +16,4 @@ wait_for 3 grep -q rc= "$T/out" || fail "popup never wrote its result"
 
 assert_match "$(cat "$T/out")" "^TMUX=$T/tmux-[0-9]+/default,[0-9]+,[0-9]+$" "TMUX inside the popup"
 assert_match "$(cat "$T/out")" "rc=0" "switch-client from the popup"
-assert_eq "$(tmux display-message -p -t "$client" '#{session_name}')" other "the client switched"
+assert_eq "$(client_at "$client" '#{session_name}')" other "the client switched"

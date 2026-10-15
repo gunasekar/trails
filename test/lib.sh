@@ -9,6 +9,9 @@
 #                                          inside trails reaches a private server
 #   TMUX, TMUX_PANE                        unset, so trails thinks it is outside tmux
 #                                          even when the tests run inside one
+#   TERM_PROGRAM, NVIM, ZED_TERM, TRAILS_ATTACH
+#                                          unset, so trails sees a plain terminal, not
+#                                          the editor the tests may be run from
 #   PATH                                   test/bin first: the stub agent, the stub fzf
 #
 # The directory is under /tmp, not the usual scratch locations: a unix socket path has
@@ -25,7 +28,7 @@ t_setup() {
   TMUX_TMPDIR=$T
   PATH=$REPO/test/bin:$PATH
   export HOME XDG_CONFIG_HOME XDG_STATE_HOME TMUX_TMPDIR PATH
-  unset TMUX TMUX_PANE
+  unset TMUX TMUX_PANE TERM_PROGRAM NVIM ZED_TERM TRAILS_ATTACH
   trap 't_teardown' EXIT
   trap 'exit 130' INT
   trap 'exit 143' TERM
@@ -69,12 +72,13 @@ EOF
 #
 # TMUX is unset for the command, so trails sees itself outside tmux and attaches as a
 # nested client, the way the map does. The command's own variables (FZF_PICK, say) are
-# passed with -e, since a pane starts from the server's environment, not the caller's.
-# Drivers are numbered so one test can run several.
+# passed with -e, since a pane starts from the server's environment, not the caller's; any
+# other goes as a NAME=VALUE word in front of the command, which env takes. The command runs
+# in $PROJ, or in $DRIVER_DIR when set. Drivers are numbered so one test can run several.
 DRIVERS=0
 driver() {
   DRIVERS=$((DRIVERS + 1))
-  tmux new-session -d -s "driver-$DRIVERS" -c "$PROJ" -x 120 -y 40 \
+  tmux new-session -d -s "driver-$DRIVERS" -c "${DRIVER_DIR:-$PROJ}" -x 120 -y 40 \
     -e "FZF_PICK=${FZF_PICK:-}" -e "FZF_QUERY=${FZF_QUERY:-}" -e "FZF_KEYS=${FZF_KEYS:-}" \
     -e "FZF_DUMP=${FZF_DUMP:-}" \
     "env -u TMUX -u TMUX_PANE $*"
@@ -95,6 +99,17 @@ wait_for() {
     n=$((n - 1))
   done
   return 1
+}
+
+# Where client $1 is: its session and current window, as `session window-name` (or with a
+# second argument, that format instead). From list-clients, whose formats are expanded in
+# the client's own context — display-message -c only picks where a message is *shown*, and
+# expands against a target pane, so it answers for the wrong client.
+client_at() {
+  ca_fmt=${2:-}
+  [ -n "$ca_fmt" ] || ca_fmt='#{session_name} #{window_name}'
+  tmux list-clients -F "#{client_name}$(printf '\t')$ca_fmt" 2>/dev/null |
+    awk -F'\t' -v c="$1" '$1 == c { print $2; exit }'
 }
 
 has_session() { tmux has-session -t "=$1" 2>/dev/null; }

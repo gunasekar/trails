@@ -356,8 +356,10 @@ rebuilt from them.
   re-creates its editor view. Companions are not restored: an editor or shell
   is reopened with one command.
 - **Records move from session to window.** 0.6 keys a record by session name;
-  1.0 keys it by the trail's own id, with its workspace and window name, and
-  marks the window `@trails_id` as today.
+  1.0 keys it by the trail's editor view name (`lattiq/augur-2`, a file one
+  directory down in the state directory), with its workspace, codebase label
+  and name inside, and marks the window `@trails_id` as today. A 0.6 record
+  keeps its old key until it is restored, which moves it.
 - **Config edits** apply to new and restored trails only; running windows stay
   where they are.
 
@@ -397,6 +399,10 @@ fewest things.
 | D5 | The map | Stays its own session; its cells attach to editor views |
 | D6 | Migration from 0.6 | Running sessions left alone; records migrated |
 | D7 | The Air on its own | Out of scope; trails works the same on any machine |
+| D8 | Editor view or workspace, on attach | The editor's own variables decide; `TRAILS_ATTACH` overrides |
+| D9 | Window names | `<codebase>·<agent>[-N]`, or `<codebase>·<name>` for a named trail |
+| D10 | A directory no workspace claims | Runs in `default`, and says so; the picker's prompt to add it comes with slice 4 |
+| D11 | Session options on what trails makes | None: no `status off`, no `@agent_locked` on workspaces or views |
 
 **D1. Plain names, refuse on collision.** A workspace session is named after
 the workspace (`lattiq`), as a tmux user expects in `tmux ls`
@@ -445,3 +451,32 @@ in 1.0 they attach to editor views, which already hold exactly one trail.
 its own, the Air runs its own server with its own workspaces. Showing one
 machine's trails from another is SSH's and the editors' remote modes' job,
 not trails'.
+
+**D8. The editor's own variables decide where an attach lands.** nvim sets
+`NVIM` in its terminals, Zed sets `ZED_TERM`, and both Zed and VS Code set
+`TERM_PROGRAM` (which tmux overwrites with its own inside a pane, so there the
+first two tell). With one of them set, `trails` attaches to the trail's editor
+view, and inside tmux nests a client of it in the pane, the way the map's
+cells do; without, it attaches to the workspace with the trail's window
+selected, and inside tmux runs `switch-client`. `TRAILS_ATTACH=view` or
+`=workspace` settles it by hand. trails strips `NVIM` and `ZED_TERM` from the
+environment it starts a tmux server with, so a server started from an
+editor's terminal does not make every later pane look like one.
+
+**D9. Window names say the codebase and the agent.** `augur·claude`, and
+`augur·claude-2` for the second unnamed trail there, so the window and its
+view (`lattiq/augur-2`) agree on the N. A named trail's window says the name
+instead of the agent, `augur·payments`, as its view does. A worktree's
+codebase label is `<repo>@<branch>`.
+
+**D10. Unclaimed directories run in `default`.** `trails new` in a directory
+no workspace claims runs the trail in `default` and prints why, with
+`trails ws add` as the fix. The one-time "add it here?" question belongs to
+the picker (slice 4).
+
+**D11. Nothing but `@trails_*` on what trails makes.** 0.6 set `status off`,
+`pane-border-status off` and `@agent_locked` on every agent session. Under
+principle 3, a workspace session and an editor view get none of these: a
+status line in an editor's panel is the user's to turn off, with a hook on
+`@trails_view` if they want it only there, and `trails keys` (slice 6) can
+suggest the line. 0.6 sessions still running keep the old policy.
