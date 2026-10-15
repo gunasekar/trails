@@ -11,7 +11,7 @@ menu() {
   rm -f "$T/menu"
   FZF_PICK='' FZF_DUMP=$T/menu trails_bg
   wait_for 5 test -s "$T/menu" || fail "the picker never reached fzf"
-  sed 's/\x1b\[[0-9;]*m//g' "$T/menu"
+  sed 's/\x1b\[[0-9;]*m//g' "$T/menu" | grep -v '^--- '
 }
 
 # Nothing running: one "new trail" row per agent, the default agent first.

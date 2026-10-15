@@ -681,15 +681,17 @@ RST=$(printf '\033[0m')
 screen_of() { tmux capture-pane -pt "$1" 2>/dev/null; }
 screen_hash() { printf '%s\n' "$1" | cksum; }
 
-# Every trail on the box, TSV: window id, key, workspace, agent label, directory, badge,
-# task. Unclassified and unfiltered — the picker keeps this directory's, `trails ls -a` the lot.
+# Every trail on the box, TSV: window id, key, workspace, agent label, directory, codebase,
+# badge, task. Unclassified and unfiltered — the picker keeps this directory's or this
+# workspace's, `trails ls -a` the lot.
 #
-#   wid     the trail's window, what every tmux call below targets (capture-pane, kill-window)
-#   key     its record's key and the name to attach to: its editor view, or a 0.6 session name
-#   ws      its workspace, or - for a 0.6 session
-#   label   @agent — "claude", or "claude (YOLO)" — or the pane's command for a session
-#           trails did not start
-#   badge   #name, #N, or -
+#   wid       the trail's window, what every tmux call below targets (capture-pane, kill-window)
+#   key       its record's key and the name to attach to: its editor view, or a 0.6 session name
+#   ws        its workspace, or - for a 0.6 session
+#   label     @agent — "claude", or "claude (YOLO)" — or the pane's command for a session
+#             trails did not start
+#   codebase  the codebase label its window is named from (augur, augur@retry)
+#   badge     #name, #N, or -
 #
 # One list-windows for the lot. A trail's window is linked into its editor view too, so it
 # lists twice; the row from its workspace session is the one kept. A 0.6 session's row is
@@ -723,7 +725,7 @@ sessions() {
       fi
       rec_note_task "$key" "$task"
       rec_note_id "$key" "$wid" "$label" "$s_id" "$dir" "$pid"
-      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$wid" "$key" "$ws" "$label" "$dir" \
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$wid" "$key" "$ws" "$label" "$dir" "$clabel" \
         "$(trail_badge "$key" "$clabel" "$cname")" "$task"
     done
   PS_TREE=
@@ -745,7 +747,7 @@ classify() {
 
   PS_TREE=$(ps -A -o pid= -o ppid=)
   pids=$(tmux list-windows -a -F "#{window_id}$TAB#{pane_pid}$TAB#{@trails_id}" 2>/dev/null)
-  known=$(printf '%s\n' "$rows" | while IFS="$TAB" read -r wid _key _ws label _dir _badge _task; do
+  known=$(printf '%s\n' "$rows" | while IFS="$TAB" read -r wid _key _ws label _dir _cb _badge _task; do
     finder=$(agent_row "${label%% *}" | awk -F'|' '{ print $9 }')
     [ -n "$finder" ] || continue
     m=$(printf '%s\n' "$pids" | awk -F"$TAB" -v n="$wid" '$1 == n { print $2 "|" $3; exit }')
@@ -768,7 +770,7 @@ classify() {
     sleep "$SETTLE"
   fi
 
-  printf '%s\n' "$rows" | while IFS="$TAB" read -r wid key ws label dir badge task; do
+  printf '%s\n' "$rows" | while IFS="$TAB" read -r wid key ws label dir cb badge task; do
     k=$(printf '%s\n' "$known" | awk -F"$TAB" -v n="$wid" '$1 == n { print $2 "|" $3; exit }')
     state=${k%%|*} peer=${k#*|}
     [ "$state" = - ] && state=
@@ -784,7 +786,7 @@ classify() {
         state=idle
       fi
     fi
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$state" "$wid" "$key" "$ws" "$label" "$dir" "$badge" "$peer" "$task"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$state" "$wid" "$key" "$ws" "$label" "$dir" "$cb" "$badge" "$peer" "$task"
   done
 }
 
@@ -904,7 +906,7 @@ ls_rows() {
   live=$(sessions | classify)
   {
     meta=$(tmux list-windows -a -F "#{window_id}$TAB#{@trails_id}" 2>/dev/null)
-    [ -n "$live" ] && printf '%s\n' "$live" | while IFS="$TAB" read -r state wid key ws label dir badge peer task; do
+    [ -n "$live" ] && printf '%s\n' "$live" | while IFS="$TAB" read -r state wid key ws label dir _cb badge peer task; do
       agent=${label%% *}
       yolo=-
       case $label in *"(YOLO)"*) yolo=yolo ;; *) ;; esac
@@ -1048,24 +1050,19 @@ list_sessions() {
     }'
 }
 
-# Menu lines are TAB-delimited; fzf draws only field 3 on (--with-nth). Fields 1-2 are
-# carried but never drawn: field 1 (verb) is what the dispatch matches for attach-vs-launch,
-# field 2 (target) is what ctrl-x reads as {2} — the trail's window id, for a running row.
-# The key is worth hiding — every row is the same codebase, so `lattiq/augur` would repeat —
-# and what differs survives as a `#2` or `#name` badge.
-#
-# This emits one more field in front — the agent — which print_menu strips after using it to
-# file each trail under its agent's "new" row. The agent is left out of the drawn badge for
-# the same reason: the row it hangs under already says it.
-#
-# Sorted by what it wants from you: blocked, idle, then the ones getting on with it — the
-# order each agent's branch keeps, and what the dispatch reads to land the cursor on the
-# trail you have to unblock.
+# The running trails as the picker's raw rows (see print_menu for the shape): this
+# directory's, or with an argument that workspace's. The key is worth hiding — on one
+# codebase's screen `lattiq/augur` would repeat on every row — and what differs survives
+# as a `#2` or `#name` badge; the window id is the target, what ctrl-x and the preview act on.
 live_trails() {
-  sessions | while IFS="$TAB" read -r wid key ws label dir badge task; do
-    [ "$dir" = "$PWD" ] || continue
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$wid" "$key" "$ws" "$label" "$dir" "$badge" "$task"
-  done | classify | while IFS="$TAB" read -r state wid _key _ws label _dir badge peer task; do
+  sessions | while IFS="$TAB" read -r wid key ws label dir cb badge task; do
+    if [ -n "${1:-}" ]; then
+      [ "$ws" = "$1" ] || continue
+    else
+      [ "$dir" = "$PWD" ] || continue
+    fi
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$wid" "$key" "$ws" "$label" "$dir" "$cb" "$badge" "$task"
+  done | classify | while IFS="$TAB" read -r state wid _key _ws label dir cb badge peer task; do
     # launch() writes @agent as "claude (YOLO)" for an armed launch: the first word is the
     # agent, and the YOLO it ran with goes in its own field.
     agent=${label%% *}
@@ -1073,9 +1070,37 @@ live_trails() {
     case $label in *"(YOLO)"*) yolo=yolo ;; *) ;; esac
     # A named claude shows its name as its title, which the badge already says.
     { [ "$task" = "${badge#\#}" ] || [ "$task" = "$peer" ]; } && task=
-    printf '%s\tattach\t%s\t%s\t%s\t%s\t-\t%s\n' \
-      "$(state_of "$state")" "$wid" "$agent" "$yolo" "$(badge_of "$badge" "$peer")" "$task"
+    printf '%s\tattach\t%s\t%s\t%s\t%s\t%s\t%s\t-\t%s\n' \
+      "$(state_of "$state")" "$wid" "$dir" "$cb" "$agent" "$yolo" "$(badge_of "$badge" "$peer")" "$task"
   done
+}
+
+# The trail in workspace $1 that most wants you: its window id, from the picker's cache when
+# there is one, else classified now. What attaching to a workspace lands on.
+top_trail() {
+  if [ -n "${TRAILS_MENU_CACHE:-}" ] && [ -s "$TRAILS_MENU_CACHE" ] && [ "${TRAILS_PICKER:-}" = ws ]; then
+    rows=$(awk -F"$TAB" -v w="$1" '$4 == w' "$TRAILS_MENU_CACHE")
+  else
+    rows=$(sessions | awk -F"$TAB" -v w="$1" '$3 == w' | classify)
+  fi
+  printf '%s\n' "$rows" | awk -F"$TAB" '
+    $1 == "blocked" && !b { b = $2 }
+    $1 == "idle" && !i { i = $2 }
+    NR == 1 { f = $2 }
+    END { print b ? b : (i ? i : f) }'
+}
+
+# A record's workspace and codebase, for the picker's lost rows: what the record kept, or
+# for a 0.6 record what its directory says now.
+rec_ws() {
+  rw=$(rec_get "$1" workspace)
+  [ -n "$rw" ] || rw=$(workspace_of "$(rec_get "$1" dir)") || rw=-
+  printf '%s' "$rw"
+}
+rec_codebase() {
+  rc=$(rec_get "$1" label)
+  [ -n "$rc" ] || rc=$(label_of "$(rec_get "$1" dir)")
+  printf '%s' "$rc"
 }
 
 # What a 0.6 session looks like, applied when one is attached to: @agent_locked marks "one
@@ -1144,7 +1169,17 @@ trail_name_taken() {
 # A 0.6 session goes as a session; a trail's window goes alone, and its editor view, holding
 # nothing else, goes with it.
 kill_session() {
-  if restorable_here "$1"; then
+  ks_ws=
+  case ${TRAILS_PICKER:-} in
+    workspace*) ks_ws=$TRAILS_WS ;;
+    *) ;;
+  esac
+  if rec_is_dead "$1"; then
+    if [ -n "$ks_ws" ]; then
+      [ "$(rec_ws "$1")" = "$ks_ws" ] || return 0
+    else
+      [ "$(rec_get "$1" dir)" = "$PWD" ] || return 0
+    fi
     rec_forget "$1"
     return 0
   fi
@@ -1152,7 +1187,11 @@ kill_session() {
     @*) ;;
     *) return 0 ;;
   esac
-  [ "$(trail_dir "$1")" = "$PWD" ] || return 0
+  if [ -n "$ks_ws" ]; then
+    [ "$(trail_ws "$1")" = "$ks_ws" ] || return 0
+  else
+    [ "$(trail_dir "$1")" = "$PWD" ] || return 0
+  fi
   key=$(trail_key "$1")
   case $key in
     */*) tmux kill-window -t "$1" 2>/dev/null ;;
@@ -1163,7 +1202,7 @@ kill_session() {
   # re-reads the survivors' state). Guarded on the cache path so a bare `trails --kill x` (no
   # picker, path unset) skips it. This is the one reload that pays classify's settle sleep, and
   # it should: a kill is rare and wants fresh state — unlike a Tab, which only relabels.
-  [ -n "$TRAILS_MENU_CACHE" ] && live_trails >"$TRAILS_MENU_CACHE"
+  [ -n "$TRAILS_MENU_CACHE" ] && live_trails $ks_ws >"$TRAILS_MENU_CACHE"
 }
 
 # tab: flip the highlighted row from the config's mode — arm it for YOLO, or under "mode":
@@ -1186,30 +1225,45 @@ toggle_yolo() {
   fi
 }
 
-# The picker, as two lists, every row of which does something on Enter.
+# The picker: one subcommand, five screens, chosen by TRAILS_PICKER (which the reload
+# subprocesses inherit) and, for the workspace ones, TRAILS_WS:
 #
-#   main  this directory's running sessions and lost ones — what you usually came for — then
-#         one "<agent> · new trail" row per agent, then "↩ resume old trails" when there
-#         are ended conversations to resume
-#   old   those ended conversations (closed, elsewhere), reached from that last row;
-#         TRAILS_PICKER=old, which the reload subprocesses inherit
+#   ''             this codebase: its running and lost trails — what you usually came for —
+#                  then one "<agent> · new trail" row per agent, then "↩ resume old trails"
+#                  when there are ended conversations to resume
+#   old            those ended conversations (closed, elsewhere), reached from that last row
+#   workspace      a workspace: its trails across its codebases, with a codebase column; then
+#                  "<codebase> · new <agent>" rows for the codebases with something running,
+#                  lost or recent; "＋ another codebase…" for the rest; "↩ resume old trails"
+#   workspace-old  its ended conversations
+#   ws             the workspaces, with what runs in each (ws_menu)
 #
 # Re-run by fzf after every Tab and ctrl-x, hence a subcommand.
 #
 # Every row is three tab-separated fields: verb, target, what's drawn. fzf draws only the
-# third (--with-nth); the verb is what the dispatch matches on Enter, the target what Tab and
-# ctrl-x act on. Sessions are gathered first as raw rows —
+# third (--with-nth); the verb is what the dispatch matches on Enter, the target what Tab,
+# ctrl-x and the preview act on. Trails are gathered first as raw rows —
 #
-#   state  verb  target  agent  yolo  badge  when  title
+#   state  verb  target  dir  codebase  agent  yolo  badge  when  title
 #
 # — then drawn together, so their columns line up across running and stopped alike.
 print_menu() {
+  [ "${TRAILS_PICKER:-}" = ws ] && {
+    ws_menu
+    return 0
+  }
   agents=$(available_agents)
   [ -n "$agents" ] || {
     echo "trails: no agent CLIs found on PATH" >&2
     exit 1
   }
-  # Running sessions, from the cache the dispatch classified once. classify() sleeps
+  in_ws=
+  case ${TRAILS_PICKER:-} in
+    workspace*) in_ws=$TRAILS_WS ;;
+    *) ;;
+  esac
+
+  # Running trails, from the cache the dispatch classified once. classify() sleeps
   # AGENT_SETTLE to sample each screen twice, and this runs on every Tab and ctrl-x; the
   # snapshot is fixed for the picker's life anyway (fzf never live-refreshes it). Empty with
   # no tmux.
@@ -1220,41 +1274,46 @@ print_menu() {
   armed=
   [ -n "$TRAILS_YOLO_STATE" ] && [ -s "$TRAILS_YOLO_STATE" ] && armed=$(cat "$TRAILS_YOLO_STATE")
 
-  # Lost: trails here that died with tmux. Read fresh on every reload — a few small files,
-  # and ctrl-x on one has to see it gone. TRAILS_RESTORE_OK is the dispatch's verdict,
-  # exported because this also runs as fzf's reload subprocess, which can't see the map's
-  # USE_TMUX override.
+  # Lost: trails here — this codebase's, or this workspace's — that died with tmux. Read
+  # fresh on every reload: a few small files, and ctrl-x on one has to see it gone.
+  # TRAILS_RESTORE_OK is the dispatch's verdict, exported because this also runs as fzf's
+  # reload subprocess.
   lost=
   if [ -n "$TRAILS_RESTORE_OK" ]; then
     lost=$(rec_dead | while read -r key; do
-      [ "$(rec_get "$key" dir)" = "$PWD" ] || continue
+      d=$(rec_get "$key" dir)
+      if [ -n "$in_ws" ]; then
+        [ "$(rec_ws "$key")" = "$in_ws" ] || continue
+      else
+        [ "$d" = "$PWD" ] || continue
+      fi
       yolo=$(rec_get "$key" yolo)
-      printf 'lost\trestore\t%s\t%s\t%s\t%s\t-\t%s\n' "$key" "$(rec_get "$key" agent)" \
-        "${yolo:--}" "$(rec_badge "$key")" "$(rec_get "$key" task)"
+      printf 'lost\trestore\t%s\t%s\t%s\t%s\t%s\t%s\t-\t%s\n' "$key" "$d" "$(rec_codebase "$key")" \
+        "$(rec_get "$key" agent)" "${yolo:--}" "$(rec_badge "$key")" "$(rec_get "$key" task)"
     done)
   fi
 
-  # Closed and elsewhere: recent conversations here that nothing is running, from the
-  # dispatch's cache (reading them costs ~150ms, which every Tab would pay). The target is
-  # agent:id. One that last ran YOLO resumes YOLO, the way a lost one comes back in its
-  # recorded mode, unless Tab flips it back to prompting; Tab arms one that didn't ("armed"
-  # draws its yolo in yellow). One still open
-  # in a claude trails didn't start is shown so you know where it went, under a verb the
-  # dispatch refuses.
+  # Closed and elsewhere: recent conversations nothing is running, from the dispatch's cache
+  # (reading them costs ~150ms, which every Tab would pay). The target is agent:id:dir. One that
+  # last ran YOLO resumes YOLO, the way a lost one comes back in its recorded mode, unless
+  # Tab flips it back to prompting; Tab arms one that didn't ("armed" draws its yolo in
+  # yellow). One still open in a claude trails didn't start is shown so you know where it
+  # went, under a verb the dispatch refuses.
   recent=
   if [ -n "$TRAILS_RECENT_CACHE" ] && [ -s "$TRAILS_RECENT_CACHE" ]; then
     now=$(date +%s)
-    recent=$(while IFS="$TAB" read -r m agent _ id yolo pid title; do
+    recent=$(while IFS="$TAB" read -r m agent dir id yolo pid title; do
+      cb=$(label_of "$dir")
       if [ "$pid" != - ]; then
         peer=$(claude_peer_by_pid "$pid") || peer=
         badge=-
         [ -n "$peer" ] && badge="@$peer "
-        printf 'elsewhere\topen\t%s:%s\t%s\t%s\t%s\t%s\t%s  (open in %s, pid %s)\n' \
-          "$agent" "$id" "$agent" "$yolo" "$badge" "$(ago "$m" "$now")" "$title" "$agent" "$pid"
+        printf 'elsewhere\topen\t%s:%s:%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s  (open in %s, pid %s)\n' \
+          "$agent" "$id" "$dir" "$dir" "$cb" "$agent" "$yolo" "$badge" "$(ago "$m" "$now")" "$title" "$agent" "$pid"
         continue
       fi
       verb=resume
-      if [ "$agent:$id" = "$armed" ]; then
+      if [ "$agent:$id:$dir" = "$armed" ]; then
         # Tab flips the row from its last mode, both ways: a yolo one back to prompting,
         # anything else up to yolo.
         if [ "$yolo" = yolo ]; then
@@ -1265,8 +1324,8 @@ print_menu() {
       elif [ "$yolo" = yolo ]; then
         verb='resume-yolo'
       fi
-      printf 'closed\t%s\t%s:%s\t%s\t%s\t-\t%s\t%s\n' \
-        "$verb" "$agent" "$id" "$agent" "$yolo" "$(ago "$m" "$now")" "$title"
+      printf 'closed\t%s\t%s:%s:%s\t%s\t%s\t%s\t%s\t-\t%s\t%s\n' \
+        "$verb" "$agent" "$id" "$dir" "$dir" "$cb" "$agent" "$yolo" "$(ago "$m" "$now")" "$title"
     done <"$TRAILS_RECENT_CACHE")
   fi
 
@@ -1282,20 +1341,32 @@ print_menu() {
   # newest first — and all at once, so the columns line up across both groups below. Widths
   # off the widest cell, the agent column measured on an ASCII stand-in: awk counts bytes, and
   # the · in "claude · yolo" is two of them. Each line comes out tagged M (main list: running
-  # and lost) or O (old list: closed and elsewhere), for the split that follows.
+  # and lost), O (old list: closed and elsewhere) or, on a workspace's screen, N: a "<codebase>
+  # · new <agent>" row for each codebase seen above, per agent, under the same codebase column.
+  # An N row is YOLO when the config's mode says so or Tab flipped it, not both — and only if
+  # the agent has a flag at all. Then its verb is "yolo" and it says so in yellow.
+  yoloable=
+  for a in $agents; do
+    [ -n "$(yolo_flag "$a")" ] && yoloable="$yoloable $a "
+  done
   drawn=
-  [ -n "$rows" ] && drawn=$(printf '%s\n' "$rows" | awk -F"$TAB" -v OFS="$TAB" -v states="$STATES_FLAT" \
-    -v red="$RED" -v yel="$YEL" -v dim="$DIM" -v rst="$RST" "$STATES_AWK"'
-    NF >= 8 {
-      n++; st[n] = $1; vb[n] = $2; tg[n] = $3; ag[n] = $4; yo[n] = $5; ti[n] = $8
-      aw[n] = length($4 ($5 == "-" ? "" : " - yolo")); if (aw[n] > w2) w2 = aw[n]
-      c3[n] = ($6 != "-" ? $6 : "") ($7 != "-" ? $7 : ""); if (length(c3[n]) > w3) w3 = length(c3[n])
+  [ -n "$rows$in_ws" ] && drawn=$(printf '%s\n' "$rows" | awk -F"$TAB" -v OFS="$TAB" -v states="$STATES_FLAT" \
+    -v red="$RED" -v yel="$YEL" -v dim="$DIM" -v rst="$RST" -v inws="$in_ws" -v agents="$(printf '%s ' $agents)" \
+    -v armed="$armed" -v mode="$MODE" -v yoloable="$yoloable" "$STATES_AWK"'
+    NF >= 10 {
+      n++; st[n] = $1; vb[n] = $2; tg[n] = $3; cb[n] = $5; ag[n] = $6; yo[n] = $7; ti[n] = $10
+      if (!($4 in seen)) { seen[$4] = 1; dirs[++nd] = $4; label[$4] = $5 }
+      aw[n] = length($6 ($7 == "-" ? "" : " - yolo")); if (aw[n] > w2) w2 = aw[n]
+      if (length(cb[n]) > wc) wc = length(cb[n])
+      c3[n] = ($8 != "-" ? $8 : "") ($9 != "-" ? $9 : ""); if (length(c3[n]) > w3) w3 = length(c3[n])
     }
     END {
       for (r = 1; r <= ns; r++) for (i = 1; i <= n; i++) {
         if (rank[st[i]] != r) continue
         y = yo[i] == "yolo" ? " · yolo" : (yo[i] == "armed" ? " · " yel "yolo" rst : "")
-        line = show(st[i]) "  " ag[i] y sprintf("%*s", w2 - aw[i], "")
+        line = show(st[i])
+        if (inws != "") line = line "  " sprintf("%-*s", wc, cb[i])
+        line = line "  " ag[i] y sprintf("%*s", w2 - aw[i], "")
         if (w3) line = line "  " sprintf("%-*s", w3, c3[i])
         line = line "  " ti[i]
         sub(/ +$/, "", line)
@@ -1303,34 +1374,197 @@ print_menu() {
         # which ranks ● and ○ equal.
         print (st[i] ~ /^(needs-you|your-turn|working|lost)$/ ? "M" : "O"), vb[i], tg[i], line
       }
+      if (inws == "") exit
+      na = split(agents, A, " ")
+      for (d = 1; d <= nd; d++) for (j = 1; j <= na; j++) {
+        a = A[j]; t = a ":" dirs[d]
+        y = (mode == "yolo") != (armed == t)
+        if (y && index(yoloable, " " a " ")) {
+          print "N", "yolo", t, sprintf("%-11s", "") "  " sprintf("%-*s", wc, label[dirs[d]]) "  · new " a "  " yel "(YOLO)" rst
+        } else {
+          print "N", "new", t, sprintf("%-11s", "") "  " sprintf("%-*s", wc, label[dirs[d]]) "  " dim "· new " a rst
+        }
+      }
     }')
 
-  if [ "${TRAILS_PICKER:-}" = old ]; then
-    printf '%s\n' "$drawn" | awk -F"$TAB" -v OFS="$TAB" '$1 == "O" { print $2, $3, $4 }'
-    return 0
-  fi
+  case ${TRAILS_PICKER:-} in
+    old | workspace-old)
+      printf '%s\n' "$drawn" | awk -F"$TAB" -v OFS="$TAB" '$1 == "O" { print $2, $3, $4 }'
+      return 0
+      ;;
+    *) ;;
+  esac
 
   printf '%s\n' "$drawn" | awk -F"$TAB" -v OFS="$TAB" '$1 == "M" { print $2, $3, $4 }'
-  # An agent's row is YOLO when the config's mode says so or Tab flipped it, not both — and
-  # only if the agent has a flag at all. Then its verb is "yolo" and it says so in yellow.
-  for a in $agents; do
-    y=
-    if [ "$MODE" = yolo ]; then
-      [ "$a" = "$armed" ] || y=1
-    else
-      [ "$a" = "$armed" ] && y=1
-    fi
-    if [ -n "$y" ] && [ -n "$(yolo_flag "$a")" ]; then
-      printf 'yolo\t%s\t%s · new trail  %s(YOLO)%s\n' "$a" "$a" "$YEL" "$RST"
-    else
-      printf 'new\t%s\t%s %s· new trail%s\n' "$a" "$a" "$DIM" "$RST"
-    fi
-  done
+  if [ -n "$in_ws" ]; then
+    printf '%s\n' "$drawn" | awk -F"$TAB" -v OFS="$TAB" '$1 == "N" { print $2, $3, $4 }'
+    # The way to the codebases with nothing running: every directory the workspace lists or
+    # holds under its root, minus the ones already above.
+    listed=$(printf '%s\n' "$rows" | cut -f4 | sort -u)
+    more=$(browse_dirs "$in_ws" | awk -v l="$(printf '%s\n' "$listed" | tr '\n' '|')" 'index("|" l, "|" $0 "|") == 0' | wc -l | tr -d ' ')
+    printf 'browse\t-\t＋ another codebase…  %s(%s under %s)%s\n' "$DIM" \
+      "$([ "$more" -eq 1 ] && echo "1 more" || echo "$more more")" "$(tilde_path "$(ws_root "$in_ws")")" "$RST"
+  else
+    # An agent's row is YOLO when the config's mode says so or Tab flipped it, not both — and
+    # only if the agent has a flag at all. Then its verb is "yolo" and it says so in yellow.
+    for a in $agents; do
+      y=
+      if [ "$MODE" = yolo ]; then
+        [ "$a" = "$armed" ] || y=1
+      else
+        [ "$a" = "$armed" ] && y=1
+      fi
+      if [ -n "$y" ] && [ -n "$(yolo_flag "$a")" ]; then
+        printf 'yolo\t%s\t%s · new trail  %s(YOLO)%s\n' "$a" "$a" "$YEL" "$RST"
+      else
+        printf 'new\t%s\t%s %s· new trail%s\n' "$a" "$a" "$DIM" "$RST"
+      fi
+    done
+  fi
   # The way into the old list, with what's in it.
   old=$(printf '%s\n' "$drawn" | awk -F"$TAB" '$1 == "O" { n++ } END { print n + 0 }')
   [ "$old" -gt 0 ] && printf 'more\t-\t↩ resume old trails  %s(%s)%s\n' "$DIM" \
     "$([ "$old" -eq 1 ] && echo "1 ended" || echo "$old ended")" "$RST"
   return 0
+}
+
+# The workspace picker's rows: every workspace the config names, plus "default" when it has
+# anything, plus any marked session the config no longer names — with what runs in each,
+# counted off the dispatch's cache of every trail classified (sessions | classify). Sorted
+# by what wants you, then by how much runs, then by name; the one you were in last (the
+# workspace session most recently attached) is marked, and the dispatch lands the cursor
+# on it.
+#
+#   workspace  NAME  <drawn>
+ws_menu() {
+  counts=
+  [ -n "$TRAILS_MENU_CACHE" ] && [ -s "$TRAILS_MENU_CACHE" ] &&
+    counts=$(awk -F"$TAB" '$4 != "-" { run[$4]++; if ($1 == "blocked") need[$4]++; if ($1 == "idle") turn[$4]++ }
+      END { for (w in run) print w "\t" run[w] "\t" need[w] + 0 "\t" turn[w] + 0 }' "$TRAILS_MENU_CACHE")
+  last=$(tmux list-sessions -F "#{session_last_attached}$TAB#{@trails_workspace}" 2>/dev/null |
+    awk -F"$TAB" '$2 != "" && $1 > m { m = $1; w = $2 } END { print w }')
+  {
+    printf '%s\n' "$WORKSPACES" | cut -d'|' -f1
+    [ -n "$WORKSPACES" ] || echo default
+    printf '%s\n' "$counts" | cut -f1
+    rec_keys | while read -r k; do rec_ws "$k"; done
+    tmux list-sessions -F '#{@trails_workspace}' 2>/dev/null
+  } | awk 'NF && $0 != "-" && !seen[$0]++' | while read -r w; do
+    c=$(printf '%s\n' "$counts" | awk -F"$TAB" -v w="$w" '$1 == w { print $2 "\t" $3 "\t" $4; exit }')
+    run=${c%%"$TAB"*} rest=${c#*"$TAB"} need=${rest%%"$TAB"*} turn=${rest#*"$TAB"}
+    [ -n "$c" ] || run=0 need=0 turn=0
+    if [ "$run" -gt 0 ]; then
+      text="● $run trail$([ "$run" -eq 1 ] || echo s)"
+      [ "$need" -gt 0 ] && text="$text · ${RED}$need need$([ "$need" -eq 1 ] && echo s) you$RST"
+      [ "$turn" -gt 0 ] && text="$text · ${YEL}$turn your turn$RST"
+    else
+      text="${DIM}nothing running$RST"
+    fi
+    [ "$w" = "$last" ] && text="$text  ${DIM}· last$RST"
+    printf '%s\t%s\t%s\tworkspace\t%s\t%-12s %s\n' "$need" "$run" "$w" "$w" "$w" "$text"
+  done | sort -t "$TAB" -k1,1nr -k2,2nr -k3,3 | cut -f4-
+}
+
+# A workspace's root as the config has it, else $HOME: where browsing for another codebase
+# starts.
+ws_root() {
+  r=$(printf '%s\n' "$WORKSPACES" | awk -F'|' -v n="$1" '$1 == n { print $2; exit }')
+  printf '%s' "${r:-$HOME}"
+}
+
+# Every directory workspace $1 could hold a trail in: what its codebase entries match (a
+# glob expands here, a path is itself), and the directories under its root. Sorted, once each.
+browse_dirs() {
+  {
+    printf '%s\n' "$WORKSPACES" | awk -F'|' -v n="$1" '$1 == n && $3 != "" { print $3 }' |
+      while IFS= read -r pat; do
+        # shellcheck disable=SC2086 # the glob is the point
+        for d in $pat; do
+          [ -d "$d" ] && printf '%s\n' "$d"
+        done
+      done
+    for d in "$(ws_root "$1")"/*/; do
+      d=${d%/}
+      [ -d "$d" ] && printf '%s\n' "$d"
+    done
+  } | awk '!seen[$0]++' | sort
+}
+
+# fzf over browse_dirs (or, with $2, over the directories under that path): prints the
+# directory picked, nothing on Esc.
+pick_dir() {
+  if [ -n "${2:-}" ]; then
+    list=$(for d in "$2"/*/; do
+      d=${d%/}
+      [ -d "$d" ] && printf '%s\n' "$d"
+    done)
+  else
+    list=$(browse_dirs "$1")
+  fi
+  [ -n "$list" ] || {
+    echo "trails: no directories to pick from under $(tilde_path "${2:-$(ws_root "$1")}")" >&2
+    return 1
+  }
+  printf '%s\n' "$list" | while IFS= read -r d; do
+    printf '%s\t%s\n' "$d" "$(tilde_path "$d")"
+  done | fzf --reverse --no-info --delimiter='\t' --with-nth=2 --height=~80% \
+    --prompt="${3:-Pick a codebase: }" | cut -f1
+}
+
+# This directory belongs to no workspace, and some are configured: ask once which it joins
+# (written to the config, as `trails ws add` would) or whether to run here this once, in
+# "default". Sets TRAILS_WS either way, so the screens that follow stop asking.
+ask_workspace() {
+  here=$(tilde_path "$PWD")
+  choice=$({
+    printf '%s\n' "$WORKSPACES" | cut -d'|' -f1 | awk '!seen[$0]++' | while read -r w; do
+      printf 'add\t%s\tadd %s to %s\n' "$w" "$here" "$w"
+    done
+    printf 'once\tdefault\trun it here this once  %s(in default)%s\n' "$DIM" "$RST"
+  } | fzf --reverse --no-info --ansi --delimiter='\t' --with-nth=3 --height=~80% \
+    --prompt="$here is in no workspace: ") || exit 0
+  w=$(printf '%s' "$choice" | cut -f2)
+  case $choice in
+    add*)
+      ws_add "$w" "$PWD" >&2 || exit 1
+      WORKSPACES=$(load_workspaces)
+      ;;
+    *) ;;
+  esac
+  TRAILS_WS=$w
+  export TRAILS_WS
+}
+
+# Go to workspace $1: switch the client you are in, or attach, to its session, landing on
+# the trail that most wants you — or, when nothing runs there, show its screen, since no
+# session is made for an empty workspace. A session of its name that is not a workspace is
+# refused (D1).
+ws_switch() {
+  check_ws_name "$1" || exit 1
+  if tmux has-session -t "=$1" 2>/dev/null; then
+    [ "$(tmux display-message -pt "$1" '#{@trails_workspace}' 2>/dev/null)" = "$1" ] || {
+      echo "trails: a tmux session named \"$1\" exists and isn't a trails workspace." >&2
+      echo "        Rename it (tmux rename-session -t $1 NEW) or the workspace in $CONFIG." >&2
+      exit 1
+    }
+    top=$(top_trail "$1")
+    [ -z "$TMUX" ] || exec tmux switch-client -t "=$1${top:+:$top}"
+    exec tmux attach-session -t "=$1${top:+:$top}"
+  fi
+  known=$(printf '%s\n' "$WORKSPACES" | cut -d'|' -f1)
+  case "
+$known
+default
+" in
+    *"
+$1
+"*) ;;
+    *)
+      echo "trails: no workspace named \"$1\" — trails ws add $1 DIR makes one" >&2
+      exit 1
+      ;;
+  esac
+  TRAILS_PICKER=workspace TRAILS_WS=$1 exec "$SELF"
 }
 
 # ─── Launch ──────────────────────────────────────────────────────────────────
@@ -1363,6 +1597,7 @@ BOOT=1.5
 # LAUNCH_DETACHED set, it prints the new key and returns instead of attaching — restore needs
 # the key back, and `trails restore` brings back several without sitting in any of them.
 launch() {
+  refuse_bad_cwd
   row=$(agent_row "$1")
   [ -n "$row" ] || {
     echo "trails: unknown agent '$1'" >&2
@@ -1440,11 +1675,13 @@ EOF
   fi
 
   # Where it goes: the workspace the config gives this directory. A restore of a trail whose
-  # directory no entry claims any more keeps the workspace its record names; anything else
-  # unclaimed runs in "default", and says so, since the config is the user's to change.
+  # directory no entry claims any more keeps the workspace its record names; the picker may
+  # have asked and settled it (TRAILS_WS); anything else unclaimed runs in "default", and
+  # says so, since the config is the user's to change.
   ws=$(workspace_of "$PWD") || ws=
   if [ -z "$ws" ]; then
     [ -n "$4" ] && ws=$(rec_get "$4" workspace)
+    [ -n "$ws" ] || ws=${TRAILS_WS:-}
     [ -n "$ws" ] || {
       ws=default
       echo "trails: no workspace claims $(tilde_path "$PWD") — running in \"default\" (trails ws add NAME files it)" >&2
@@ -1532,7 +1769,7 @@ EOF
   # untouched by anything the user renames or re-numbers.
   door='env -u TRAILS_PICKER -u TRAILS_YOLO_STATE -u TRAILS_MENU_CACHE -u TRAILS_RECENT_CACHE
     -u TRAILS_RESTORE_OK -u USE_TMUX -u LAUNCH_DETACHED -u TRAILS_NAME -u TRAILS_ATTACH
-    -u NVIM -u ZED_TERM tmux'
+    -u TRAILS_WS -u NVIM -u ZED_TERM tmux'
   # shellcheck disable=SC2086
   if tmux has-session -t "=$ws" 2>/dev/null; then
     wid=$($door new-window -d -t "=$ws:" -n "$win" -c "$PWD" -P -F '#{window_id}' \
@@ -2471,7 +2708,7 @@ map_agent() { tmux display-message -pt "$1" '#{@agent}' 2>/dev/null; }
 # Each row shows its trail's key — lattiq/augur-2, or a 0.6 session's name without its
 # prefix — since box-wide the codebase and the workspace are what tell trails apart.
 map_menu() {
-  sessions | classify | while IFS="$TAB" read -r state _wid key _ws label _dir badge peer task; do
+  sessions | classify | while IFS="$TAB" read -r state _wid key _ws label _dir _cb badge peer task; do
     rank_dot "$state"
     [ "$peer" = - ] || [ "$badge" = "#$peer" ] || label="$label @$peer"
     [ "$task" = "$peer" ] && task=
@@ -2875,7 +3112,9 @@ usage() {
   cat <<'EOF'
 usage: trails [command]
 
-  (none)            this directory's trails, then the agents you can start
+  (none)            the picker for where you are: this codebase's trails and the agents
+                    you can start; a workspace's trails, from a shell in its session; or
+                    the workspaces, from ~
   new NAME [AGENT]  start a trail named NAME: its editor view is <workspace>/NAME, and
                     the agent takes the name where it can (claude's peers message it
                     as NAME); -y for YOLO
@@ -2885,7 +3124,9 @@ usage: trails [command]
                     most want you; `new` rebuilds instead of re-attaching
   restore           bring back every trail that died with tmux (the lost ones), each
                     into its workspace
-  ws                the workspaces in the config, and the codebases each holds
+  ws [NAME]         pick a workspace, or go to NAME: switch (inside tmux) or attach to
+                    its session, or its picker when nothing runs there
+  ws list           the workspaces in the config, and the codebases each holds
   ws of [DIR]       the workspace DIR (here) belongs to
   ws add NAME [DIR] put DIR (here) in workspace NAME, creating it if new
   swiftbar          link the menu-bar plugin into SwiftBar (macOS); --remove unlinks
@@ -2893,12 +3134,15 @@ usage: trails [command]
                     time, then opened in $EDITOR (~/.config/trails/config.json)
   help              this
 
-In the picker — running and lost trails, then "<agent> · new trail" rows, then
-"↩ resume old trails", which lists the ones that ended here (esc comes back):
+In the picker — running and lost trails, then "new" rows (one per agent here, or one
+per codebase and agent in a workspace), "＋ another codebase…", then "↩ resume old
+trails", which lists the ones that ended (esc comes back):
   enter             open it: attach, restore, resume, or start the agent
   tab               toggle YOLO (run everything unconfirmed) on an agent to start or a
                     closed trail; "mode": "yolo" in the config starts new rows armed
   ctrl-n            name the new trail under the cursor: type the name, then enter
+                    (on the workspace picker: a new workspace)
+  ctrl-/            show or hide the preview: the trail's screen as it is now
   ctrl-x            end a running trail, or forget a lost one
 
 States — ● running, ○ not:
@@ -2921,15 +3165,15 @@ EOF
 # and the wrapper's --forget, which has to work even when the config is broken. ls carries on
 # without them (only its closed rows need them), so a typo in the file can't blank a menu bar.
 case $1 in
-  help | -h | --help | config | swiftbar | ws | --forget | --peek) AGENTS= ;;
-  ls) AGENTS=$(load_agents) || AGENTS= ;;
+  help | -h | --help | config | swiftbar | --forget | --peek) AGENTS= ;;
+  ls | ws) AGENTS=$(load_agents) || AGENTS= ;;
   *) AGENTS=$(load_agents) || exit 1 ;;
 esac
 # The workspaces, read once per run too; empty means none configured (see workspace_of).
 WORKSPACES=$(load_workspaces)
 MODE=default
 case $1 in
-  '' | --print-menu) MODE=$(load_mode) ;;
+  '' | ws | --print-menu) MODE=$(load_mode) ;;
   *) ;; # only the picker draws "+ new" rows
 esac
 
@@ -2964,11 +3208,27 @@ case $1 in
     restore_all "$2"
     exit 0
     ;;
-  # About the config, not about opening anything, so no cwd check either.
+  # `trails ws` on a terminal is the workspace picker, and `trails ws NAME` goes straight
+  # there; the rest is about the config. Piped, bare `ws` lists, for a script.
   ws)
     shift
-    ws_cmd "$@"
-    exit $?
+    case ${1:-} in
+      '') [ -t 1 ] || {
+        ws_cmd
+        exit $?
+      } ;;
+      of | add | list)
+        [ "$1" = list ] && shift
+        ws_cmd "$@"
+        exit $?
+        ;;
+      -*)
+        ws_cmd "$@"
+        exit $?
+        ;;
+      *) ws_switch "$1" ;;
+    esac
+    TRAILS_PICKER=ws
     ;;
   # Called by the wrapper launch() puts around every agent, when the agent exits.
   --forget)
@@ -2998,8 +3258,6 @@ case $1 in
     ;;
 esac
 
-refuse_bad_cwd
-
 # In a shell pane of the map, the pane becomes the new trail's cell (see in_map, attach_to).
 IN_MAP=
 in_map && IN_MAP=1
@@ -3010,6 +3268,37 @@ if [ "${1:-}" = new ]; then
   exit 0
 fi
 
+# Which screen (see print_menu), for a bare `trails`: an editor's terminal gets its codebase's
+# trails, whatever is around it (the editor never sees workspaces); a shell in a workspace
+# session — or a popup over one — gets that workspace's; nowhere in particular (~, a fresh
+# SSH login, /) gets the workspaces; and a shell in a codebase gets the codebase's. The
+# client's session says whether you are in a workspace: inside tmux every pane has a
+# client, and a popup inherits the one that opened it. TRAILS_PICKER already set is a
+# re-entry from one screen to another (or `trails ws`), and is kept.
+if [ -z "${TRAILS_PICKER:-}" ]; then
+  if from_editor; then
+    :
+  elif [ -n "$TMUX" ] && [ -n "$USE_TMUX" ] &&
+    w=$(tmux display-message -p '#{@trails_workspace}' 2>/dev/null) && [ -n "$w" ]; then
+    TRAILS_PICKER=workspace TRAILS_WS=$w
+  elif [ "$PWD" = "$HOME" ] || [ "$(pwd -P)" = / ]; then
+    TRAILS_PICKER=ws
+  fi
+fi
+export TRAILS_PICKER TRAILS_WS
+
+# A codebase screen in a directory no workspace claims asks once where it belongs
+# (ask_workspace), unless an earlier screen already settled it. The picker is the one place
+# that asks: `trails new` and restore say what they did and carry on.
+case ${TRAILS_PICKER:-} in
+  '' | old)
+    if [ -z "${TRAILS_WS:-}" ] && [ -n "$WORKSPACES" ] && ! workspace_of "$PWD" >/dev/null; then
+      ask_workspace
+    fi
+    ;;
+  *) ;;
+esac
+
 # Per-invocation temp files, exported so the fzf-spawned --toggle-yolo / --print-menu /
 # --kill subprocesses all share them. All three live in one private directory from mktemp -d,
 # not at $$-named paths in a /tmp other users can write to, where a planted symlink would have
@@ -3018,15 +3307,16 @@ fi
 #
 # INT and TERM exit, and the exit runs the EXIT trap. A trap that only cleaned up let a ctrl-c
 # during the classify below carry straight on, into a picker built from the caches it had
-# just deleted — no running sessions, in the one you had tried to cancel.
+# just deleted — no running trails, in the one you had tried to cancel.
 #
 # TRAILS_YOLO_STATE — which agent (if any) you armed for YOLO with Tab. The chosen row's verb
 #                     already carries the mode by the time fzf returns, so nothing reads it after.
-# TRAILS_MENU_CACHE — the running-sessions block, classified once here rather than on every
-#                     reload. print_menu is re-run for each Tab and ctrl-x; live_trails() sleeps
+# TRAILS_MENU_CACHE — the running trails, classified once here rather than on every reload.
+#                     print_menu is re-run for each Tab and ctrl-x; live_trails() sleeps
 #                     AGENT_SETTLE to sample screens twice, so recomputing it per keystroke is
 #                     what delayed the Tab relabel. The snapshot does not change over the picker's
 #                     life (fzf never refreshes it on its own), so caching loses no freshness.
+#                     On the workspace picker it holds every trail classified, for the counts.
 # TRAILS_RECENT_CACHE — the closed rows' raw TSV, for the same reason: read once, drawn per reload.
 TRAILS_TMP=$(mktemp -d "${TMPDIR:-/tmp}/trails.XXXXXX") || exit 1
 TRAILS_YOLO_STATE=$TRAILS_TMP/yolo
@@ -3039,10 +3329,14 @@ trap 'exit 143' TERM
 
 # Classify the running trails once, up front — the only place that pays classify's settle
 # sleep on the picker's happy path. Empty (not absent) with no tmux to look in.
-if [ -n "$USE_TMUX" ] && [ "${TRAILS_PICKER:-}" != old ]; then
-  live_trails >"$TRAILS_MENU_CACHE"
-else
-  : >"$TRAILS_MENU_CACHE"
+: >"$TRAILS_MENU_CACHE"
+if [ -n "$USE_TMUX" ]; then
+  case ${TRAILS_PICKER:-} in
+    '') live_trails >"$TRAILS_MENU_CACHE" ;;
+    workspace) live_trails "$TRAILS_WS" >"$TRAILS_MENU_CACHE" ;;
+    ws) sessions | classify >"$TRAILS_MENU_CACHE" ;;
+    *) ;;
+  esac
 fi
 
 # Lost rows on the same terms as the running ones: not where there is no tmux to restore
@@ -3052,99 +3346,187 @@ TRAILS_RESTORE_OK=
 [ -n "$USE_TMUX" ] && TRAILS_RESTORE_OK=1
 export TRAILS_RESTORE_OK
 
-# closed rows need no tmux: resuming bare is still resuming.
-recent_rows "$PWD" >"$TRAILS_RECENT_CACHE"
+# Closed rows need no tmux: resuming bare is still resuming. A workspace's are the box's
+# recent conversations whose directory it claims.
+case ${TRAILS_PICKER:-} in
+  ws) : >"$TRAILS_RECENT_CACHE" ;;
+  workspace*) recent_rows '' | while IFS="$TAB" read -r m agent dir rest; do
+    [ "$(workspace_of "$dir" 2>/dev/null)" = "$TRAILS_WS" ] &&
+      printf '%s\t%s\t%s\t%s\n' "$m" "$agent" "$dir" "$rest"
+  done >"$TRAILS_RECENT_CACHE" ;;
+  *) recent_rows "$PWD" >"$TRAILS_RECENT_CACHE" ;;
+esac
 
 MENU=$(print_menu) || exit 1
+[ -n "$MENU" ] || {
+  echo "trails: nothing to pick from — trails ws add NAME DIR gives a workspace its first codebase" >&2
+  exit 1
+}
 
-# --height=~80%: hug the content, capped at 80%, so three sessions don't open a
+# --height=~80%: hug the content, capped at 80%, so three trails don't open a
 # full-screen box. --wrap because a task is a sentence and a narrow pane (Zed's terminal,
 # nvim's right panel) can run past the edge — wrapping costs a row and shows all of it,
-# where truncating would hide the field that tells two sessions of one project apart.
+# where truncating would hide the field that tells two trails of one codebase apart.
 #
 # tab arms the highlighted row for YOLO (toggle_yolo) and reloads so print_menu can relabel
 # it; the reload keeps the cursor on the row, so Tab-then-Enter lands on what you armed.
 # The keys are a dim `# …` right after the prompt rather than a header line of their own, and
-# there is no rule under the prompt: two rows back for sessions in a short panel. fzf's info
+# there is no rule under the prompt: two rows back for trails in a short panel. fzf's info
 # area is what sits there (--info=inline), and --info-command swaps its match count for the
 # hint. Beside the prompt rather than pinned to the right edge, where a wide terminal left it
 # far from where you type; a pane too narrow for it cuts the hint, never the rows.
+#
+# The preview is the highlighted trail's screen as it is now (peek): what it is asking,
+# without opening it. On the right, when the terminal is wide enough for two columns, else
+# hidden until ctrl-/ shows it; a row that is not a running trail previews nothing.
 set -- --reverse --ansi --wrap --no-separator \
   --info='inline:   ' --color='info:dim' \
-  --delimiter='\t' --with-nth='3..' --height=~80% \
-  --bind="tab:execute-silent($0 --toggle-yolo {2})+reload($0 --print-menu)"
+  --delimiter='\t' --with-nth='3..' --height=~80%
+cols=$(tput cols 2>/dev/null)
+case $cols in
+  '' | *[!0-9]*) cols=0 ;;
+  *) ;;
+esac
+hidden=
+[ "$cols" -ge 120 ] || hidden=,hidden
+case ${TRAILS_PICKER:-} in
+  ws) ;;
+  *) set -- "$@" --preview="$0 --peek {2}" --preview-window="right,50%,border-left$hidden" \
+    --bind='ctrl-/:toggle-preview' \
+    --bind="tab:execute-silent($0 --toggle-yolo {2})+reload($0 --print-menu)" ;;
+esac
 
-if [ "${TRAILS_PICKER:-}" = old ]; then
-  set -- "$@" --prompt='Resume a trail: ' \
-    --info-command="echo '# enter: resume · tab: toggle YOLO · esc: back'"
-else
-  # Start the cursor on the session that most wants you — the first "needs you", else the
-  # first "your turn" — else on the first row, whatever it is.
-  # On the first `load`, then unbound: not `start`, which fires before fzf has read a row (it
-  # takes input asynchronously) so pos() lands on nothing; and not a standing `load`, which
-  # fires on every Tab reload too and would yank the cursor off the row you just armed.
-  want=$(printf '%s\n' "$MENU" | awk -F"$TAB" '
-    $1 != "attach" { next }
-    { s = $3; gsub("\033\\[[0-9;]*m", "", s) } # the glyph and word are coloured
-    !b && index(s, "● needs you") { b = NR }
-    !i && index(s, "● your turn") { i = NR }
-    END { print b ? b : i }')
-  # ctrl-n turns the query into the name for the new trail under the cursor: the prompt says
-  # so, and search goes off so typing the name doesn't filter that row away. The marker file
-  # is how the dispatch below tells a name from a filter, since --print-query prints both.
-  set -- "$@" --prompt='Pick a trail: ' --print-query \
-    --bind="ctrl-n:execute-silent(touch '$TRAILS_TMP/naming')+change-prompt(Name this trail: )+disable-search+clear-query"
-  [ -n "$want" ] && set -- "$@" --bind="load:pos($want)+unbind(load)"
-  # ctrl-x ends a running session and forgets a lost one, and the hint names only what this
-  # list has: "end", "forget", both, or — with neither — no ctrl-x at all.
-  x=
-  printf '%s\n' "$MENU" | grep -q '^attach' && x=end
-  printf '%s\n' "$MENU" | grep -q '^restore' && x=${x:+$x or }forget
-  if [ -n "$x" ]; then
-    set -- "$@" --info-command="echo '# enter: open · tab: toggle YOLO · ctrl-n: name it · ctrl-x: $x'" \
-      --bind="ctrl-x:execute-silent($0 --kill {2})+reload($0 --print-menu)"
-  else
-    set -- "$@" --info-command="echo '# enter: open · tab: toggle YOLO · ctrl-n: name it'"
-  fi
-fi
+# Start the cursor on the trail that most wants you — the first "needs you", else the first
+# "your turn" — else on the first row, whatever it is; on the workspace picker, on the
+# workspace you were in last.
+# On the first `load`, then unbound: not `start`, which fires before fzf has read a row (it
+# takes input asynchronously) so pos() lands on nothing; and not a standing `load`, which
+# fires on every Tab reload too and would yank the cursor off the row you just armed.
+want=$(printf '%s\n' "$MENU" | awk -F"$TAB" '
+  { s = $3; gsub("\033\\[[0-9;]*m", "", s) } # the glyph and word are coloured
+  $1 == "workspace" && index(s, "· last") { b = NR }
+  $1 != "attach" { next }
+  !b && index(s, "● needs you") { b = NR }
+  !i && index(s, "● your turn") { i = NR }
+  END { print b ? b : i }')
+case ${TRAILS_PICKER:-} in
+  old | workspace-old)
+    set -- "$@" --prompt='Resume a trail: ' \
+      --info-command="echo '# enter: resume · tab: toggle YOLO · ctrl-/: preview · esc: back'"
+    ;;
+  ws)
+    # ctrl-n names a new workspace: the name is the query, as a trail's is below.
+    set -- "$@" --prompt='Pick a workspace: ' --print-query \
+      --info-command="echo '# enter: open · ctrl-n: new workspace'" \
+      --bind="ctrl-n:execute-silent(touch '$TRAILS_TMP/naming')+change-prompt(Name the workspace: )+disable-search+clear-query"
+    ;;
+  *)
+    case ${TRAILS_PICKER:-} in
+      workspace) prompt="$TRAILS_WS ▸ Pick a trail: " ;;
+      *) prompt="$(label_of "$PWD") ($(workspace_of "$PWD" 2>/dev/null || printf '%s' "${TRAILS_WS:-default}")) ▸ Pick a trail: " ;;
+    esac
+    # ctrl-n turns the query into the name for the new trail under the cursor: the prompt says
+    # so, and search goes off so typing the name doesn't filter that row away. The marker file
+    # is how the dispatch below tells a name from a filter, since --print-query prints both.
+    set -- "$@" --prompt="$prompt" --print-query \
+      --bind="ctrl-n:execute-silent(touch '$TRAILS_TMP/naming')+change-prompt(Name this trail: )+disable-search+clear-query"
+    # ctrl-x ends a running trail and forgets a lost one, and the hint names only what this
+    # list has: "end", "forget", both, or — with neither — no ctrl-x at all.
+    x=
+    printf '%s\n' "$MENU" | grep -q '^attach' && x=end
+    printf '%s\n' "$MENU" | grep -q '^restore' && x=${x:+$x or }forget
+    if [ -n "$x" ]; then
+      set -- "$@" --info-command="echo '# enter: open · tab: toggle YOLO · ctrl-n: name it · ctrl-/: preview · ctrl-x: $x'" \
+        --bind="ctrl-x:execute-silent($0 --kill {2})+reload($0 --print-menu)"
+    else
+      set -- "$@" --info-command="echo '# enter: open · tab: toggle YOLO · ctrl-n: name it · ctrl-/: preview'"
+    fi
+    ;;
+esac
+[ -n "$want" ] && set -- "$@" --bind="load:pos($want)+unbind(load)"
 
-# Esc leaves the main list, and takes the old list back to the main one.
+# Esc leaves a main list, and takes an old list back to its main one.
 choice=$(printf '%s\n' "$MENU" | fzf "$@") || {
-  [ "${TRAILS_PICKER:-}" = old ] || exit 0
   rm -rf "$TRAILS_TMP"
-  TRAILS_PICKER='' exec "$SELF"
+  case ${TRAILS_PICKER:-} in
+    old) TRAILS_PICKER='' exec "$SELF" ;;
+    workspace-old) TRAILS_PICKER=workspace exec "$SELF" ;;
+    *) exit 0 ;;
+  esac
 }
 
-# The main list prints the query first (--print-query), the old list doesn't.
-if [ "${TRAILS_PICKER:-}" != old ]; then
-  query=$(printf '%s\n' "$choice" | head -n 1)
-  choice=$(printf '%s\n' "$choice" | sed 1d)
-  if [ -f "$TRAILS_TMP/naming" ]; then
-    case $choice in
-      new* | yolo*) ;;
-      *)
-        echo "trails: ctrl-n names a new trail — pick an \"<agent> · new trail\" row to name" >&2
-        exit 1
-        ;;
-    esac
-    check_name "$query" || exit 1
-    TRAILS_NAME=$query
-  fi
-fi
+# The main lists print the query first (--print-query), the old lists don't.
+query=
+named=
+case ${TRAILS_PICKER:-} in
+  old | workspace-old) ;;
+  *)
+    query=$(printf '%s\n' "$choice" | head -n 1)
+    choice=$(printf '%s\n' "$choice" | sed 1d)
+    [ -f "$TRAILS_TMP/naming" ] && named=1
+    ;;
+esac
 
 # Field 2 is the target either way — a running trail's window id, a lost one's key, an agent
-# to start. cut splits on TAB by default, the delimiter the menu is built with.
+# to start (agent:dir on a workspace's screen), a workspace's name. cut splits on TAB by
+# default, the delimiter the menu is built with.
 target=$(printf '%s' "$choice" | cut -f2)
 
 rm -rf "$TRAILS_TMP"
 trap - EXIT INT TERM
 
+# ctrl-n on the workspace picker: a new workspace, named by the query, given its first
+# codebase from a directory picked under ~, and then that codebase's screen.
+if [ -n "$named" ] && [ "${TRAILS_PICKER:-}" = ws ]; then
+  check_ws_name "$query" || exit 1
+  d=$(pick_dir '' "$HOME" "First codebase of $query: ")
+  [ -n "$d" ] || exit 0
+  ws_add "$query" "$d" >&2 || exit 1
+  cd "$d" || exit 1
+  TRAILS_PICKER='' TRAILS_WS='' exec "$SELF"
+fi
+if [ -n "$named" ]; then
+  case $choice in
+    new* | yolo*) ;;
+    *)
+      echo "trails: ctrl-n names a new trail — pick a \"new\" row to name" >&2
+      exit 1
+      ;;
+  esac
+  check_name "$query" || exit 1
+  TRAILS_NAME=$query
+fi
+
+# A "new" row on a workspace's screen carries its codebase (agent:dir), and a closed row its
+# conversation's (agent:id:dir): start there.
+case $target in
+  *:/*)
+    cd "${target##*:}" || exit 1
+    target=${target%:/*}
+    ;;
+  *) ;;
+esac
+
 case $choice in
   # "↩ resume old trails": the same picker, on the old list.
-  more*) TRAILS_PICKER=old exec "$SELF" ;;
+  more*)
+    case ${TRAILS_PICKER:-} in
+      workspace) TRAILS_PICKER=workspace-old exec "$SELF" ;;
+      *) TRAILS_PICKER=old exec "$SELF" ;;
+    esac
+    ;;
+  workspace*) ws_switch "$target" ;;
+  # "＋ another codebase…": pick a directory, and show its screen.
+  browse*)
+    d=$(pick_dir "$TRAILS_WS")
+    [ -n "$d" ] || exit 0
+    cd "$d" || exit 1
+    TRAILS_PICKER='' TRAILS_WS='' exec "$SELF"
+    ;;
   attach*) attach_key "$(trail_key "$target")" "$target" ;;
+  # A lost row comes back in its own directory, which on a workspace's screen is not here.
   restore*)
-    new=$(restore_one "$target") || exit 1
+    new=$(cd "$(rec_get "$target" dir)" && restore_one "$target") || exit 1
     attach_key "$new"
     ;;
   # A closed row whose conversation a claude outside trails still has open. Say where, start nothing.
@@ -3153,7 +3535,7 @@ case $choice in
     echo "trails: that conversation is still open in ${target%%:*}${pid:+ (pid $pid)} — switch to it there, or quit it first" >&2
     exit 1
     ;;
-  # Before yolo*, which "resume-yolo" does not match but reads as if it might. A fresh session
+  # Before yolo*, which "resume-yolo" does not match but reads as if it might. A fresh trail
   # on the old conversation, recorded under its ID like any launch, so tmux dying can't lose it.
   resume*)
     mode=

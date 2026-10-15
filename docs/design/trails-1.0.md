@@ -403,6 +403,9 @@ fewest things.
 | D9 | Window names | `<codebase>·<agent>[-N]`, or `<codebase>·<name>` for a named trail |
 | D10 | A directory no workspace claims | Runs in `default`, and says so; the picker's prompt to add it comes with slice 4 |
 | D11 | Session options on what trails makes | None: no `status off`, no `@agent_locked` on workspaces or views |
+| D12 | Which screen a bare `trails` shows | Editor's terminal: the codebase's; a shell in a workspace session: the workspace's; `~` or `/`: the workspaces; else the codebase's |
+| D13 | "New" rows on a workspace's screen | One per codebase with something running, lost or recent, per available agent |
+| D14 | `trails ws` | The picker on a terminal, the list when piped or as `ws list`; `ws NAME` goes there |
 
 **D1. Plain names, refuse on collision.** A workspace session is named after
 the workspace (`lattiq`), as a tmux user expects in `tmux ls`
@@ -480,3 +483,32 @@ principle 3, a workspace session and an editor view get none of these: a
 status line in an editor's panel is the user's to turn off, with a hook on
 `@trails_view` if they want it only there, and `trails keys` (slice 6) can
 suggest the line. 0.6 sessions still running keep the old policy.
+
+**D12. The screen follows where `trails` runs.** An editor's terminal
+(D8's variables) always gets its codebase's screen, so the editor never sees
+workspaces. Otherwise, inside tmux, the client's session decides: a session
+marked `@trails_workspace` means the workspace's screen, which a popup over it
+inherits, so one key binding serves both. `~` and `/` mean nowhere in
+particular, and get the workspaces. Anything else is a codebase. A codebase no
+workspace claims is asked about once, in the picker only: add it to a
+workspace (written to the config) or run here this once, in `default`; `trails
+new` and `restore` say what they did instead of asking.
+
+**D13. New rows per codebase and agent.** A workspace's screen lists a
+`<codebase> · new <agent>` row for every codebase that has something running,
+lost or recent, and for every agent on PATH, codebase-major. The draft showed
+only the default agent, which would have hidden the others behind "another
+codebase…"; typing an agent's name filters the rows down anyway. Codebases
+with nothing are behind "＋ another codebase…", an fzf over what the
+workspace's entries match plus the directories under its root (`~` without
+one), leading to that codebase's screen. ctrl-n on the workspace picker names
+a new workspace, takes its first codebase from the directories under `~`, and
+continues to that codebase's screen.
+
+**D14. `trails ws` picks.** On a terminal `trails ws` is the workspace picker,
+`trails ws NAME` goes to that workspace (switch-client inside tmux, attach
+outside, landing on the trail that most wants you; its screen when nothing
+runs there, since no session is made for an empty workspace), and the slice 2
+listing moved to `trails ws list`, which bare `trails ws` still gives when
+piped. The picker marks the workspace whose session was attached last and
+starts the cursor there.

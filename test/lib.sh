@@ -80,7 +80,7 @@ driver() {
   DRIVERS=$((DRIVERS + 1))
   tmux new-session -d -s "driver-$DRIVERS" -c "${DRIVER_DIR:-$PROJ}" -x 120 -y 40 \
     -e "FZF_PICK=${FZF_PICK:-}" -e "FZF_QUERY=${FZF_QUERY:-}" -e "FZF_KEYS=${FZF_KEYS:-}" \
-    -e "FZF_DUMP=${FZF_DUMP:-}" \
+    -e "FZF_DUMP=${FZF_DUMP:-}" -e "FZF_PICKS=${FZF_PICKS:-}" \
     "env -u TMUX -u TMUX_PANE $*"
 }
 

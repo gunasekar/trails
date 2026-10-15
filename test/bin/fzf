@@ -7,12 +7,20 @@
 # is how the picker's ctrl-n carries a trail's name. $FZF_KEYS names the keys a test
 # "pressed" before Enter: ctrl-n runs the bound execute-silent, which is how the picker
 # learns a name was typed.
-query=; keys=
+# $FZF_KEYS may name a file instead: then its first line is this fzf's keys, taken off the
+# top, so one run's several fzfs each get their own.
+keys=${FZF_KEYS:-}
+if [ -n "$keys" ] && [ -f "$keys" ]; then
+  f=$keys
+  keys=$(head -n 1 "$f")
+  sed -i.bak 1d "$f" && rm -f "$f.bak"
+fi
+query=
 for a in "$@"; do
   case $a in
     --print-query) query=1 ;;
     --bind=ctrl-n:execute-silent\(*)
-      case ",${FZF_KEYS:-}," in
+      case ",$keys," in
         *,ctrl-n,*)
           cmd=${a#--bind=ctrl-n:execute-silent(}
           cmd=${cmd%%)*}
@@ -26,7 +34,17 @@ done
 
 rows=$(cat)
 # $FZF_DUMP names a file to copy the rows to, as they arrived: how a test reads the menu.
-[ -n "${FZF_DUMP:-}" ] && printf '%s\n' "$rows" >"$FZF_DUMP"
+# With several fzfs in one run (a screen leading to another), $FZF_DUMP gets each one's
+# rows appended under a "--- N" line, and $FZF_PICKS names a file of picks, one per fzf
+# in order, each line taken off the top as it is used.
+[ -n "${FZF_DUMP:-}" ] && {
+  n=$(grep -c '^--- ' "$FZF_DUMP" 2>/dev/null || echo 0)
+  printf -- '--- %s\n%s\n' "$((n + 1))" "$rows" >>"$FZF_DUMP"
+}
+if [ -n "${FZF_PICKS:-}" ] && [ -s "$FZF_PICKS" ]; then
+  FZF_PICK=$(head -n 1 "$FZF_PICKS")
+  sed -i.bak 1d "$FZF_PICKS" && rm -f "$FZF_PICKS.bak"
+fi
 [ -n "${FZF_PICK:-}" ] || exit 130
 pick=$(printf '%s\n' "$rows" | while IFS= read -r row; do
   plain=$(printf '%s' "$row" | sed 's/\x1b\[[0-9;]*m//g')
