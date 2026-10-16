@@ -2629,22 +2629,28 @@ ago() {
 # split in a trail's window — editors attached to that trail would see it — and never a
 # shell at the workspace level: every window runs in some codebase.
 #
-#   trails edit    $EDITOR (nvim if unset) beside the codebase's trail when one runs — the
-#                  ide below — else alone in a window of its own
-#   trails shell   a shell in the codebase: the window's default command, plain tmux
-#   trails ide     a layout window — the editor beside a nested client of the trail's editor
-#                  view, the way a map cell views an agent — for the trail you are on, else
-#                  the codebase's trail that most wants you; refused with none
+#   trails edit    $EDITOR (nvim if unset) beside the codebase's trail when one runs: a
+#                  layout window, the editor and a nested client of the trail's editor view,
+#                  the way a map cell views an agent, for the trail you are on, else the
+#                  codebase's trail that most wants you; with none, the editor alone in a
+#                  window of its own
+#   trails shell   a shell in the codebase, as a pane across the bottom of that editor
+#                  window (made first if need be): tmux's default command, plain tmux
+#
+# The window kinds are edit (the editor alone) and ide (beside a trail); the shell is a
+# pane in either, marked @trails_shell.
 #
 # The window you are on decides the codebase, since a workspace holds unrelated repos: run
 # from a trail or another companion, the command acts on that codebase; from a plain window
 # in the workspace, on the pane's directory; outside tmux, on $PWD. One of each kind per
 # codebase: run again it selects the one there, and run from the companion itself it goes
-# back to the window you came from (last-window). The agent exits, the view goes, the ide's
+# back to the window (or pane) you came from. The agent exits, the view goes, the ide's
 # nested client with it, and the window keeps the editor. Nothing here is restored: an
 # editor or a shell is reopened with one command.
 companion() {
   ck=$1
+  want_shell=
+  [ "$ck" = shell ] && want_shell=1 ck=edit
   here=${2:-$PWD}
   ws='' cur_wid='' cur_kind='' cur_agent=''
   if [ -n "$TMUX" ] && [ -z "${2:-}" ]; then
@@ -2675,12 +2681,25 @@ EOF
   fi
 
   # On it already: back to where you came from.
-  if [ "$cur_kind" = "$ck" ] && same_dir "$(trail_dir "$cur_wid")" "$here"; then
+  if [ -z "$want_shell" ] && [ "$cur_kind" = "$ck" ] && same_dir "$(trail_dir "$cur_wid")" "$here"; then
     exec tmux last-window
   fi
   wid=$(companion_find "$ck" "$ws" "$here")
   if [ -z "$wid" ]; then
     wid=$(companion_make "$ck" "$here" "$ws" "$label" "$cur_agent" "$cur_wid") || exit 1
+  fi
+  # The shell: a pane across the bottom of that window, a quarter high, marked on the pane.
+  # On it already, back to the pane you came from; there already, selected; else made.
+  if [ -n "$want_shell" ]; then
+    sp=$(tmux list-panes -t "$wid" -F '#{pane_id} #{@trails_shell}' 2>/dev/null | awk '$2 == 1 { print $1; exit }')
+    if [ -n "$sp" ] && [ -n "$TMUX" ] && [ "$(tmux display-message -p '#{pane_id}' 2>/dev/null)" = "$sp" ]; then
+      exec tmux select-pane -l
+    fi
+    if [ -z "$sp" ]; then
+      sp=$(tmux split-window -v -f -l 25% -t "$wid" -c "$here" -P -F '#{pane_id}') || exit 1
+      tmux set-option -p -t "$sp" @trails_shell 1
+    fi
+    tmux select-pane -t "$sp"
   fi
   [ -z "$TMUX" ] || exec tmux switch-client -t "=$ws:$wid"
   exec tmux attach-session -t "=$ws:$wid"
@@ -2744,10 +2763,7 @@ companion_make() {
   # The editor gets the codebase as its argument, `nvim .`, the way you would open it by
   # hand: nvim, vim, helix, emacs and the desktop editors all take a directory, and
   # without one nvim sits on an empty buffer in the right place.
-  case $cm_kind in
-    shell) w=$(tmux "$@") ;;
-    *) w=$(tmux "$@" "$ed .") ;;
-  esac
+  w=$(tmux "$@" "$ed .")
   [ -n "$w" ] || return 1
   tmux set-option -t "$cm_ws" @trails_workspace "$cm_ws" \
     \; set-option -w -t "$w" @trails_companion "$cm_kind" \
@@ -2783,9 +2799,8 @@ companions() {
         same_dir "$dir" "$PWD" || continue
       fi
       case $kind in
-        edit) word=editor title=${wname#*·} ;;
-        ide) word=ide title="$(basename "${EDITOR:-nvim}") · $(rec_label "$of")" ;;
-        *) word=$kind title=$cmd ;;
+        ide) word=editor title="$(basename "${EDITOR:-nvim}") · $(rec_label "$of")" ;;
+        *) word=editor title=${wname#*·} ;;
       esac
       printf 'companion\tcompanion\t%s\t%s\t%s\t%s\t-\t-\t-\t%s\n' "$wid" "$dir" "$label" "$word" "$title"
     done
@@ -2794,7 +2809,7 @@ companions() {
 # ─── Keys ────────────────────────────────────────────────────────────────────
 # trails binds nothing (principle 2 of the design). `trails keys` prints lines for a
 # tmux.conf, to paste or ignore: the picker and the workspace picker in a popup, which
-# leaves no window behind, and the companions. a, W, e, v and S are free in tmux 3.8's
+# leaves no window behind, and the companions. a, W, e and S are free in tmux 3.8's
 # default prefix table (T is pane title, E even layout, so neither of those).
 #
 # By this script's own absolute path, not a bare `trails`: run-shell and display-popup run
@@ -2806,7 +2821,6 @@ keys() {
 bind a display-popup -E -w 80% -h 70% '$SELF'
 bind W display-popup -E -w 60% -h 50% '$SELF ws'
 bind e run-shell '$SELF edit'
-bind v run-shell '$SELF ide'
 bind S run-shell '$SELF shell'
 # an editor view (what an editor attaches to) with no status line, if you want that only there:
 # set-hook -g session-created 'if -F "#{m:*/*,#{session_name}}" "set -t #{session_name} status off"'
@@ -3412,11 +3426,11 @@ usage: trails [command]
   ws list           the workspaces in the config, and the codebases each holds
   ws of [DIR]       the workspace DIR (here) belongs to
   ws add NAME [DIR] put DIR (here) in workspace NAME, creating it if new
-  edit | shell | ide  the codebase's editor ($EDITOR) beside its trail (alone when nothing
-                    runs there), a shell, or the editor beside the trail outright, as a
-                    window in the workspace: made once, then selected; run from it, back
-                    to where you were. The window you are on says which codebase, or DIR
-                    after the command
+  edit | shell      the codebase's editor ($EDITOR) beside its trail (alone when nothing
+                    runs there) as a window in the workspace, or a shell across the
+                    bottom of that window: made once, then selected; run from it, back
+                    to where you were. The window you are on says which codebase, or
+                    DIR after the command
   end KEY           end a trail by its key, as trails ls prints it, from anywhere
   keys              print tmux.conf lines that bind the picker and the companions
   swiftbar          link the menu-bar plugin into SwiftBar (macOS); --remove unlinks
@@ -3494,7 +3508,7 @@ case $1 in
     exit 0
     ;;
   # The codebase's companions (see "Companions"): the window you are on says which codebase.
-  edit | shell | ide)
+  edit | shell)
     companion "$1" "${2:-}"
     exit 0
     ;;

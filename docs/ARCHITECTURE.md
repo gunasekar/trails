@@ -76,7 +76,7 @@ not in trails.
 | Workspace | a user-chosen set of codebases | a session named after it, marked `@trails_workspace` |
 | Trail | one agent working in one codebase | a window in the workspace session |
 | Editor view | what an editor attaches to: one trail, nothing else | a session `<workspace>/<codebase>[-N]` holding only that window, linked |
-| Companion | the editor or a shell for one codebase | a window in the workspace session, marked `@trails_companion` |
+| Companion | the editor for one codebase, with a shell along its bottom | a window in the workspace session, marked `@trails_companion`, with a pane marked `@trails_shell` |
 | Layout | side-by-side views (the map, the ide companion) | panes, in a window no editor attaches to |
 
 A trail's window is named `<codebase>·<agent>`, `<codebase>·<agent>-N` for the
@@ -98,7 +98,7 @@ out of a name:
 | `@trails_name` | the name you gave it, if any |
 | `@trails_since` | when it started, Unix time |
 
-A companion's window carries `@trails_companion` (`edit`, `shell`, `ide`),
+A companion's window carries `@trails_companion` (`ide` or `edit`),
 `@trails_dir`, `@trails_ws`, `@trails_label`, and for an ide `@trails_of`, the
 key of the trail beside the editor.
 
@@ -446,25 +446,27 @@ keychain) would otherwise take its error with it and look like nothing happened.
 
 ## Companions
 
-`trails edit`, `shell` and `ide` make an ordinary window in the workspace beside
-the codebase's trails, marked `@trails_companion`, and select it when it is
-already there; run from the companion, they go back with `last-window`. The
-window you are on decides the codebase (its `@trails_dir`, else the pane's
-directory), outside tmux the current directory. `ide` splits the window: the
-editor and a nested client of a trail's editor view, as a map cell is, for the
-trail you are on or the codebase's that most wants you. `edit` is `ide` whenever
-the codebase has a running trail (or an ide window left by one that ended), and
-the editor alone only when it has none. Directories are compared resolved,
-because tmux reports a pane's path through symlinks. An editor's terminal is
-shown no companion rows in the picker.
+`trails edit` makes an ordinary window in the workspace beside the codebase's
+trails, marked `@trails_companion` with its kind (`ide` or `edit`), and selects
+it when it is already there; run from the companion, it goes back with
+`last-window`. `trails shell` is a pane across the bottom of that window, marked
+`@trails_shell`, selected when there and made with `split-window -f` when not;
+run from the pane, it goes back with `select-pane -l`. The window you are on decides the codebase
+(its `@trails_dir`, else the pane's directory), outside tmux the current
+directory. With a running trail in the codebase (or an ide window left by one
+that ended), `edit` makes the `ide` kind: the editor and a nested client of the
+trail's editor view, as a map cell is, for the trail you are on or the
+codebase's that most wants you; with none, the editor alone. Directories are
+compared resolved, because tmux reports a pane's path through symlinks. An
+editor's terminal is shown no companion rows in the picker.
 
 ## Keys
 
 trails binds nothing. `trails keys` prints lines for a tmux.conf: the picker and
 the workspace picker in a `display-popup`, which leaves no window behind and from
 which `switch-client` works (the popup check behind D4 of the design is
-`test/t-popup.sh`), and the three companions. `prefix a`, `W`, `e`, `v` and `S`
-are free in tmux 3.8's default table.
+`test/t-popup.sh`), and the two companions. `prefix a`, `W`, `e` and `S` are
+free in tmux 3.8's default table.
 
 ## The menu-bar plugin
 

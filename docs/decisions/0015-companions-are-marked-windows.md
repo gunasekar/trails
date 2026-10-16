@@ -12,10 +12,10 @@ one codebase, and opening it twice must not make two.
 
 ## Decision
 
-`trails edit`, `trails shell` and `trails ide` make an ordinary window in the
-workspace session beside the codebase's trails, named like a trail's
-(`augur·nvim`, `augur·shell`, `augur·ide`) and marked `@trails_companion` with
-the codebase on it.
+`trails edit` makes an ordinary window in the workspace session beside the
+codebase's trails, named like a trail's (`augur·ide`, `augur·nvim`) and marked
+`@trails_companion` with the codebase on it. `trails shell` is a pane across
+the bottom of that window, marked `@trails_shell`.
 
 - **The window you are on decides the codebase.** From a trail or another
   companion, that one's directory; from a plain window, the pane's directory;
@@ -24,14 +24,17 @@ the codebase on it.
   that is there. Run from the companion itself, it goes back with
   `last-window`.
 - **`edit`** runs `$EDITOR`, nvim if unset, beside the codebase's trail when one
-  runs, and alone only when none does (amended 2026-10: the first live use
-  showed an editor alone is never wanted next to a running agent, and `C-b z`
-  gives it the whole window when it is). **`shell`** runs tmux's own default
-  command. **`ide`** is the side-by-side outright: the trail you run it from,
-  else the codebase's trail that most wants you; with none it says so and makes
-  nothing.
+  runs (the trail you run it from, else the one there that most wants you), and
+  alone only when none does. **`shell`** runs tmux's own default command, in a
+  pane a quarter high along the bottom of the editor's window (amended 2026-10:
+  it was a window of its own, and a shell wants to sit under the editor and the
+  agent, not beside them in the window list). Amended 2026-10: the design had a third command, `ide`, for the side-by-side
+  outright and `edit` for the editor alone; the first live use showed an editor
+  alone is never wanted next to a running agent, so `edit` took the side-by-side
+  and `ide` went. `C-b z` gives the editor the whole window when wanted.
 - **Never a split in a trail's window**, which the editors attached to that
-  trail would see, and never a shell at the workspace level.
+  trail would see: the shell splits the editor's window, a layout window no
+  editor attaches to. Never a shell at the workspace level.
 - The picker lists companions on both trail screens, goes to one on Enter and
   closes one on ctrl-x; ctrl-e opens the editor for the row's codebase. An
   editor's terminal sees no companion rows: it wants trails only (R9).
@@ -46,5 +49,5 @@ the codebase on it.
   specifically the last trail.
 - Directories are compared resolved, because tmux reports a pane's path through
   symlinks and a trail keeps the path it was started by.
-- `trails keys` suggests `prefix e`, `v` and `S` for the three, checked free in
-  tmux 3.8's default table. trails binds nothing itself.
+- `trails keys` suggests `prefix e` and `S` for the two, checked free in tmux
+  3.8's default table. trails binds nothing itself.

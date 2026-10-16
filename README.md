@@ -117,7 +117,7 @@ With no workspaces configured, everything runs in one workspace called
 | `trails ws [NAME]` | pick a workspace, or go to `NAME`: switch to its session inside tmux, attach outside, landing on the trail that most wants you; its picker when nothing runs there |
 | `trails ws list` / `ws of [DIR]` / `ws add NAME [DIR]` | the workspaces in the config; the one `DIR` (here) belongs to; put `DIR` (here) in workspace `NAME`, creating it if new |
 | `trails new NAME [AGENT]` | start a trail named `NAME`, with `-y` for YOLO: its editor view is `<workspace>/NAME`, and claude takes `NAME` as its own name, so other Claude sessions can message it by that name |
-| `trails edit` / `shell` / `ide` | the codebase's editor beside its trail (alone when nothing runs there), a shell, or the editor beside the trail outright, as a window in the workspace: made once, then selected. The window you are on says which codebase, or `DIR` after the command |
+| `trails edit` / `shell` | the codebase's editor beside its trail (alone when nothing runs there) as a window in the workspace, or a shell across the bottom of that window: made once, then selected. The window you are on says which codebase, or `DIR` after the command |
 | `trails ls [-a \| DIR]` | this directory's trails: running, lost when tmux died, or finished in the last 10 days. `DIR` lists that directory instead, `-a` every directory |
 | `trails end KEY` | end a trail from anywhere, by the key `trails ls` prints (`acme/checkout-2`) |
 | `trails restore` | bring back every trail lost when tmux died, each on its own conversation, into its workspace, detached |
@@ -180,7 +180,6 @@ prints lines to paste if you want some.
 bind a display-popup -E -w 80% -h 70% trails
 bind W display-popup -E -w 60% -h 50% 'trails ws'
 bind e run-shell 'trails edit'
-bind v run-shell 'trails ide'
 bind S run-shell 'trails shell'
 ```
 
@@ -209,7 +208,7 @@ acme ▸ Pick a trail: █   # enter: open · tab: toggle YOLO · ctrl-n: name i
 ▌ ● needs you  checkout  claude · yolo  Add idempotency keys to payment retries
   ● your turn  ledger    codex          Migrate orders to Postgres 17
   ○ lost       checkout  claude         Spike: replay Stripe webhooks
-  ide          checkout  nvim · acme/checkout
+  editor       checkout  nvim · acme/checkout
              checkout  · new claude
              checkout  · new codex
              ledger    · new claude
@@ -305,21 +304,21 @@ Unnamed trails work as before, with a name Claude picks for itself.
 ### Companions
 
 The editor or a shell for one codebase, as a window in the workspace beside that
-codebase's trails: `checkout·nvim`, `checkout·shell`, `checkout·ide`.
+codebase's trails: `checkout·ide` (the editor beside the trail) or `checkout·nvim`
+(the editor alone), with the shell as a pane along its bottom.
 
 | Command | Opens |
 |---|---|
-| `trails edit` | `$EDITOR` (nvim if unset) beside a live view of the codebase's trail, in one window; alone in its own window when nothing runs there. `C-b z` zooms the editor's pane |
-| `trails shell` | a shell in the codebase, tmux's own default command |
-| `trails ide` | the side-by-side window outright: the trail you run it from, else the codebase's trail that most wants you; refused with none |
+| `trails edit` | `$EDITOR` (nvim if unset) beside a live view of the codebase's trail, in one window: the trail you run it from, else the one there that most wants you. Alone in its own window when nothing runs there. `C-b z` zooms the editor's pane |
+| `trails shell` | a shell in the codebase, tmux's own default command, as a pane across the bottom of that editor window, a quarter high |
 
 The window you are on decides the codebase: run from a trail or another
 companion, the command acts on that codebase; from a plain window, on the pane's
 directory; outside tmux, on the current directory, or on `DIR` given after the
 command. Run again, it selects the window that is already there; run from the
-companion itself, it goes back where you were. The picker lists them, and ctrl-e
-there opens the editor for any row's codebase. Companions aren't restored: one
-command reopens them.
+companion itself, it goes back where you were. The picker lists the editor
+windows, and ctrl-e there opens the editor for any row's codebase. Companions
+aren't restored: one command reopens them.
 
 ### trails ls
 

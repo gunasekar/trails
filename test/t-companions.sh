@@ -1,5 +1,5 @@
 #!/bin/sh
-# Companions: trails edit, shell and ide as windows in the workspace beside the codebase's
+# Companions: trails edit and shell as windows in the workspace beside the codebase's
 # trails, made once and selected after; their rows in the picker, ctrl-e there, and ctrl-x
 # on one.
 . "$REPO/test/lib.sh"
@@ -31,27 +31,31 @@ wait_for 5 sh -c "[ \"\$(tmux list-clients -F '#{client_name} #{window_id}' | aw
 assert_eq "$(tmux display-message -pt "$ewid" '#{@trails_companion} #{@trails_dir} #{@trails_ws} #{@trails_label} #{@trails_of}')" \
   "ide $PROJ default proj default/payments" "the window's options"
 
-# Again, from another window: selected, not duplicated. trails ide lands on the same window.
+# Again, from another window: selected, not duplicated.
 tmux switch-client -c "$client" -t "=default:$mine"
 sleep 0.3
 type_in "$mine" "$TRAILS edit"
 sleep 1.5
 assert_eq "$(wins)" "proj·ide proj·payments " "still one editor"
 assert_eq "$(client_at "$client" '#{window_id}')" "$ewid" "taken there again"
-tmux switch-client -c "$client" -t "=default:$mine"
-sleep 0.3
-type_in "$mine" "$TRAILS ide"
-sleep 1.5
-assert_eq "$(wins)" "proj·ide proj·payments " "ide is the same window"
-assert_eq "$(client_at "$client" '#{window_id}')" "$ewid" "and goes there"
 
-# trails shell: a shell in the codebase.
+# trails shell: a shell pane across the bottom of that window, in the codebase; again, it
+# is selected, not duplicated.
 tmux switch-client -c "$client" -t "=default:$mine"
 sleep 0.3
 type_in "$mine" "$TRAILS shell"
-wait_for 5 sh -c "tmux list-windows -t default -F '#{window_name}' | grep -qx 'proj·shell'" || fail "no shell window"
-swid=$(tmux list-windows -t default -F '#{window_id} #{window_name}' | awk '$2 == "proj·shell" { print $1 }')
-assert_eq "$(tmux display-message -pt "$swid" '#{pane_current_path} #{@trails_companion}')" "$PROJ shell" "a shell in the codebase"
+wait_for 5 sh -c "[ \"\$(tmux list-panes -t '$ewid' | wc -l | tr -d ' ')\" = 3 ]" || fail "no shell pane"
+spane=$(tmux list-panes -t "$ewid" -F '#{pane_id} #{@trails_shell}' | awk '$2 == 1 { print $1 }')
+[ -n "$spane" ] || fail "the shell pane is not marked"
+assert_eq "$(tmux display-message -pt "$spane" '#{pane_current_path}')" "$PROJ" "a shell in the codebase"
+assert_eq "$(tmux display-message -pt "$spane" '#{pane_left} #{pane_width}')" "0 $(tmux display-message -pt "$ewid" '#{window_width}')" "across the bottom"
+assert_eq "$(client_at "$client" '#{window_id}')" "$ewid" "taken to the window"
+tmux switch-client -c "$client" -t "=default:$mine"
+sleep 0.3
+type_in "$mine" "$TRAILS shell"
+sleep 1.5
+assert_eq "$(tmux list-panes -t "$ewid" | wc -l | tr -d ' ')" 3 "still one shell"
+assert_eq "$(wins)" "proj·ide proj·payments " "no shell window"
 
 # Outside tmux, trails edit DIR attaches to the workspace on the editor's window.
 driver "$TRAILS" edit "$PROJ"
@@ -62,12 +66,12 @@ rm -f "$T/menu"
 FZF_PICK='' FZF_DUMP=$T/menu trails_bg
 wait_for 5 test -s "$T/menu" || fail "no picker"
 rows=$(sed 's/\x1b\[[0-9;]*m//g' "$T/menu" | grep -v '^--- ')
-assert_eq "$(printf '%s\n' "$rows" | cut -f1 | tr '\n' ' ')" "attach companion companion new new " "companions after the trails, before the new rows"
-assert_match "$(printf '%s\n' "$rows" | grep "companion	$ewid" | cut -f3)" '^ide +ed · default/payments$' "the ide's row"
+assert_eq "$(printf '%s\n' "$rows" | cut -f1 | tr '\n' ' ')" "attach companion new new " "the companion after the trail, before the new rows"
+assert_match "$(printf '%s\n' "$rows" | grep "companion	$ewid" | cut -f3)" '^editor +ed · default/payments$' "the editor's row"
 rm -f "$T/wmenu"
 type_in "$mine" "FZF_DUMP=$T/wmenu $TRAILS"
 wait_for 5 test -s "$T/wmenu" || fail "no workspace screen"
-assert_match "$(sed 's/\x1b\[[0-9;]*m//g' "$T/wmenu" | grep "companion	$swid" | cut -f3)" '^shell +proj +(sh|bash|zsh)' "the shell's row, under the codebase column"
+assert_match "$(sed 's/\x1b\[[0-9;]*m//g' "$T/wmenu" | grep "companion	$ewid" | cut -f3)" '^editor +proj +ed · default/payments' "the editor's row, under the codebase column"
 
 # An editor's terminal (NVIM set) sees trails only: no companion rows.
 rm -f "$T/emenu"
@@ -76,8 +80,8 @@ wait_for 5 test -s "$T/emenu" || fail "no picker from the editor"
 assert_eq "$(sed 's/\x1b\[[0-9;]*m//g' "$T/emenu" | grep -v '^--- ' | cut -f1 | tr '\n' ' ')" "attach new new " "trails and new rows only"
 
 # Enter on a companion's row goes to its window.
-FZF_PICK="companion	$swid" trails_bg
-wait_for 5 sh -c "tmux list-clients -F '#{session_name} #{window_id}' | grep -qx 'default $swid'" || fail "picking the shell did not go there"
+FZF_PICK="companion	$ewid" trails_bg
+wait_for 5 sh -c "[ \"\$(tmux list-clients -F '#{session_name} #{window_id}' | grep -cx 'default $ewid')\" -ge 2 ]" || fail "picking the editor did not go there"
 
 # ctrl-e on a new row in another codebase, where nothing runs, makes that codebase's editor
 # alone and goes there.
@@ -88,16 +92,13 @@ owid=$(tmux list-windows -t default -F '#{window_id} #{window_name}' | awk '$2 =
 wait_for 5 screen_has "$owid" "ed in $T/other" || fail "the editor is not in that codebase"
 wait_for 5 sh -c "tmux list-clients -F '#{session_name} #{window_id}' | grep -qx 'default $owid'" || fail "not taken to it"
 
-# ctrl-x on a companion closes its window, and nothing else.
-(cd "$PROJ" && "$TRAILS" --kill "$swid")
-wait_for 3 sh -c "! tmux list-windows -t default -F '#{window_id}' | grep -qx '$swid'" || fail "the shell window survived ctrl-x"
-assert_eq "$(wins)" "other·ed proj·ide proj·payments " "the rest stand"
-
-# The editor quits beside a trail: its pane goes, the trail's view stays in the window.
-# The editor alone quits: its window goes. The trail is untouched either way.
+# The editor quits beside a trail: its pane goes, the trail's view and the shell stay.
 type_in "$ewid.0" exit
-wait_for 3 sh -c "[ \"\$(tmux list-panes -t '$ewid' | wc -l | tr -d ' ')\" = 1 ]" || fail "the editor's pane outlived the editor"
-type_in "$owid" exit
-wait_for 3 sh -c "! tmux list-windows -t default -F '#{window_id}' | grep -qx '$owid'" || fail "the editor window outlived the editor"
+wait_for 3 sh -c "[ \"\$(tmux list-panes -t '$ewid' | wc -l | tr -d ' ')\" = 2 ]" || fail "the editor's pane outlived the editor"
+
+# ctrl-x on a companion closes its window, and nothing else. The trail is untouched.
+(cd "$T/other" && "$TRAILS" --kill "$owid")
+wait_for 3 sh -c "! tmux list-windows -t default -F '#{window_id}' | grep -qx '$owid'" || fail "the editor window survived ctrl-x"
+assert_eq "$(wins)" "proj·ide proj·payments " "the rest stand"
 assert_file "$STATE/default/payments" "the trail's record stands"
 assert_eq "$(tmux display-message -pt default/payments '#{window_name} #{pane_dead}')" "proj·payments 0" "the trail runs on"
