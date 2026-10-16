@@ -23,7 +23,9 @@ agent exits, since the window leaves both sessions.
 *Amended 2026-10 (ADR 16): the view is the trail's own session, holding the
 agent's window outright, and nothing is linked. The workspace shows it through
 a cell, a window whose pane is a client of the view. The view is made first, by
-`launch`; the cell is what gets rebuilt. The routes below stand.*
+`launch`; the cell is what gets rebuilt. The routes below stand. Since 1.4 the
+view is called the trail's session and the cell the trail's window (ADR 16's
+note).*
 
 Where an attach lands depends on who is asking:
 

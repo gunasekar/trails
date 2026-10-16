@@ -17,7 +17,9 @@ codebase's trails, named like a trail's (`augur·ide`, `augur·nvim`) and marked
 `@trails_companion` with the codebase on it. `trails shell` is a pane across
 the bottom of that window, marked `@trails_shell`.
 
-*Amended 2026-10 (ADR 16): with the trail's window in the workspace a cell that
+*Amended 2026-10 (ADR 16; since 1.4 a cell is called the trail's window, a
+companion an editor or shell window, and the panes agent, editor and shell): with
+the trail's window in the workspace a cell that
 no editor attaches to, the editor and the shell are panes of that cell, marked
 `@trails_pane` `edit` and `shell`: the editor on the left 60%, the shell along
 the bottom, or under the editor when there is one. The `·ide` window and `@trails_of` go. The editor alone

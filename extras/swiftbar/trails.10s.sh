@@ -166,7 +166,7 @@ OSA
 
 # End: stop the trail for good — a hard stop, the agent gets no chance to tidy up, though
 # its transcript stays on disk for its own --resume. `trails end` closes its window (and the
-# editor view that holds it) or, for a session from before 1.0, the session, and forgets the
+# session that holds it) or, for a session from before 1.0, the session, and forgets the
 # restore record — `trails restore` exists for trails tmux took down, not ones you closed.
 function end() {
   "$TRAILS" end "$1" >/dev/null 2>&1

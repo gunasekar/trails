@@ -78,7 +78,7 @@ EOF
 #
 # The size is set again with resize-window, which also pins it: tmux 3.4 gives a detached
 # session's window the size of the most recently active client rather than -x/-y, and that
-# is a trail's nested view client, a fraction of a window wide, once a cell has an editor
+# is the nested client in a trail's window, a fraction of a window wide, once that window has an editor
 # beside the agent. 3.8 honours -x/-y. resize-window makes the window's size manual.
 DRIVERS=0
 driver() {

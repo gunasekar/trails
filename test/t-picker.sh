@@ -19,9 +19,9 @@ rows=$(menu)
 assert_eq "$(printf '%s\n' "$rows" | cut -f1,2 | tr '\t\n' '  ')" "new stub new other " "new rows only"
 assert_match "$(printf '%s\n' "$rows" | head -n 1 | cut -f3)" 'stub · new trail' "the drawn row"
 
-# Enter on "stub · new trail" starts one: the window proj·stub in default, the view default/proj.
+# Enter on "stub · new trail" starts one: the window proj·stub in default, the session default/proj.
 FZF_PICK='stub · new trail' trails_bg
-wait_for 5 has_session default/proj || fail "no view default/proj"
+wait_for 5 has_session default/proj || fail "no session default/proj"
 wait_for 5 screen_has default/proj 'agent id=' || fail "agent never started"
 assert_eq "$(tmux list-windows -t default -F '#{window_name}')" "proj·stub" "the window"
 wid=$(tmux display-message -pt default/proj '#{window_id}')
@@ -33,8 +33,8 @@ assert_match "$(printf '%s\n' "$rows" | head -n 1 | cut -f3)" '● (your turn|wo
 
 # A second unnamed trail here is the -2 sibling, and wears #2.
 FZF_PICK='stub · new trail' trails_bg
-wait_for 5 has_session default/proj-2 || fail "no view default/proj-2"
-wait_for 5 sh -c "[ \"\$(tmux list-windows -t default -F '#{window_name}' | sort | tr '\n' ' ')\" = 'proj·stub proj·stub-2 ' ]" || fail "no sibling cell: $(tmux list-windows -t default -F '#{window_name}' | tr '\n' ' ')"
+wait_for 5 has_session default/proj-2 || fail "no session default/proj-2"
+wait_for 5 sh -c "[ \"\$(tmux list-windows -t default -F '#{window_name}' | sort | tr '\n' ' ')\" = 'proj·stub proj·stub-2 ' ]" || fail "no sibling window: $(tmux list-windows -t default -F '#{window_name}' | tr '\n' ' ')"
 rows=$(menu)
 assert_match "$(printf '%s\n' "$rows" | grep -c '^attach')" '^2$' "two attach rows"
 assert_match "$(printf '%s\n' "$rows" | grep '^attach' | cut -f3 | tr '\n' '|')" '#2' "the #2 badge"
@@ -46,14 +46,14 @@ wait_for 5 sh -c "tmux list-clients -F '#{session_name} #{window_name}' | grep -
 
 # ctrl-n, a name, Enter on a new row: the trail takes the name.
 FZF_KEYS=ctrl-n FZF_QUERY=billing FZF_PICK='stub · new trail' trails_bg
-wait_for 5 has_session default/billing || fail "no view default/billing"
+wait_for 5 has_session default/billing || fail "no session default/billing"
 wait_for 5 screen_has default/billing 'name=billing' || fail "the name never reached the agent"
 
-# ctrl-x on a running row ends it: window, view and record.
+# ctrl-x on a running row ends it: window, session and record.
 wid2=$(tmux display-message -pt default/proj-2 '#{window_id}')
 (cd "$PROJ" && "$TRAILS" --kill "$wid2")
-wait_for 3 no_session default/proj-2 || fail "ctrl-x left the view"
-wait_for 5 sh -c "[ \"\$(tmux list-windows -t default -F '#{window_name}' | sort | tr '\n' ' ')\" = 'proj·billing proj·stub ' ]" || fail "the cell stayed: $(tmux list-windows -t default -F '#{window_name}' | tr '\n' ' ')"
+wait_for 3 no_session default/proj-2 || fail "ctrl-x left the session"
+wait_for 5 sh -c "[ \"\$(tmux list-windows -t default -F '#{window_name}' | sort | tr '\n' ' ')\" = 'proj·billing proj·stub ' ]" || fail "the trail's window stayed: $(tmux list-windows -t default -F '#{window_name}' | tr '\n' ' ')"
 assert_no_file "$STATE/default/proj-2" "the record went"
 
 # Esc starts nothing.

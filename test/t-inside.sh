@@ -1,7 +1,7 @@
 #!/bin/sh
-# Inside tmux (R6 in the design): the agent still gets its view and a cell in its workspace,
+# Inside tmux (R6 in the design): the agent still gets its session and a trail's window in its workspace,
 # and the client you are in is switched there — or, from an editor's terminal, the pane
-# becomes a nested client of the trail's view, one trail and nothing else. And D1: a session
+# becomes a nested client of the trail's session, one trail and nothing else. And D1: a session
 # with the workspace's name that trails did not make is refused.
 . "$REPO/test/lib.sh"
 t_setup
@@ -27,10 +27,10 @@ wait_for 5 screen_has default/review 'agent id=' || fail "review never started"
 wait_for 5 screen_has mine 'name=review' || fail "the pane did not show the trail"
 assert_eq "$(client_at "$client" '#{session_name}')" mine "the client stayed in the editor's session"
 assert_eq "$(tmux list-windows -t default -F '#{window_name}' | sort | tr '\n' ' ')" "proj·payments proj·review " "both trails in the workspace"
-# Two clients on the view: the cell's, and the editor's pane. Detaching the pane's leaves the cell's.
-wait_for 5 sh -c "[ \"\$(tmux list-clients -t default/review | wc -l | tr -d ' ')\" = 2 ]" || fail "expected the cell's client and the pane's on the view"
+# Two clients on the session: the trail's window's, and the editor's pane. Detaching the pane's leaves the trail's window's.
+wait_for 5 sh -c "[ \"\$(tmux list-clients -t default/review | wc -l | tr -d ' ')\" = 2 ]" || fail "expected the trail's window's client and the pane's on the session"
 inner=$(tmux list-clients -t default/review -F '#{client_name} #{client_tty}' | awk -v t="$(tmux display-message -pt mine '#{pane_tty}')" '$2 == t { print $1 }')
-[ -n "$inner" ] || fail "the pane is not a client of the view"
+[ -n "$inner" ] || fail "the pane is not a client of the session"
 tmux detach-client -t "$inner"
 wait_for 5 sh -c "[ \"\$(tmux list-clients -t default/review | wc -l | tr -d ' ')\" = 1 ]" || fail "the pane's client lingers"
 

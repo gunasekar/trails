@@ -18,14 +18,16 @@ wait_for 5 has_session trails_map || fail "no map"
 assert_eq "$(tmux display-message -pt trails_map '#{@trails_map}')" 1 "marked"
 wait_for 5 sh -c "[ \"\$(tmux list-panes -t trails_map | wc -l | tr -d ' ')\" = 2 ]" || fail "two panes"
 wait_for 5 sh -c "tmux list-clients -F '#{session_name}' | grep -qx default/ledger && tmux list-clients -F '#{session_name}' | grep -qx default/payments" ||
-  fail "the cells are not clients of the views: $(tmux list-clients -F '#{session_name}')"
+  fail "the windows are not clients of the sessions: $(tmux list-clients -F '#{session_name}')"
 assert_eq "$(tmux display-message -pt 'trails_map:0.0' '#{@dir}')" other "pane 0 is the one that wants you"
 
-# A killed cell changes nothing for the map: the trail lives in its view.
+# A killed trail's window changes nothing for the map: the trail lives in its session.
 tmux kill-session -t trails_map
-tmux kill-window -t "$(tmux list-windows -t default -F '#{window_id} #{@trails_cell}' | awk '$2 == "default/payments" { print $1 }')"
+tmux kill-window -t "$(tmux list-windows -t default -F '#{window_id} #{@trails_window}' | awk '$2 == "default/payments" { print $1 }')"
 driver "$TRAILS" map 2
-wait_for 5 sh -c "tmux list-clients -F '#{session_name}' | grep -qx default/payments" || fail "the map lost the trail with its cell"
+wait_for 5 has_session trails_map || fail "no second map"
+wait_for 5 sh -c "[ \"\$(tmux list-panes -t trails_map | wc -l | tr -d ' ')\" = 2 ]" || fail "two panes in the second map"
+wait_for 5 sh -c "tmux list-clients -F '#{session_name}' | grep -qx default/payments" || fail "the map lost the trail with its window"
 
 # Two in a 120-column terminal stack by default; map.two "side" in the config puts them side
 # by side regardless.
@@ -36,11 +38,11 @@ driver "$TRAILS" map 2
 wait_for 5 sh -c "[ \"\$(tmux list-panes -t trails_map | wc -l | tr -d ' ')\" = 2 ]" || fail "no map with map.two"
 assert_eq "$(tmux list-panes -t trails_map -F '#{pane_top}' | sort -u | wc -l | tr -d ' ')" 1 "side by side when the config says so"
 
-# trails end, from anywhere: the window, its view and its record go.
+# trails end, from anywhere: the window, its session and its record go.
 out=$(cd "$T" && "$TRAILS" end default/payments)
 assert_eq "$out" "ended default/payments" "said so"
-wait_for 3 no_session default/payments || fail "the view survived"
-wait_for 5 sh -c "[ \"\$(tmux list-windows -t default -F '#{window_name}')\" = 'other·ledger' ]" || fail "the cell stayed: $(tmux list-windows -t default -F '#{window_name}' | tr '\n' ' ')"
+wait_for 3 no_session default/payments || fail "the session survived"
+wait_for 5 sh -c "[ \"\$(tmux list-windows -t default -F '#{window_name}')\" = 'other·ledger' ]" || fail "the trail's window stayed: $(tmux list-windows -t default -F '#{window_name}' | tr '\n' ' ')"
 assert_no_file "$STATE/default/payments" "the record went"
 assert_match "$(cd "$T" && "$TRAILS" end nope 2>&1)" 'no trail nope' "unknown refused"
 

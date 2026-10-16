@@ -66,3 +66,11 @@ attached to the view, the way a map pane views an agent. Nothing is linked.
 - The listing drops the view-row skip of ADR 14: a trail's window lists once, in
   its view, and a cell has no `@agent`.
 - Each cell is one more tmux client process. Light, and bounded by the trails.
+
+*Amended 2026-10-16 (1.4): the words changed, the model did not. The *view* is
+now called the trail's session, the *cell* the trail's window, its panes `agent`,
+`editor` and `shell`, and a *companion* window an editor or shell window (a tool
+window in the code). The tags follow: `@trails_session`, `@trails_window`,
+`@trails_pane agent|editor|shell`, `@trails_tool`. 1.4 reads the old tags too, so
+a trail running through the upgrade is still found. Only trail is a word of
+trails' own; the rest are tmux's.*
