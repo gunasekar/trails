@@ -168,6 +168,10 @@ function resume() {
   }
   case $(chosen_terminal) in
     ghostty)
+      # A tab in the front window when Ghostty will give one, else a window: Ghostty's
+      # `new tab` command refuses on some builds (1.3.2-main answers -1708, "can't
+      # continue", to every form its own dictionary lists) while `new window` works, and
+      # a Resume that opens nothing is the worse failure.
       osascript - "$TRAILS" "$1" <<'OSA' >/dev/null
 on run argv
   set cmd to quoted form of (item 1 of argv) & " open " & quoted form of (item 2 of argv)
@@ -175,11 +179,14 @@ on run argv
     activate
     set cfg to new surface configuration
     set command of cfg to cmd
+    set opened to false
     if (count of windows) > 0 then
-      new tab in front window with configuration cfg
-    else
-      new window with configuration cfg
+      try
+        new tab in front window with configuration cfg
+        set opened to true
+      end try
     end if
+    if not opened then new window with configuration cfg
   end tell
 end run
 OSA
