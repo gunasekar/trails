@@ -179,7 +179,11 @@ order: `TRAILS_CLIENT`, which the `run-shell` bindings from `trails keys` pass
 as `#{client_name}` (run-shell expands formats, display-popup does not); from a
 shell in a pane, the client showing `TMUX_PANE`, the most recently active when
 several do; else tmux's guess, which inside a popup is the client that opened
-it.
+it. A client found this way that is itself a pane of the server, the nested
+client in a trail's window or a map pane, is followed outward to the terminal
+showing that pane (`client_outer`): a key pressed there with the double prefix
+names it, and switching it to the workspace would put the workspace inside its
+own window.
 
 ## Finding trails
 

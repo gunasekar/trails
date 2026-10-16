@@ -633,12 +633,32 @@ command -v tmux >/dev/null 2>&1 && USE_TMUX=1
 # from a shell in a pane, the client showing that pane (TMUX_PANE), the most recently
 # active when several do; else tmux's guess, which from inside a popup is the client that
 # opened it, display-popup expanding no formats to say so.
+#
+# And never a nested client. The one in a trail's window, or a map pane, is a client of this
+# same server whose terminal is a pane of it; a key pressed there (the double prefix reaches
+# it) names it as the client that asked, and switching *it* to the workspace would put the
+# workspace inside its own window, showing itself. The terminal that shows that pane is the
+# one you are at, so the client is followed outward (client_outer) until it is a real one.
+client_outer() {
+  co=$1 co_n=0
+  while [ -n "$co" ] && [ "$co_n" -lt 4 ]; do
+    co_win=$(tmux list-panes -a -F '#{pane_tty} #{window_id} #{session_name}' 2>/dev/null | awk -v t="$co" '$1 == t { print $2 " " $3; exit }')
+    [ -n "$co_win" ] || break
+    co_next=$(tmux list-clients -F '#{client_activity} #{client_name} #{window_id} #{session_name}' 2>/dev/null |
+      awk -v w="${co_win% *}" -v s="${co_win#* }" '$3 == w { print "1 " $0; next } $4 == s { print "0 " $0 }' |
+      sort -k1,1rn -k2,2rn | head -n 1 | cut -d' ' -f3)
+    [ -n "$co_next" ] || break
+    co=$co_next co_n=$((co_n + 1))
+  done
+  printf '%s' "$co"
+}
 CLIENT=${TRAILS_CLIENT:-}
 if [ -z "$CLIENT" ] && [ -n "$TMUX" ]; then
   [ -z "${TMUX_PANE:-}" ] || CLIENT=$(tmux list-clients -F '#{client_activity} #{client_name} #{pane_id}' 2>/dev/null |
     awk -v p="$TMUX_PANE" '$3 == p' | sort -rn | head -n 1 | cut -d' ' -f2)
   [ -n "$CLIENT" ] || CLIENT=$(tmux display-message -p '#{client_name}' 2>/dev/null)
 fi
+[ -z "$CLIENT" ] || CLIENT=$(client_outer "$CLIENT")
 switch_to() { exec tmux switch-client ${CLIENT:+-c "$CLIENT"} -t "$1"; }
 
 # Where a picked trail is shown: its workspace, with its window selected, or its editor
