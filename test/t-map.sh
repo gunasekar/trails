@@ -52,6 +52,12 @@ assert_eq "$(tmux list-windows -t default -F '#{window_name}' | sort | tr '\n' '
 assert_no_file "$STATE/default/payments" "the record went"
 assert_match "$(cd "$T" && "$TRAILS" end nope 2>&1)" 'no trail nope' "unknown refused"
 
+# trails open KEY, from anywhere: the terminal lands in the workspace on the trail's window.
+driver "$TRAILS" open default/ledger
+driver_attached || fail "open never attached"
+assert_eq "$(client_at "$(tmux list-clients -F '#{client_name} #{client_tty}' | awk -v t="$(tmux display-message -pt "driver-$DRIVERS" '#{pane_tty}')" '$2 == t { print $1 }')")" 'default other·ledger' "open landed on the trail's window"
+assert_match "$(cd "$T" && "$TRAILS" open nope 2>&1)" 'gone' "unknown refused"
+
 # trails keys prints bindings, and changes nothing.
 before=$(tmux list-keys | wc -l)
 assert_match "$("$TRAILS" keys)" "^bind P display-popup .* '$TRAILS'$" "the picker binding, by absolute path"

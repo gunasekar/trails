@@ -146,6 +146,7 @@ With no workspaces configured, everything runs in one workspace called
 | `trails new NAME [AGENT]` | start a trail named `NAME`, with `-y` for YOLO: its session is `<workspace>/NAME`, and claude takes `NAME` as its own name, so other Claude sessions can message it by that name |
 | `trails edit` / `shell` | the editor beside the agent, or a shell along the bottom, as panes of the trail's window in the workspace (the editor alone in a window of its own when nothing runs there): made once, then selected. The window you are on says which codebase, or `DIR` after the command |
 | `trails ls [-a \| DIR]` | this directory's trails: running, lost when tmux died, or finished in the last 10 days. `DIR` lists that directory instead, `-a` every directory |
+| `trails open KEY` | go to a trail from anywhere, by the key `trails ls` prints (`acme/checkout-2`): its workspace on its window, or the trail alone from an editor's terminal |
 | `trails end KEY` | end a trail from anywhere, by the key `trails ls` prints (`acme/checkout-2`) |
 | `trails restore` | bring back every trail lost when tmux died, each on its own conversation, into its workspace, detached |
 | `trails map [N]` | several running agents side by side in one window: re-attach to the map already up, pick a set, or take the `N` that most want you (`map new` forces a fresh pick) |
@@ -459,7 +460,8 @@ trails swiftbar                 # link the plugin in; --remove takes it out
   you something and amber when one finished its turn; its bottom dot is green
   while any agent is working. The number beside it is how many want you.
 - **The menu** lists every running trail. Each has *Resume*, which opens it in
-  a new tab of your terminal, and, once it's your turn, *End session*, which runs
+  a new tab of your terminal, in its workspace on its window as the picker would
+  (`trails open`), and, once it's your turn, *End session*, which runs
   `trails end`.
 - **Open sessions in** at the bottom picks the terminal: Terminal (the default),
   iTerm or Ghostty.

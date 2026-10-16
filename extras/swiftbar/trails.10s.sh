@@ -17,8 +17,8 @@
 # project you are standing in. This is the other half: every agent on the box, polled,
 # whether or not you are looking — the "what did I leave running while I walked away"
 # view. All the thinking lives in `trails ls -a`, which decides blocked/idle/working
-# by diffing each session's screen (see trails' docs/ARCHITECTURE.md); this file only
-# renders it.
+# from the agent's own state where it writes one down, else by diffing each session's
+# screen (see trails' docs/ARCHITECTURE.md); this file only renders it.
 #
 # Ships with trails, in its share directory. `trails swiftbar` links it into SwiftBar's
 # plugin folder, so `brew upgrade trails` updates the plugin along with the tool whose
@@ -73,10 +73,11 @@ TRAILS=$(command -v trails) || {
 }
 
 # ─── Actions (SwiftBar re-runs this file with the function name as param1) ───
-# Resume: open the session in your terminal, attached to it — a new tab in the front window
-# where the terminal has one, a new window otherwise. The command *is* the attach, so
-# detaching closes it. tmux by absolute path, since the new tab does not get this file's
-# PATH. macOS asks once to let SwiftBar control the terminal.
+# Resume: open the trail in your terminal — a new tab in the front window where the terminal
+# has one, a new window otherwise — through `trails open`, so it lands where the picker
+# would: the workspace on the trail's window, editor and shell beside the agent. The command
+# *is* the attach, so detaching closes it. trails by absolute path, since the new tab does
+# not get this file's PATH. macOS asks once to let SwiftBar control the terminal.
 #
 # Which terminal is yours to pick, from "Open sessions in" at the bottom of the menu:
 # Terminal (the default, since every Mac has it), iTerm or Ghostty. One that isn't
@@ -113,13 +114,11 @@ function set_terminal() {
 }
 
 function resume() {
-  local tmux_path
-  tmux_path=$(command -v tmux)
   case $(chosen_terminal) in
     ghostty)
-      osascript - "$tmux_path" "$1" <<'OSA' >/dev/null
+      osascript - "$TRAILS" "$1" <<'OSA' >/dev/null
 on run argv
-  set cmd to item 1 of argv & " attach-session -t " & quoted form of ("=" & item 2 of argv)
+  set cmd to quoted form of (item 1 of argv) & " open " & quoted form of (item 2 of argv)
   tell application "Ghostty"
     activate
     set cfg to new surface configuration
@@ -134,9 +133,9 @@ end run
 OSA
       ;;
     iterm)
-      osascript - "$tmux_path" "$1" <<'OSA' >/dev/null
+      osascript - "$TRAILS" "$1" <<'OSA' >/dev/null
 on run argv
-  set cmd to item 1 of argv & " attach-session -t " & quoted form of ("=" & item 2 of argv)
+  set cmd to quoted form of (item 1 of argv) & " open " & quoted form of (item 2 of argv)
   tell application "iTerm"
     activate
     if (count of windows) > 0 then
@@ -151,9 +150,9 @@ OSA
     *)
       # Terminal runs the command in a shell, so exec: detaching ends the shell too, rather
       # than leaving a prompt behind.
-      osascript - "$tmux_path" "$1" <<'OSA' >/dev/null
+      osascript - "$TRAILS" "$1" <<'OSA' >/dev/null
 on run argv
-  set cmd to "exec " & quoted form of (item 1 of argv) & " attach-session -t " & quoted form of ("=" & item 2 of argv)
+  set cmd to "exec " & quoted form of (item 1 of argv) & " open " & quoted form of (item 2 of argv)
   tell application "Terminal"
     activate
     do script cmd
@@ -359,9 +358,10 @@ while IFS=$'\t' read -ra f; do
   esac
 
   # @peer is the name another Claude session messages this one by. Left out when the
-  # session's own name already says it (a named trail), and so is a task that repeats it.
+  # trail's own name already says it (a named trail: lattiq/payments is shown as payments,
+  # and its claude answers to payments), and so is a task that repeats it.
   line="${word} · ${label} · ${proj}${badge}"
-  [ -n "$peer" ] && [ "$peer" != "${name#trails-}" ] && line+=" @${peer}"
+  [ -n "$peer" ] && [ "$peer" != "$proj" ] && line+=" @${peer}"
   [ -n "$task" ] && [ "$task" != "$peer" ] && line+=" — ${task}"
   menu+="${line//|/－} | sfimage=${icon} refresh=true"$'\n'
   # What to do about it, one level down. Resume for every state — even a working one is

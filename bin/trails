@@ -3660,6 +3660,8 @@ usage: trails [command]
                     in a window of its own when nothing runs there): made once, then
                     selected; run from the pane, back to where you were. The window you
                     are on says which codebase, or DIR after the command
+  open KEY          go to a trail by its key, as trails ls prints it, from anywhere: its
+                    workspace on its window, or its session from an editor's terminal
   end KEY           end a trail by its key, as trails ls prints it, from anywhere
   keys              print tmux.conf lines that bind the picker, the editor and the shell
   swiftbar          link the menu-bar plugin into SwiftBar (macOS); --remove unlinks
@@ -3700,7 +3702,7 @@ EOF
 # config is broken. ls carries on
 # without them (only its closed rows need them), so a typo in the file can't blank a menu bar.
 case $1 in
-  help | -h | --help | config | swiftbar | keys | end | --forget | --layout | --peek) AGENTS= ;;
+  help | -h | --help | config | swiftbar | keys | open | end | --forget | --layout | --peek) AGENTS= ;;
   ls | ws) AGENTS=$(load_agents) || AGENTS= ;;
   *) AGENTS=$(load_agents) || exit 1 ;;
 esac
@@ -3750,6 +3752,16 @@ case $1 in
   end)
     end_trail "${2:-}"
     exit 0
+    ;;
+  # `trails open KEY`: into a trail by its key, from anywhere, the way the picker goes — the
+  # workspace on the trail's window from a terminal of your own, the trail's session from an
+  # editor's. The menu-bar plugin's Resume runs this in a new tab.
+  open)
+    [ -n "${2:-}" ] || {
+      echo "trails: open takes a trail's key, as trails ls prints it (lattiq/augur-2)" >&2
+      exit 1
+    }
+    attach_key "$2"
     ;;
   # Box-wide like ls: each session comes back in its own recorded directory, so where you
   # stand does not matter.

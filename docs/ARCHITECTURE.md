@@ -556,8 +556,9 @@ running rows, and draws them.
   `~/.cache/trails/swiftbar-state` and speaks on the working → stopped edge, once,
   after `TRAILS_NOTIFY_AFTER` seconds. Nothing can tell whether you're looking at
   a trail, so the wait is what keeps the one you're working in quiet.
-- **Resume** runs `tmux attach-session` on the `session` field, the trail's session,
-  as the command of a new tab, through the chosen terminal's AppleScript. The
+- **Resume** runs `trails open` on the key as the command of a new tab, through
+  the chosen terminal's AppleScript, so it lands where the picker would: the
+  workspace on the trail's window, with the editor and shell beside the agent. The
   choice is stored in `~/.config/trails/terminal`, not in SwiftBar's storage for
   the plugin: SwiftBar names that after the plugin's resolved path, which through
   Homebrew carries the version, so every upgrade would start it empty.
