@@ -428,6 +428,22 @@ its directory, its agent and what it's working on; type into any of them, and
 detach (`C-b d`) to leave them all running. `trails map` re-attaches to the map
 already up, or lets you pick a set.
 
+Three or more are tiled. Two go side by side when the terminal is at least 160
+columns wide, since each agent wants about 80 to draw itself, and one above the
+other when it is not. To settle it yourself, in the config:
+
+```json
+"map": { "two": "side", "layout": "tiled" }
+```
+
+`two` is `side`, `stacked` or `auto`; `layout` is the tmux layout for three or
+more: `tiled`, `main-vertical` (one big pane on the left, the rest stacked on the
+right), `main-horizontal`, `even-horizontal` or `even-vertical`. The map is plain
+tmux, so its own keys rearrange a map you are looking at: `C-b Space` cycles the
+layouts, `C-b M-1` to `M-5` pick one, `C-b z` zooms a pane to the whole window and
+back, `C-b C-←` and friends resize, and `C-b ←↑↓→` move between panes. `main-pane-width`
+in your tmux.conf sets the big pane's share for the `main-` layouts.
+
 ### Menu bar (macOS)
 
 trails ships a [SwiftBar](https://swiftbar.app) plugin that keeps your agents in
@@ -496,6 +512,7 @@ file in `$EDITOR`. Changing agents never needs a change to trails.
 | `session` | *(optional)* how trails learns which conversation a trail is in, so it can come back after tmux dies. See below. |
 | `default_agent` | *(optional)* listed first in the picker |
 | `mode` | *(optional)* `default` (the agent's own, prompting mode) or `yolo`: the mode a *new trail* row starts in. Tab flips a row from it, so with `yolo` Tab is how you start one in default mode. Closed trails come back in the mode they last ran in unless Tab flips them, and an agent with no `yolo` flag always runs in default mode. |
+| `map` | *(optional)* how `trails map` lays out its panes: `two` (`side`, `stacked`, or `auto`, the default, which goes side by side from 160 columns) and `layout` for three or more (a tmux layout name, `tiled` by default). See [trails map](#trails-map). |
 
 Only agents whose command is on `PATH` are offered. Recent conversations are
 read from claude's and opencode's own history, and are filed under the first

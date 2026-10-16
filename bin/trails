@@ -3115,6 +3115,12 @@ peek() { tmux capture-pane -pet "$1" 2>/dev/null; }
 # server option, so it is already true of the inner client and Shift+Enter reaches the agent.
 view_cmd() { printf "env -u TMUX tmux attach -t '=%s'" "$1"; }
 
+# The config's "map" block, one key: `map_pref two`, `map_pref layout`. Empty when unset.
+map_pref() {
+  [ -f "$CONFIG" ] || return 0
+  jq -r --arg k "$1" '.map[$k] // empty | if type == "string" then . else empty end' "$CONFIG" 2>/dev/null
+}
+
 # The directory a map pane's agent works in — its editor view's session_path basename (a
 # 0.6 session's own), frozen at launch. Stamped onto the pane as @dir so the border can lead
 # with it (see the pane-border-format below). Not folded into tmux.conf's set-titles-string,
@@ -3241,9 +3247,12 @@ map() {
   # Build at the size of the terminal you are standing in, because the layout below is
   # decided on width. A session made without -x/-y sits at tmux's default 80x24 until a
   # client attaches, so the two-pane rule would be judged against a width that is not
-  # yours. Inside tmux the client is the window, not the pane, so ask tmux rather than tput.
+  # yours. Inside tmux the client is the window, not the pane, so ask tmux rather than tput —
+  # and ask about CLIENT, the one that asked: tmux's own guess can be a trail's nested view
+  # client, a fraction of a window wide, which read as a narrow terminal and stacked the two.
   if [ -n "$TMUX" ]; then
-    size=$(tmux display-message -p '#{client_width} #{client_height}' 2>/dev/null)
+    # shellcheck disable=SC2086 # the -c and its client are two words on purpose
+    size=$(tmux display-message -p ${CLIENT:+-c "$CLIENT"} '#{client_width} #{client_height}' 2>/dev/null)
   else
     size="$(tput cols 2>/dev/null) $(tput lines 2>/dev/null)"
   fi
@@ -3266,19 +3275,37 @@ map() {
     *) ;; # likewise
   esac
 
-  # Three or more is a grid and there is nothing to decide. Two is the case worth thinking
-  # about, and it turns on width rather than taste: side by side gives each agent a
-  # full-height column, the better shape for reading a conversation — but only if the
-  # halves are wide enough to read. Under ~80 columns an agent TUI starts wrapping its own
-  # boxes, so a 114-column window (a half-screen Ghostty) is better served stacked: 114
-  # wide and short beats 57 wide and tall. Hence 160, which is that 80 doubled. C-b Space
-  # cycles if a particular window disagrees.
-  if [ "$count" -eq 2 ] && [ "$w" -lt 160 ]; then
-    layout=even-vertical
-  elif [ "$count" -eq 2 ]; then
-    layout=even-horizontal
-  else
-    layout=tiled
+  # Three or more is a grid, tiled unless the config's map.layout names another tmux
+  # layout. Two is the case worth thinking about, and by default it turns on width rather
+  # than taste: side by side gives each agent a full-height column, the better shape for
+  # reading a conversation — but only if the halves are wide enough to read. Under ~80
+  # columns an agent TUI starts wrapping its own boxes, so a 114-column window (a half-screen
+  # Ghostty) is better served stacked: 114 wide and short beats 57 wide and tall. Hence 160,
+  # which is that 80 doubled. map.two in the config settles it instead ("side", "stacked"),
+  # and C-b Space cycles if a particular window disagrees.
+  two=$(map_pref two)
+  case $two in
+    side | stacked | auto | '') ;;
+    *)
+      echo "trails: map.two is \"$two\" in $CONFIG — side, stacked or auto; using auto" >&2
+      two=auto
+      ;;
+  esac
+  layout=$(map_pref layout)
+  case $layout in
+    '') layout=tiled ;;
+    even-horizontal | even-vertical | main-horizontal | main-vertical | tiled) ;;
+    *)
+      echo "trails: map.layout is \"$layout\" in $CONFIG — a tmux layout name (tiled, main-vertical, …); using tiled" >&2
+      layout=tiled
+      ;;
+  esac
+  if [ "$count" -eq 2 ]; then
+    case $two in
+      side) layout=even-horizontal ;;
+      stacked) layout=even-vertical ;;
+      *) if [ "$w" -lt 160 ]; then layout=even-vertical; else layout=even-horizontal; fi ;;
+    esac
   fi
 
   # Built aside under its own name and swapped in at the end, where the old map is killed

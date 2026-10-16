@@ -27,6 +27,15 @@ tmux kill-window -t "$(tmux list-windows -t default -F '#{window_id} #{@trails_c
 driver "$TRAILS" map 2
 wait_for 5 sh -c "tmux list-clients -F '#{session_name}' | grep -qx default/payments" || fail "the map lost the trail with its cell"
 
+# Two in a 120-column terminal stack by default; map.two "side" in the config puts them side
+# by side regardless.
+assert_eq "$(tmux list-panes -t trails_map -F '#{pane_left}' | sort -u | wc -l | tr -d ' ')" 1 "stacked under 160 columns"
+jq '. + { map: { two: "side" } }' "$XDG_CONFIG_HOME/trails/config.json" >"$T/cfg" && mv "$T/cfg" "$XDG_CONFIG_HOME/trails/config.json"
+tmux kill-session -t trails_map
+driver "$TRAILS" map 2
+wait_for 5 sh -c "[ \"\$(tmux list-panes -t trails_map | wc -l | tr -d ' ')\" = 2 ]" || fail "no map with map.two"
+assert_eq "$(tmux list-panes -t trails_map -F '#{pane_top}' | sort -u | wc -l | tr -d ' ')" 1 "side by side when the config says so"
+
 # trails end, from anywhere: the window, its view and its record go.
 out=$(cd "$T" && "$TRAILS" end default/payments)
 assert_eq "$out" "ended default/payments" "said so"

@@ -24,6 +24,8 @@ tmux switch-client -c "$client" -t "=default:$mine"
 wins() { tmux list-windows -t default -F '#{window_name}' | grep '·' | sort | tr '\n' ' '; }
 
 geom() { tmux display-message -pt "$1" '#{pane_left} #{pane_top} #{pane_width} #{pane_height}'; }
+# The layout is laid after the pane appears, so a geometry is waited for, not read at once.
+geom_is() { [ "$(geom "$1")" = "$2" ]; }
 W=$(tmux display-message -pt "$cell" '#{window_width}')
 H=$(tmux display-message -pt "$cell" '#{window_height}')
 
@@ -35,7 +37,7 @@ wait_for 5 sh -c "[ \"\$(tmux list-panes -t '$cell' | wc -l | tr -d ' ')\" = 2 ]
 assert_eq "$(panes)" "shell view " "the panes, marked"
 spane=$(tmux list-panes -t "$cell" -F '#{pane_id} #{@trails_pane}' | awk '$2 == "shell" { print $1 }')
 assert_eq "$(tmux display-message -pt "$spane" '#{pane_current_path}')" "$PROJ" "a shell in the codebase"
-assert_eq "$(geom "$spane")" "0 $((H - H / 4)) $W $((H / 4))" "along the bottom, full width, a quarter high"
+wait_for 5 geom_is "$spane" "0 $((H - H / 4)) $W $((H / 4))" || fail "the shell: along the bottom, full width, a quarter high: got $(geom "$spane")"
 wait_for 5 on_cell || fail "the client was not taken to the cell"
 assert_eq "$(client_at "$client" '#{pane_id}')" "$spane" "on the shell"
 assert_eq "$(tmux list-panes -t default/payments | wc -l | tr -d ' ')" 1 "the view still shows the agent alone"
@@ -52,7 +54,7 @@ epane=$(tmux list-panes -t "$cell" -F '#{pane_id} #{@trails_pane}' | awk '$2 == 
 vpane=$(tmux list-panes -t "$cell" -F '#{pane_id} #{@trails_pane}' | awk '$2 == "view" { print $1 }')
 wait_for 5 screen_has "$epane" "ed in $PROJ" || fail "the editor is not in the codebase: $(screen "$epane" | grep -v '^$' | head -2)"
 EW=$((W * 60 / 100))
-assert_eq "$(geom "$epane")" "0 0 $EW $((H - H / 4 - 1))" "the editor: left, 60% wide, above the shell"
+wait_for 5 geom_is "$epane" "0 0 $EW $((H - H / 4 - 1))" || fail "the editor: left, 60% wide, above the shell: got $(geom "$epane")"
 assert_eq "$(geom "$spane")" "0 $((H - H / 4)) $EW $((H / 4))" "the shell: under the editor only"
 assert_eq "$(geom "$vpane")" "$((EW + 1)) 0 $((W - EW - 1)) $H" "the view: right 40%, full height"
 wait_for 5 at_pane "$epane" || fail "the client was not taken to the editor"
@@ -69,7 +71,7 @@ sleep 0.3
 type_in "$mine" "$TRAILS shell"
 sleep 1.5
 assert_eq "$(panes)" "edit shell view " "still one shell"
-assert_eq "$(geom "$spane")" "0 $((H - H / 4)) $EW $((H / 4))" "the shell stays under the editor"
+wait_for 5 geom_is "$spane" "0 $((H - H / 4)) $EW $((H / 4))" || fail "the shell stays under the editor: got $(geom "$spane")"
 
 # From the shell pane itself, trails shell goes back to the pane you came from.
 tmux select-pane -t "$epane"
@@ -82,8 +84,7 @@ assert_eq "$(panes)" "edit shell view " "nothing closed"
 # The editor quits: its pane goes, and the shell goes back along the bottom, full width.
 type_in "$epane" exit
 wait_for 5 sh -c "[ \"\$(tmux list-panes -t '$cell' | wc -l | tr -d ' ')\" = 2 ]" || fail "the editor's pane outlived the editor"
-wait_for 5 sh -c "[ \"\$(tmux display-message -pt '$spane' '#{pane_width}')\" = $W ]" || fail "the shell kept its column: $(geom "$spane")"
-assert_eq "$(geom "$spane")" "0 $((H - H / 4)) $W $((H / 4))" "the shell: along the bottom again"
+wait_for 5 geom_is "$spane" "0 $((H - H / 4)) $W $((H / 4))" || fail "the shell kept its column: $(geom "$spane")"
 
 # And the editor again, for what follows.
 tmux switch-client -c "$client" -t "=default:$mine"

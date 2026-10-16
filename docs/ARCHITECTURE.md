@@ -557,8 +557,11 @@ what a project folder called `map` would have got.
 
 Panes are ordered most-wants-you first and re-tiled after every split, since
 splitting halves the current pane and runs out of room fast. Two agents go side
-by side only when the window is at least 160 columns wide. Each pane is stamped
-with `@dir` and `@ag` so its border can read `<dir> · <agent> · <task>`.
+by side only when the terminal is at least 160 columns wide, measured on the
+client that asked (`CLIENT`), since tmux's guess can be a nested view client a
+fraction of a window wide; the config's `map.two` (`side`, `stacked`) settles it
+instead, and `map.layout` names the tmux layout for three or more. Each pane is
+stamped with `@dir` and `@ag` so its border can read `<dir> · <agent> · <task>`.
 
 A tmux window has one size, so a trail watched by a map pane and, say, a Zed
 thread can't be drawn right for both. `window-size` stays at tmux's default
