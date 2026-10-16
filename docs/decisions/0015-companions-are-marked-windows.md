@@ -23,14 +23,18 @@ the codebase on it.
 - **One of each kind per codebase.** Run again, the command selects the window
   that is there. Run from the companion itself, it goes back with
   `last-window`.
-- **`edit`** runs `$EDITOR`, nvim if unset. **`shell`** runs tmux's own default
-  command. **`ide`** puts the editor beside a nested client of a trail's editor
-  view (ADR 14): the trail you run it from, else the codebase's trail that most
-  wants you; with none it says so and makes nothing.
+- **`edit`** runs `$EDITOR`, nvim if unset, beside the codebase's trail when one
+  runs, and alone only when none does (amended 2026-10: the first live use
+  showed an editor alone is never wanted next to a running agent, and `C-b z`
+  gives it the whole window when it is). **`shell`** runs tmux's own default
+  command. **`ide`** is the side-by-side outright: the trail you run it from,
+  else the codebase's trail that most wants you; with none it says so and makes
+  nothing.
 - **Never a split in a trail's window**, which the editors attached to that
   trail would see, and never a shell at the workspace level.
 - The picker lists companions on both trail screens, goes to one on Enter and
-  closes one on ctrl-x; ctrl-e opens the editor for the row's codebase.
+  closes one on ctrl-x; ctrl-e opens the editor for the row's codebase. An
+  editor's terminal sees no companion rows: it wants trails only (R9).
 - Companions are not restored. An editor or a shell is reopened with one
   command.
 

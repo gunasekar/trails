@@ -452,8 +452,11 @@ already there; run from the companion, they go back with `last-window`. The
 window you are on decides the codebase (its `@trails_dir`, else the pane's
 directory), outside tmux the current directory. `ide` splits the window: the
 editor and a nested client of a trail's editor view, as a map cell is, for the
-trail you are on or the codebase's that most wants you. Directories are compared
-resolved, because tmux reports a pane's path through symlinks.
+trail you are on or the codebase's that most wants you. `edit` is `ide` whenever
+the codebase has a running trail (or an ide window left by one that ended), and
+the editor alone only when it has none. Directories are compared resolved,
+because tmux reports a pane's path through symlinks. An editor's terminal is
+shown no companion rows in the picker.
 
 ## Keys
 

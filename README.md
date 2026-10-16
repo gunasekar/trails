@@ -38,7 +38,6 @@ checkout (acme) ▸ Pick a trail: █   # enter: open · tab: toggle YOLO · ctr
   ● your turn  claude    #2   Fix the flaky cart-total test
   ● working    codex          Migrate orders to Postgres 17
   ○ lost       claude         Spike: replay Stripe webhooks
-  editor       nvim
   claude · new trail
   codex · new trail
   cursor · new trail
@@ -118,7 +117,7 @@ With no workspaces configured, everything runs in one workspace called
 | `trails ws [NAME]` | pick a workspace, or go to `NAME`: switch to its session inside tmux, attach outside, landing on the trail that most wants you; its picker when nothing runs there |
 | `trails ws list` / `ws of [DIR]` / `ws add NAME [DIR]` | the workspaces in the config; the one `DIR` (here) belongs to; put `DIR` (here) in workspace `NAME`, creating it if new |
 | `trails new NAME [AGENT]` | start a trail named `NAME`, with `-y` for YOLO: its editor view is `<workspace>/NAME`, and claude takes `NAME` as its own name, so other Claude sessions can message it by that name |
-| `trails edit` / `shell` / `ide` | the codebase's editor, a shell, or the editor beside the trail, as a window in the workspace: made once, then selected. The window you are on says which codebase, or `DIR` after the command |
+| `trails edit` / `shell` / `ide` | the codebase's editor beside its trail (alone when nothing runs there), a shell, or the editor beside the trail outright, as a window in the workspace: made once, then selected. The window you are on says which codebase, or `DIR` after the command |
 | `trails ls [-a \| DIR]` | this directory's trails: running, lost when tmux died, or finished in the last 10 days. `DIR` lists that directory instead, `-a` every directory |
 | `trails end KEY` | end a trail from anywhere, by the key `trails ls` prints (`acme/checkout-2`) |
 | `trails restore` | bring back every trail lost when tmux died, each on its own conversation, into its workspace, detached |
@@ -194,7 +193,8 @@ workspace that trails didn't make is refused, never added to.
 One command, three screens, chosen by where it runs.
 
 **This codebase** (a shell in a repo, or an editor's terminal): its running and
-lost trails first, its companions, then one *new trail* row per agent, then
+lost trails first, its companions (not in an editor's terminal, which wants
+trails only), then one *new trail* row per agent, then
 **↩ resume old trails**, which opens a second list of the conversations that
 ended here (Esc goes back). The cursor starts on the trail that most wants you.
 Picking a running trail from a terminal of your own lands in the workspace with
@@ -209,7 +209,7 @@ acme ▸ Pick a trail: █   # enter: open · tab: toggle YOLO · ctrl-n: name i
 ▌ ● needs you  checkout  claude · yolo  Add idempotency keys to payment retries
   ● your turn  ledger    codex          Migrate orders to Postgres 17
   ○ lost       checkout  claude         Spike: replay Stripe webhooks
-  editor       checkout  nvim
+  ide          checkout  nvim · acme/checkout
              checkout  · new claude
              checkout  · new codex
              ledger    · new claude
@@ -309,9 +309,9 @@ codebase's trails: `checkout·nvim`, `checkout·shell`, `checkout·ide`.
 
 | Command | Opens |
 |---|---|
-| `trails edit` | `$EDITOR` (nvim if unset) in the codebase |
+| `trails edit` | `$EDITOR` (nvim if unset) beside a live view of the codebase's trail, in one window; alone in its own window when nothing runs there. `C-b z` zooms the editor's pane |
 | `trails shell` | a shell in the codebase, tmux's own default command |
-| `trails ide` | the editor beside a live view of the trail, in one window: the trail you run it from, else the codebase's trail that most wants you |
+| `trails ide` | the side-by-side window outright: the trail you run it from, else the codebase's trail that most wants you; refused with none |
 
 The window you are on decides the codebase: run from a trail or another
 companion, the command acts on that codebase; from a plain window, on the pane's
