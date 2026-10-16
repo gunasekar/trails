@@ -684,6 +684,21 @@ from_editor() {
 
 TAB=$(printf '\t')
 
+# A locale, when the caller has none: launchd jobs (the menu-bar plugin, a cron) start with
+# no LANG or LC_*, and a tmux client in the C locale rewrites every byte it cannot print
+# as `_` on the way out: the tab between two fields of a format, the `·` in a window's
+# name. The fields then never match, and a trail that `ls` lists is one `end` cannot find.
+# Any UTF-8 locale the system has will do; nothing here depends on the language.
+if [ -z "${LANG:-}${LC_ALL:-}${LC_CTYPE:-}" ]; then
+  for l in C.UTF-8 en_US.UTF-8 UTF-8; do
+    locale -a 2>/dev/null | grep -qx "$l" && {
+      LC_CTYPE=$l
+      export LC_CTYPE
+      break
+    }
+  done
+fi
+
 # Agents running here. ("Zed reconnected" and "give me a second agent" are
 # indistinguishable from here, so show what's running and let you choose.)
 #

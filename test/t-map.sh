@@ -44,7 +44,9 @@ driver "$TRAILS" shell "$PROJ"
 pwin() { tmux list-windows -t default -F '#{window_id} #{@trails_window}' | awk '$2 == "default/payments" { print $1 }'; }
 wait_for 5 sh -c "[ \"\$(tmux list-panes -t \"\$(tmux list-windows -t default -F '#{window_id} #{@trails_window}' | awk '\$2 == \"default/payments\" { print \$1 }')\" | wc -l | tr -d ' ')\" = 2 ]" || fail "no shell beside payments"
 pw=$(pwin)
-out=$(cd "$T" && "$TRAILS" end default/payments)
+# With no locale at all, as a launchd job runs: a tmux client in the C locale rewrites
+# the tab between two fields as `_`, and the trail could not be found to end.
+out=$(cd "$T" && env -u LANG -u LC_ALL -u LC_CTYPE "$TRAILS" end default/payments)
 assert_eq "$out" "ended default/payments" "said so"
 wait_for 3 no_session default/payments || fail "the session survived"
 wait_for 5 sh -c "[ \"\$(tmux display-message -pt '$pw' '#{window_name} #{@trails_tool} #{window_panes}')\" = 'proj·shell shell 1' ]" || fail "the trail's window was not released: $(tmux display-message -pt "$pw" '#{window_name} #{@trails_window} #{@trails_tool} #{window_panes}')"

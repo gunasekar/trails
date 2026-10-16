@@ -567,6 +567,11 @@ running rows, and draws them.
   editor or shell beside the agent as an editor or shell window) or a 0.6
   session, and forgets the record.
 
+A launchd job has no locale, and a tmux client in the C locale rewrites every
+byte it cannot print as `_`, the tab between two format fields included. trails
+exports a UTF-8 `LC_CTYPE` when the caller set none, so what the plugin asks for
+reads the same as it would from a shell.
+
 `trails swiftbar` links the plugin into SwiftBar's plugin folder (read from
 `defaults read com.ameba.SwiftBar PluginDirectory`). It links through the path the
 script was invoked by, `/opt/homebrew/bin/../share/…`, not the resolved Cellar
