@@ -1935,6 +1935,10 @@ EOF
 # the trail lives in its view, so the cell is rebuilt for free. The workspace session is made
 # around it when there is none (D1's refusal applies). Prints the cell's window id.
 #
+# The view pane is stamped @ag and @dir as a map pane is (the agent, the codebase label), so
+# a pane-border-format that reads them labels both the same way: its own command is `tmux`,
+# which says nothing.
+#
 #   ensure_cell WID KEY WS     WID is the trail's window, in its view
 # for a 0.6 session, which is its own view.
 ensure_cell() {
@@ -1944,8 +1948,8 @@ ensure_cell() {
     printf '%s\n' "$ec_cell"
     return 0
   }
-  IFS='|' read -r ec_win ec_dir ec_label <<EOF
-$(tmux display-message -pt "$ec_wid" '#{window_name}|#{@trails_dir}|#{@trails_label}' 2>/dev/null)
+  IFS='|' read -r ec_win ec_dir ec_label ec_agent <<EOF
+$(tmux display-message -pt "$ec_wid" '#{window_name}|#{@trails_dir}|#{@trails_label}|#{@agent}' 2>/dev/null)
 EOF
   [ -n "$ec_win" ] || return 1
   if tmux has-session -t "=$ec_ws" 2>/dev/null; then
@@ -1965,7 +1969,9 @@ EOF
     \; set-option -w -t "$ec_cell" @trails_dir "$ec_dir" \
     \; set-option -w -t "$ec_cell" @trails_ws "$ec_ws" \
     \; set-option -w -t "$ec_cell" @trails_label "$ec_label" \
-    \; set-option -p -t "$ec_cell" @trails_pane view
+    \; set-option -p -t "$ec_cell" @trails_pane view \
+    \; set-option -p -t "$ec_cell" @ag "$ec_agent" \
+    \; set-option -p -t "$ec_cell" @dir "$ec_label"
   printf '%s\n' "$ec_cell"
 }
 

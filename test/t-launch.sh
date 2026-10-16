@@ -21,8 +21,8 @@ assert_eq "$(tmux list-windows -t default/payments -F '#{window_name}')" "proj·
 wait_for 5 sh -c "[ \"\$(tmux list-windows -t default -F '#{window_name}')\" = 'proj·payments' ]" || fail "no cell in the workspace"
 cell=$(tmux list-windows -t default -F '#{window_id}')
 [ "$cell" != "$wid" ] || fail "the cell is the trail's own window"
-assert_eq "$(tmux display-message -pt "$cell" '#{@trails_cell} #{@trails_dir} #{@trails_ws} #{@trails_label} #{@trails_pane}')" \
-  "default/payments $PROJ default proj view" "the cell's options"
+assert_eq "$(tmux display-message -pt "$cell" '#{@trails_cell} #{@trails_dir} #{@trails_ws} #{@trails_label} #{@trails_pane} #{@ag} #{@dir}')" \
+  "default/payments $PROJ default proj view stub proj" "the cell's options"
 wait_for 5 sh -c "tmux list-clients -t default/payments -F '#{client_tty}' | grep -qx \"\$(tmux display-message -pt '$cell' '#{pane_tty}')\"" ||
   fail "the cell's pane is not a client of the view"
 assert_eq "$(tmux show-options -t default/payments -v status)" off "the view has no status line"

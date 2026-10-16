@@ -198,6 +198,11 @@ acme/checkout-2         ← another, same codebase
 acme/ledger             ← codex in ~/code/ledger
 ```
 
+The pane showing a trail runs a tmux client, so a `pane-border-format` that
+labels panes by their command reads `tmux` on it; the pane carries `@ag` (the
+agent) and `@dir` (the codebase) for that, as the map's panes do:
+`#{?@ag,#{@ag},#{pane_current_command}}`.
+
 Plain tmux moves you around: the next and previous window keys, `prefix s` or
 `choose-tree`, `switch-client`. `tmux a -t acme` is the workspace and
 `tmux a -t acme/checkout` is one trail. trails sets nothing on any of it beyond

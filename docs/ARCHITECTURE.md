@@ -101,7 +101,10 @@ parsed back out of a name:
 
 The cell carries `@trails_cell` (the trail's key), `@trails_dir`, `@trails_ws`
 and `@trails_label`, and each of its panes `@trails_pane`: `view`, `editor` or
-`shell`. A companion window carries `@trails_companion` (`edit`, or `shell` for a
+`shell`. The view pane also carries `@ag` and `@dir`, the agent and the codebase
+label, as a map pane does: its own command is `tmux`, so a `pane-border-format`
+that labels panes by command reads them instead, e.g.
+`#{?@ag,#{@ag},#{pane_current_command}}`. A companion window carries `@trails_companion` (`edit`, or `shell` for a
 released cell that kept only a shell) with `@trails_dir`, `@trails_ws` and
 `@trails_label`.
 
