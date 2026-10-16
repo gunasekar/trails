@@ -8,11 +8,12 @@
 **Your coding agents, in tmux, by workspace. Reachable from any editor, any
 terminal, and over one ssh connection.**
 
-trails runs Claude Code, Codex, Gemini, Copilot, Cursor, opencode or any other
-agent CLI in tmux. Each agent is a *trail*: a window in a session named after its
-workspace, which is a set of codebases you choose. From anywhere, `trails` shows
-what is running and what is waiting on you, opens the one you pick, brings old
-ones back, and puts the editor beside the agent with one key.
+trails is a command-line tool: a session manager for coding agents, built on
+tmux. It runs Claude Code, Codex, Gemini, Copilot, Cursor, opencode or any other
+agent CLI in a tmux session of its own, a *trail*, and groups trails by
+workspace, a set of codebases you choose. From anywhere, `trails` shows what is
+running and what is waiting on you, opens the one you pick, brings old ones back
+after tmux or the machine dies, and puts the editor beside the agent with one key.
 
 ![Over one connection: the workspaces, a workspace's trails, and the editor and a shell beside the agent](assets/workspace.gif)
 
