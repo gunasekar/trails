@@ -61,3 +61,15 @@ before=$(tmux list-sessions -F '#{session_name}' | sort | tr '\n' ' ')
 FZF_PICK='' trails_bg
 sleep 2
 assert_eq "$(tmux list-sessions -F '#{session_name}' | sort | tr '\n' ' ')" "$before" "Esc leaves sessions alone"
+
+# A codebase whose name holds an apostrophe: its key goes into the trail's window's pane
+# command, which is a shell line, and must survive it.
+mkdir -p "$T/it's"
+DRIVER_DIR="$T/it's" FZF_PICK='stub · new trail' FZF_QUERY='' FZF_KEY='' FZF_KEYS='' trails_bg
+wait_for 5 has_session "default/it's" || fail "no session for it's: $(tmux capture-pane -pS- -t "driver-$DRIVERS" 2>&1 | grep -v '^$' | tail -4 | tr '\n' '|')"
+wait_for 5 screen_has "default/it's" 'agent id=' || fail "the agent never started in it's"
+qwin() { tmux list-windows -t default -F '#{@trails_window}' | grep -qxF "default/it's"; }
+qcli() { [ "$(tmux list-clients -t "=default/it's" 2>/dev/null | wc -l | tr -d ' ')" -ge 1 ]; }
+wait_for 5 qwin || fail "no trail's window for it's"
+wait_for 5 qcli || fail "the window's pane is not a client of the session"
+

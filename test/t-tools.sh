@@ -96,7 +96,22 @@ wait_for 5 at_pane "$epane" || fail "not taken to the second editor"
 
 # Outside tmux, trails edit DIR attaches to the workspace on the trail's window.
 driver "$TRAILS" edit "$PROJ"
-wait_for 5 sh -c "tmux list-clients -F '#{session_name} #{window_id}' | grep -qx 'default $win'" || fail "edit from outside did not attach on the trail's window"
+driver_attached || fail "edit from outside never attached"
+assert_eq "$(client_at "$(tmux list-clients -F '#{client_name} #{client_tty}' | awk -v t="$(tmux display-message -pt "driver-$DRIVERS" '#{pane_tty}')" '$2 == t { print $1 }')" '#{session_name} #{window_id}')" "default $win" "edit from outside attached on the trail's window"
+
+# The nested client in the agent pane detaches (the double prefix reaches it): the pane goes,
+# the trail lives on, and the next way in gives the window its agent pane back, laid out.
+apane=$(tmux list-panes -t "$win" -F '#{pane_id} #{@trails_pane}' | awk '$2 == "agent" { print $1 }')
+tmux detach-client -t "$(tmux list-clients -F '#{client_name} #{client_tty}' | awk -v t="$(tmux display-message -pt "$apane" '#{pane_tty}')" '$2 == t { print $1 }')"
+wait_for 5 sh -c "[ \"\$(tmux list-panes -t '$win' | wc -l | tr -d ' ')\" = 2 ]" || fail "the agent pane outlived its client"
+driver "$TRAILS" edit "$PROJ"
+driver_attached || fail "edit after the detach never attached"
+wait_for 5 sh -c "[ \"\$(tmux list-panes -t '$win' | wc -l | tr -d ' ')\" = 3 ]" || fail "the agent pane was not given back: panes $(tmux list-panes -t "$win" -F '#{pane_id}=#{@trails_pane}:#{pane_current_command}' | tr '\n' ' '); clients $(tmux list-clients -F '#{client_name}:#{session_name}' | tr '\n' ' ')"
+assert_eq "$(panes)" "agent editor shell " "the panes, marked, again"
+apane=$(tmux list-panes -t "$win" -F '#{pane_id} #{@trails_pane}' | awk '$2 == "agent" { print $1 }')
+wait_for 5 geom_is "$apane" "$((EW + 1)) 0 $((W - EW - 1)) $H" || fail "the agent pane: right 40%, full height: got $(geom "$apane")"
+wait_for 5 sh -c "tmux list-clients -F '#{session_name}' | grep -qx default/payments" || fail "the new pane is not a client of the session"
+assert_eq "$(tmux display-message -pt "$apane" '#{@ag} #{@dir}')" "stub proj" "stamped"
 
 # The picker: panes beside an agent are the trail's, so the codebase's screen has no
 # tool window row. ctrl-e on a new row in another codebase, where nothing runs, makes that
@@ -133,12 +148,28 @@ assert_eq "$(sed 's/\x1b\[[0-9;]*m//g' "$T/emenu" | grep -v '^--- ' | cut -f1 | 
 
 # Enter on a tool window's row goes to its window.
 DRIVER_DIR=$T/other FZF_PICK="tool	$owid" driver "$TRAILS"
-wait_for 5 sh -c "[ \"\$(tmux list-clients -F '#{session_name} #{window_id}' | grep -cx 'default $owid')\" -ge 2 ]" || fail "picking the editor did not go there"
+driver_attached || fail "picking the editor never attached"
+assert_eq "$(client_at "$(tmux list-clients -F '#{client_name} #{client_tty}' | awk -v t="$(tmux display-message -pt "driver-$DRIVERS" '#{pane_tty}')" '$2 == t { print $1 }')" '#{session_name} #{window_id}')" "default $owid" "picking the editor went there"
 
 # trails shell in that codebase goes under its editor.
 DRIVER_DIR=$T/other driver "$TRAILS" shell
+driver_attached || fail "trails shell in other never attached"
 wait_for 5 sh -c "[ \"\$(tmux list-panes -t '$owid' | wc -l | tr -d ' ')\" = 2 ]" || fail "no shell under the editor alone"
 assert_eq "$(tmux list-panes -t "$owid" -F '#{@trails_pane}' | sort | tr '\n' ' ')" "editor shell " "its panes"
+
+# The editor exits and leaves the shell: the window is renamed and re-marked for what it
+# holds. An editor opened in it again marks it back, so trails edit from elsewhere finds it
+# rather than making a second editor window.
+oepane=$(tmux list-panes -t "$owid" -F '#{pane_id} #{@trails_pane}' | awk '$2 == "editor" { print $1 }')
+type_in "$oepane" exit
+wait_for 5 sh -c "[ \"\$(tmux display-message -pt '$owid' '#{window_name} #{@trails_tool} #{window_panes}')\" = 'other·shell shell 1' ]" || fail "not re-marked as a shell window: $(tmux display-message -pt "$owid" '#{window_name} #{@trails_tool} #{window_panes}'); panes: $(tmux list-panes -t "$owid" -F '#{pane_id}=#{@trails_pane}:#{pane_current_command}' | tr '\n' ' '); oepane=$oepane: $(tmux capture-pane -pt "$oepane" 2>&1 | grep -v '^$' | tail -3 | tr '\n' '|')"
+ospane=$(tmux list-panes -t "$owid" -F '#{pane_id}')
+wait_shell "$ospane" || fail "the shell pane never came up"
+type_in "$ospane" "$TRAILS edit"
+wait_for 5 sh -c "[ \"\$(tmux display-message -pt '$owid' '#{window_name} #{@trails_tool} #{window_panes}')\" = 'other·ed editor 2' ]" || fail "not re-marked as an editor window: $(tmux display-message -pt "$owid" '#{window_name} #{@trails_tool} #{window_panes}')"
+DRIVER_DIR=$T/other driver "$TRAILS" edit
+sleep 1.5
+assert_eq "$(wins)" "other·ed proj·payments " "no second editor window"
 
 # The agent exits with the editor and the shell beside it: the session goes, and the trail's window keeps
 # them as the codebase's editor window — named for the editor, marked, no longer a trail's window, not

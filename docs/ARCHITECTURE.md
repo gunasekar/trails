@@ -127,7 +127,8 @@ nested client of that session, the way a map pane is
 can then sit beside the agent in that window without the session, and so an
 editor's panel, ever seeing them. The session goes when the agent exits, and the
 window's client with it; a window you killed is rebuilt by the next attach
-(`ensure_window`), since the trail lives on. Named trails name their session:
+(`ensure_window`), since the trail lives on, and one that lost only its agent
+pane, the nested client detached, gets the pane back the same way. Named trails name their session:
 `lattiq/payments`. tmux gives a window one size, so a session shown by two clients
 of different shapes (the trail's window and an editor's panel) is sized to the one
 you last typed in, and the other sees it clipped or filled: accepted, as in the
@@ -515,7 +516,9 @@ resolved, because tmux reports a pane's path through symlinks.
 
 With no trail in the codebase, `edit` makes the editor alone as a window in the
 workspace, `<codebase>·nvim`, marked `@trails_tool editor`, and `shell` goes along
-its bottom. When a trail ends with panes beside it, `window_release` turns the
+its bottom. Such a window is renamed and re-marked for what it holds whenever its
+panes change (`tool_remark`): `<codebase>·shell` once the editor has left, the
+editor's name again when one is opened in it. When a trail ends with panes beside it, `window_release` turns the
 trail's window into such a window rather than killing what you had open: renamed
 for the editor (or `<codebase>·shell`), marked `@trails_tool`, the trail's mark
 dropped. Run by the agent's wrapper on exit and by `trails end` and ctrl-x before

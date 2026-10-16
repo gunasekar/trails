@@ -1287,9 +1287,8 @@ kill_session() {
     tmux kill-window -t "$1" 2>/dev/null
     return 0
   fi
-  # The agent's window first, then its session: one call for a trail whose window is its session's
-  # only one, and the window itself for a trail from before ADR 16, linked into its
-  # workspace, which a kill-session would leave running there.
+  # The agent's window, then its session: the window takes the session with it when it is
+  # the only one, and the session call ends anything else that was made in it.
   key=$(trail_key "$1")
   case $key in
     */*) window_release "$key" ;;
@@ -1972,11 +1971,26 @@ EOF
 # which says nothing.
 #
 #   ensure_window WID KEY WS     WID is the agent's window, in the trail's session
-# for a 0.6 session, which is its own session and workspace.
+#
+# Not called for a 0.6 session, which is its own session and workspace.
 ensure_window() {
   ec_wid=$1 ec_key=$2 ec_ws=$3
   ec_win=$(window_of "$ec_key" "$ec_ws")
   [ -z "$ec_win" ] || {
+    # Still marked, but without its agent pane: the nested client was detached (prefix
+    # prefix d), or its pane killed, while the trail lives on. Given back and laid out again,
+    # since every route in lands on this window and would otherwise find no agent in it.
+    if ! tmux list-panes -t "$ec_win" -F '#{@trails_pane}' 2>/dev/null | grep -qxE 'view|agent'; then
+      ec_agent=$(tmux display-message -pt "$ec_wid" '#{@agent}' 2>/dev/null)
+      IFS='|' read -r ec_dir ec_label <<EOF
+$(tmux display-message -pt "$ec_win" '#{@trails_dir}|#{@trails_label}' 2>/dev/null)
+EOF
+      ec_pane=$(tmux split-window -d -t "$ec_win" -c "${ec_dir:-$PWD}" -P -F '#{pane_id}' "$(attach_cmd "$ec_key")") || return 1
+      tmux set-option -p -t "$ec_pane" @trails_pane agent \
+        \; set-option -p -t "$ec_pane" @ag "$ec_agent" \
+        \; set-option -p -t "$ec_pane" @dir "$ec_label"
+      window_layout "$ec_win"
+    fi
     printf '%s\n' "$ec_win"
     return 0
   }
@@ -2020,21 +2034,36 @@ window_of() {
 # is one, else <codebase>·shell, marked @trails_tool, the trail's mark dropped. Run before the
 # session is killed, while the window can still be found by the trail's key.
 window_release() {
-  cr_ws=$(rec_ws "$1")
-  [ -n "$cr_ws" ] || cr_ws=${1%%/*}
-  cr_win=$(window_of "$1" "$cr_ws")
+  # The workspace is the key's first part, always: a trail may have no record (an agent
+  # without a session block, or codex before its rollout is found), and the record's
+  # workspace is this anyway.
+  cr_win=$(window_of "$1" "${1%%/*}")
   [ -n "$cr_win" ] || return 0
-  cr_kinds=$(tmux list-panes -t "$cr_win" -F '#{@trails_pane}' 2>/dev/null | grep -vE '^(view|agent)$' | sort -u | tr '\n' ' ')
-  [ -n "$cr_kinds" ] || return 0
-  cr_label=$(tmux display-message -pt "$cr_win" '#{@trails_label}' 2>/dev/null)
-  case $cr_kinds in
-    *edit*) cr_kind=editor cr_name="${cr_label}·$(basename "${EDITOR:-nvim}")" ;;
-    *) cr_kind=shell cr_name="${cr_label}·shell" ;;
-  esac
+  tmux list-panes -t "$cr_win" -F '#{@trails_pane}' 2>/dev/null | grep -qvE '^(view|agent)$' || return 0
   tmux set-option -wqu -t "$cr_win" @trails_window \
     \; set-option -wqu -t "$cr_win" @trails_cell \
-    \; set-option -w -t "$cr_win" @trails_tool "$cr_kind" \
-    \; rename-window -t "$cr_win" "$cr_name" 2>/dev/null
+    \; set-option -w -t "$cr_win" @trails_tool shell
+  tool_remark "$cr_win"
+}
+
+# A tool window is named and marked for what it holds, and that changes: the editor exits
+# and leaves the shell; an editor is opened in a window that was only a shell. Re-read after
+# every change to its panes (tool, --layout, window_release), so tool_find and the picker's
+# row say what is there. Nothing to do for a trail's window, which is named for its agent.
+tool_remark() {
+  [ -n "$(tmux display-message -pt "$1" '#{?@trails_tool,#{@trails_tool},#{@trails_companion}}' 2>/dev/null)" ] || return 0
+  tr_label=$(tmux display-message -pt "$1" '#{@trails_label}' 2>/dev/null)
+  tr_ed=${EDITOR:-nvim}
+  tr_panes=$(tmux list-panes -t "$1" -F '#{@trails_pane}' 2>/dev/null)
+  if printf '%s\n' "$tr_panes" | grep -qxE 'edit|editor'; then
+    tr_kind=editor tr_name="${tr_label}·$(basename "${tr_ed%% *}")"
+  elif printf '%s\n' "$tr_panes" | grep -qx shell; then
+    tr_kind=shell tr_name="${tr_label}·shell"
+  else
+    return 0
+  fi
+  tmux set-option -w -t "$1" @trails_tool "$tr_kind" \
+    \; rename-window -t "$1" "$tr_name" 2>/dev/null
 }
 
 # Where the panes of window $1 go, from which of them it has (by @trails_pane). The agent
@@ -2511,7 +2540,7 @@ codex_conv_of() {
 # record from every lost row and from restore. launch() stamps each trail with its
 # conversation ID as @trails_id, and a record is alive only while a window carrying its key
 # carries its ID too. The key is on the window for a trail (@trails_session) and is the session
-# name for one from 0.6, which is also what the session's row of a linked window says.
+# name for one from 0.6.
 #
 # ALIVE is the one list-windows for a whole rec_dead pass; a lone question asks itself.
 rec_is_dead() {
@@ -2805,8 +2834,9 @@ tool() {
   here=${2:-$PWD}
   ws='' cur_wid='' cur_kind='' cur_win='' cur_pane=''
   if [ -n "$TMUX" ] && [ -z "${2:-}" ]; then
+    # shellcheck disable=SC2086 # the -c and its client are two words on purpose
     IFS='|' read -r cur_wid w_dir w_ws cur_kind cur_win cur_pane p_path <<EOF
-$(tmux display-message -p '#{window_id}|#{@trails_dir}|#{@trails_ws}|#{?@trails_tool,#{@trails_tool},#{@trails_companion}}|#{?@trails_window,#{@trails_window},#{@trails_cell}}|#{pane_id}|#{pane_current_path}' 2>/dev/null)
+$(tmux display-message -p ${CLIENT:+-c "$CLIENT"} '#{window_id}|#{@trails_dir}|#{@trails_ws}|#{?@trails_tool,#{@trails_tool},#{@trails_companion}}|#{?@trails_window,#{@trails_window},#{@trails_cell}}|#{pane_id}|#{pane_current_path}' 2>/dev/null)
 EOF
     here=${w_dir:-${p_path:-$PWD}}
     ws=$w_ws
@@ -2851,17 +2881,29 @@ EOF
   fi
   if [ -z "$pane" ]; then
     if [ "$ck" = edit ]; then
-      pane=$(tmux split-window -d -bh -t "$wid" -c "$here" -P -F '#{pane_id}' \
-        "${EDITOR:-nvim} .; tmux run-shell -b 'sleep 0.3; \"$SELF\" --layout $wid'") || exit 1
+      pane=$(tmux split-window -d -bh -t "$wid" -c "$here" -P -F '#{pane_id}' "$(editor_cmd "$wid")") || exit 1
     else
       pane=$(tmux split-window -d -v -t "$wid" -c "$here" -P -F '#{pane_id}') || exit 1
     fi
     tmux set-option -p -t "$pane" @trails_pane "$mark"
+    tool_remark "$wid"
   fi
   window_layout "$wid"
   tmux select-pane -t "$pane"
   [ -z "$TMUX" ] || switch_to "=$ws:$wid"
   exec tmux attach-session -t "=$ws:$wid"
+}
+
+# The editor pane's command: the editor on the codebase, as `nvim .`, the way you would open
+# it by hand (nvim, vim, helix, emacs and the desktop editors all take a directory, and
+# without one nvim sits on an empty buffer in the right place). Then, as the editor exits
+# and while its pane is still there to ask, the window is relaid and re-marked from outside
+# the pane (run-shell -b, after the pane has gone): a shell that sat under the editor would
+# otherwise keep its column, tall and narrow, and a tool window its editor's name. $1 is the
+# window id when the caller has it; a window made around this pane reads its own as it ends.
+editor_cmd() {
+  ed_id=${1:-"\$(tmux display-message -p '#{window_id}')"}
+  printf '%s .; tmux run-shell -b "sleep 0.3; '"'"'%s'"'"' --layout %s"' "${EDITOR:-nvim}" "$SELF" "$ed_id"
 }
 
 # The window of tool kind $1 for directory $3 in workspace $2, if any.
@@ -2901,10 +2943,7 @@ tool_make() {
   else
     set -- new-session -d -s "$cm_ws" -n "$cm_name" -c "$cm_dir" -P -F '#{window_id}'
   fi
-  # The editor gets the codebase as its argument, `nvim .`, the way you would open it by
-  # hand: nvim, vim, helix, emacs and the desktop editors all take a directory, and
-  # without one nvim sits on an empty buffer in the right place.
-  w=$(tmux "$@" "$ed .")
+  w=$(tmux "$@" "$(editor_cmd)")
   [ -n "$w" ] || return 1
   tmux set-option -t "$cm_ws" @trails_workspace "$cm_ws" \
     \; set-option -w -t "$w" @trails_tool editor \
@@ -3139,7 +3178,7 @@ peek() { tmux capture-pane -pet "$1" 2>/dev/null; }
 # nothing added to tmux.conf — tmux negotiates RGB with the outer tmux at runtime rather
 # than trusting tmux-256color's terminfo (which declares neither), and extended-keys is a
 # server option, so it is already true of the inner client and Shift+Enter reaches the agent.
-attach_cmd() { printf "env -u TMUX tmux attach -t '=%s'" "$1"; }
+attach_cmd() { printf "env -u TMUX tmux attach -t '=%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 
 # The config's "map" block, one key: `map_pref two`, `map_pref layout`. Empty when unset.
 map_pref() {
@@ -3657,10 +3696,11 @@ EOF
 }
 
 # The agents, read once per run. Not for what never starts or names an agent — help, config,
-# and the wrapper's --forget, which has to work even when the config is broken. ls carries on
+# the wrapper's --forget and the editor pane's --layout, which have to work even when the
+# config is broken. ls carries on
 # without them (only its closed rows need them), so a typo in the file can't blank a menu bar.
 case $1 in
-  help | -h | --help | config | swiftbar | keys | end | --forget | --peek) AGENTS= ;;
+  help | -h | --help | config | swiftbar | keys | end | --forget | --layout | --peek) AGENTS= ;;
   ls | ws) AGENTS=$(load_agents) || AGENTS= ;;
   *) AGENTS=$(load_agents) || exit 1 ;;
 esac
@@ -3756,6 +3796,7 @@ case $1 in
   # back along the bottom.
   --layout)
     window_layout "$2"
+    tool_remark "$2"
     exit 0
     ;;
   --peek)

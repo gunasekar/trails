@@ -1,5 +1,5 @@
 #!/bin/sh
-# The map: a session of its own whose panes are nested clients of trails' editor views,
+# The map: a session of its own whose panes are nested clients of trails' sessions,
 # most-wants-you first; and trails end / trails keys.
 . "$REPO/test/lib.sh"
 t_setup
@@ -38,11 +38,17 @@ driver "$TRAILS" map 2
 wait_for 5 sh -c "[ \"\$(tmux list-panes -t trails_map | wc -l | tr -d ' ')\" = 2 ]" || fail "no map with map.two"
 assert_eq "$(tmux list-panes -t trails_map -F '#{pane_top}' | sort -u | wc -l | tr -d ' ')" 1 "side by side when the config says so"
 
-# trails end, from anywhere: the window, its session and its record go.
+# trails end, from anywhere: the agent's window, its session and its record go, and the
+# trail's window, with a shell beside the agent, is kept as the codebase's shell window.
+driver "$TRAILS" shell "$PROJ"
+pwin() { tmux list-windows -t default -F '#{window_id} #{@trails_window}' | awk '$2 == "default/payments" { print $1 }'; }
+wait_for 5 sh -c "[ \"\$(tmux list-panes -t \"\$(tmux list-windows -t default -F '#{window_id} #{@trails_window}' | awk '\$2 == \"default/payments\" { print \$1 }')\" | wc -l | tr -d ' ')\" = 2 ]" || fail "no shell beside payments"
+pw=$(pwin)
 out=$(cd "$T" && "$TRAILS" end default/payments)
 assert_eq "$out" "ended default/payments" "said so"
 wait_for 3 no_session default/payments || fail "the session survived"
-wait_for 5 sh -c "[ \"\$(tmux list-windows -t default -F '#{window_name}')\" = 'other·ledger' ]" || fail "the trail's window stayed: $(tmux list-windows -t default -F '#{window_name}' | tr '\n' ' ')"
+wait_for 5 sh -c "[ \"\$(tmux display-message -pt '$pw' '#{window_name} #{@trails_tool} #{window_panes}')\" = 'proj·shell shell 1' ]" || fail "the trail's window was not released: $(tmux display-message -pt "$pw" '#{window_name} #{@trails_window} #{@trails_tool} #{window_panes}')"
+assert_eq "$(tmux list-windows -t default -F '#{window_name}' | sort | tr '\n' ' ')" "other·ledger proj·shell " "the windows"
 assert_no_file "$STATE/default/payments" "the record went"
 assert_match "$(cd "$T" && "$TRAILS" end nope 2>&1)" 'no trail nope' "unknown refused"
 
