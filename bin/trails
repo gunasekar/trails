@@ -537,7 +537,8 @@ available_agents() {
 #   @trails_since  when it started, Unix time
 #
 # The cell carries @trails_cell (the trail's key) with @trails_dir, @trails_ws and
-# @trails_label, and each of its panes @trails_pane: view, editor or shell.
+# @trails_label, and each of its panes @trails_pane: view, edit or shell (cell_layout says
+# where each goes).
 #
 # Before 1.0 a trail was a session of its own, trails-<project>, and one still running keeps
 # working until it ends (D6 in the design): everything below lists, attaches to and kills
@@ -1996,12 +1997,46 @@ cell_release() {
   [ -n "$cr_kinds" ] || return 0
   cr_label=$(tmux display-message -pt "$cr_cell" '#{@trails_label}' 2>/dev/null)
   case $cr_kinds in
-    *editor*) cr_kind=edit cr_name="${cr_label}·$(basename "${EDITOR:-nvim}")" ;;
+    *edit*) cr_kind=edit cr_name="${cr_label}·$(basename "${EDITOR:-nvim}")" ;;
     *) cr_kind=shell cr_name="${cr_label}·shell" ;;
   esac
   tmux set-option -wu -t "$cr_cell" @trails_cell \
     \; set-option -w -t "$cr_cell" @trails_companion "$cr_kind" \
     \; rename-window -t "$cr_cell" "$cr_name" 2>/dev/null
+}
+
+# Where the panes of window $1 go, from which of them it has (by @trails_pane). The view
+# alone fills it. With an edit pane, the editor takes the left 60% and the view the right
+# 40%, and a shell sits under the editor only, a quarter of the window high. With no edit
+# pane, the shell runs along the bottom, full width, a quarter high. A window the view has
+# left (cell_release) keeps the same rules without it: the shell under the editor.
+#
+# move-pane (tmux 3.2) puts a pane where it belongs whether it was there already or not, so
+# this runs after every pane is made and after the edit pane exits, and never needs to know
+# what the layout was. Sizes are set after, with resize-pane: a size given to move-pane is
+# taken from the pane it splits, which may be too small to give it.
+cell_layout() {
+  cl_v='' cl_e='' cl_s=''
+  for cl_row in $(tmux list-panes -t "$1" -F '#{pane_id}=#{@trails_pane}' 2>/dev/null); do
+    case $cl_row in
+      *=view) cl_v=${cl_row%%=*} ;;
+      *=edit) cl_e=${cl_row%%=*} ;;
+      *=shell) cl_s=${cl_row%%=*} ;;
+      *) ;;
+    esac
+  done
+  cl_w=$(tmux display-message -pt "$1" '#{window_width}' 2>/dev/null)
+  cl_h=$(tmux display-message -pt "$1" '#{window_height}' 2>/dev/null)
+  [ -n "$cl_w" ] && [ -n "$cl_h" ] || return 0
+  if [ -n "$cl_e" ]; then
+    [ -z "$cl_v" ] || tmux move-pane -d -bh -s "$cl_e" -t "$cl_v" 2>/dev/null
+    [ -z "$cl_s" ] || tmux move-pane -d -v -s "$cl_s" -t "$cl_e" 2>/dev/null
+    [ -z "$cl_v" ] || tmux resize-pane -t "$cl_e" -x $((cl_w * 60 / 100)) 2>/dev/null
+    [ -z "$cl_s" ] || tmux resize-pane -t "$cl_s" -y $((cl_h / 4)) 2>/dev/null
+  elif [ -n "$cl_s" ] && [ -n "$cl_v" ]; then
+    tmux move-pane -d -v -f -s "$cl_s" -t "$cl_v" 2>/dev/null
+    tmux resize-pane -t "$cl_s" -y $((cl_h / 4)) 2>/dev/null
+  fi
 }
 
 # The last step of every route into a trail, launched or picked: show it in the terminal
@@ -2709,11 +2744,10 @@ ago() {
 }
 
 # ─── Companions ──────────────────────────────────────────────────────────────
-# The editor or a shell for one codebase, beside its agent: panes in the trail's cell, the
-# editor to the agent's left and the shell along the bottom, each marked @trails_pane
-# (editor, shell) so it is found again and never mistaken for the view pane. The view is the
-# agent alone, so an editor's panel or a map pane attached to it sees none of this; only the
-# workspace does. With no trail in the codebase the editor gets a window of its own in the
+# The editor or a shell for one codebase, beside its agent: panes in the trail's cell, each
+# marked @trails_pane (edit, shell) so it is found again and never mistaken for the view
+# pane. The view is the agent alone, so an editor's panel or a map pane attached to it sees
+# none of this; only the workspace does. cell_layout says where each goes. With no trail in the codebase the editor gets a window of its own in the
 # workspace, <codebase>·nvim, marked @trails_companion edit with the codebase on it, and the
 # shell goes along its bottom. A cell whose trail ended keeps its panes as such a window
 # (cell_release). Never a shell at the workspace level: every window runs in some codebase.
@@ -2732,7 +2766,7 @@ ago() {
 companion() {
   ck=$1
   case $ck in
-    edit) mark=editor ;;
+    edit) mark=edit ;;
     *) mark=shell ;;
   esac
   here=${2:-$PWD}
@@ -2774,8 +2808,9 @@ EOF
   fi
 
   # The pane: on it already, back to the pane (or window) you came from; there, selected;
-  # else made. The editor splits the view pane's left half, so a shell along the bottom stays
-  # whole; the shell is a full-width split of the window.
+  # else made, and the cell laid out (cell_layout) either way. The edit pane's command ends
+  # by asking for the layout again, from outside the pane (run-shell -b, after the pane has
+  # gone): a shell that sat under the editor would otherwise keep its column, tall and narrow.
   pane=$(tmux list-panes -t "$wid" -F '#{pane_id} #{@trails_pane}' 2>/dev/null | awk -v k="$mark" '$2 == k { print $1; exit }')
   if [ -n "$pane" ] && [ "$pane" = "$cur_pane" ]; then
     [ "$(tmux list-panes -t "$wid" 2>/dev/null | wc -l)" -gt 1 ] && exec tmux select-pane -l
@@ -2783,13 +2818,14 @@ EOF
   fi
   if [ -z "$pane" ]; then
     if [ "$ck" = edit ]; then
-      vp=$(tmux list-panes -t "$wid" -F '#{pane_id} #{@trails_pane}' 2>/dev/null | awk '$2 == "view" { print $1; exit }')
-      pane=$(tmux split-window -bh -t "${vp:-$wid}" -c "$here" -P -F '#{pane_id}' "${EDITOR:-nvim} .") || exit 1
+      pane=$(tmux split-window -d -bh -t "$wid" -c "$here" -P -F '#{pane_id}' \
+        "${EDITOR:-nvim} .; tmux run-shell -b 'sleep 0.3; \"$SELF\" --layout $wid'") || exit 1
     else
-      pane=$(tmux split-window -v -f -l 25% -t "$wid" -c "$here" -P -F '#{pane_id}') || exit 1
+      pane=$(tmux split-window -d -v -t "$wid" -c "$here" -P -F '#{pane_id}') || exit 1
     fi
     tmux set-option -p -t "$pane" @trails_pane "$mark"
   fi
+  cell_layout "$wid"
   tmux select-pane -t "$pane"
   [ -z "$TMUX" ] || switch_to "=$ws:$wid"
   exec tmux attach-session -t "=$ws:$wid"
@@ -2841,7 +2877,7 @@ companion_make() {
     \; set-option -w -t "$w" @trails_dir "$cm_dir" \
     \; set-option -w -t "$w" @trails_ws "$cm_ws" \
     \; set-option -w -t "$w" @trails_label "$cm_label" \
-    \; set-option -p -t "$w" @trails_pane editor
+    \; set-option -p -t "$w" @trails_pane edit
   printf '%s\n' "$w"
 }
 
@@ -3650,6 +3686,12 @@ case $1 in
     ;;
   --print-menu)
     print_menu
+    exit 0
+    ;;
+  # Asked by the edit pane's command as it ends (companion), so the shell under it can go
+  # back along the bottom.
+  --layout)
+    cell_layout "$2"
     exit 0
     ;;
   --peek)

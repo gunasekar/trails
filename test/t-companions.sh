@@ -23,43 +23,53 @@ mine=$(tmux display-message -pt 'default:{end}' '#{window_id}')
 tmux switch-client -c "$client" -t "=default:$mine"
 wins() { tmux list-windows -t default -F '#{window_name}' | grep '·' | sort | tr '\n' ' '; }
 
-# trails edit, with a trail running: the editor splits the cell, to the agent's left, and the
-# client is taken there. The view is untouched: one window, one pane.
-type_in "$mine" "$TRAILS edit"
-wait_for 5 sh -c "[ \"\$(tmux list-panes -t '$cell' | wc -l | tr -d ' ')\" = 2 ]" || fail "no editor pane in the cell"
-assert_eq "$(panes)" "editor view " "the panes, marked"
-epane=$(tmux list-panes -t "$cell" -F '#{pane_id} #{@trails_pane}' | awk '$2 == "editor" { print $1 }')
-wait_for 5 screen_has "$epane" "ed in $PROJ" || fail "the editor is not in the codebase: $(screen "$epane" | grep -v '^$' | head -2)"
-assert_eq "$(tmux display-message -pt "$epane" '#{pane_left}')" 0 "to the left"
-wait_for 5 on_cell || fail "the client was not taken to the cell"
-assert_eq "$(tmux list-panes -t default/payments | wc -l | tr -d ' ')" 1 "the view still shows the agent alone"
-assert_eq "$(wins)" "proj·payments " "no editor window"
+geom() { tmux display-message -pt "$1" '#{pane_left} #{pane_top} #{pane_width} #{pane_height}'; }
+W=$(tmux display-message -pt "$cell" '#{window_width}')
+H=$(tmux display-message -pt "$cell" '#{window_height}')
 
-# Again, from another window: selected, not duplicated.
-tmux switch-client -c "$client" -t "=default:$mine"
-sleep 0.3
-type_in "$mine" "$TRAILS edit"
-sleep 1.5
-assert_eq "$(panes)" "editor view " "still one editor"
-assert_eq "$(client_at "$client" '#{window_id} #{pane_id}')" "$cell $epane" "taken to it again"
-
-# trails shell: a shell pane across the bottom of the cell, in the codebase; again, it is
-# selected, not duplicated.
-tmux switch-client -c "$client" -t "=default:$mine"
-sleep 0.3
+# trails shell, with only the agent there: a shell pane along the bottom of the cell, full
+# width, a quarter high, in the codebase; the client is taken to it. The view is untouched:
+# one window, one pane.
 type_in "$mine" "$TRAILS shell"
-wait_for 5 sh -c "[ \"\$(tmux list-panes -t '$cell' | wc -l | tr -d ' ')\" = 3 ]" || fail "no shell pane"
-assert_eq "$(panes)" "editor shell view " "the panes, marked"
+wait_for 5 sh -c "[ \"\$(tmux list-panes -t '$cell' | wc -l | tr -d ' ')\" = 2 ]" || fail "no shell pane in the cell"
+assert_eq "$(panes)" "shell view " "the panes, marked"
 spane=$(tmux list-panes -t "$cell" -F '#{pane_id} #{@trails_pane}' | awk '$2 == "shell" { print $1 }')
 assert_eq "$(tmux display-message -pt "$spane" '#{pane_current_path}')" "$PROJ" "a shell in the codebase"
-assert_eq "$(tmux display-message -pt "$spane" '#{pane_left} #{pane_width}')" "0 $(tmux display-message -pt "$cell" '#{window_width}')" "across the bottom"
-assert_eq "$(client_at "$client" '#{window_id} #{pane_id}')" "$cell $spane" "taken to the shell"
+assert_eq "$(geom "$spane")" "0 $((H - H / 4)) $W $((H / 4))" "along the bottom, full width, a quarter high"
+wait_for 5 on_cell || fail "the client was not taken to the cell"
+assert_eq "$(client_at "$client" '#{pane_id}')" "$spane" "on the shell"
+assert_eq "$(tmux list-panes -t default/payments | wc -l | tr -d ' ')" 1 "the view still shows the agent alone"
+assert_eq "$(wins)" "proj·payments " "no shell window"
+
+# trails edit: the editor takes the left 60%, the view the right 40%, and the shell moves
+# under the editor, a quarter high.
+tmux switch-client -c "$client" -t "=default:$mine"
+sleep 0.3
+type_in "$mine" "$TRAILS edit"
+wait_for 5 sh -c "[ \"\$(tmux list-panes -t '$cell' | wc -l | tr -d ' ')\" = 3 ]" || fail "no edit pane in the cell"
+assert_eq "$(panes)" "edit shell view " "the panes, marked"
+epane=$(tmux list-panes -t "$cell" -F '#{pane_id} #{@trails_pane}' | awk '$2 == "edit" { print $1 }')
+vpane=$(tmux list-panes -t "$cell" -F '#{pane_id} #{@trails_pane}' | awk '$2 == "view" { print $1 }')
+wait_for 5 screen_has "$epane" "ed in $PROJ" || fail "the editor is not in the codebase: $(screen "$epane" | grep -v '^$' | head -2)"
+EW=$((W * 60 / 100))
+assert_eq "$(geom "$epane")" "0 0 $EW $((H - H / 4 - 1))" "the editor: left, 60% wide, above the shell"
+assert_eq "$(geom "$spane")" "0 $((H - H / 4)) $EW $((H / 4))" "the shell: under the editor only"
+assert_eq "$(geom "$vpane")" "$((EW + 1)) 0 $((W - EW - 1)) $H" "the view: right 40%, full height"
+wait_for 5 at_pane "$epane" || fail "the client was not taken to the editor"
+
+# Again, from another window: selected, not duplicated, laid out the same.
+tmux switch-client -c "$client" -t "=default:$mine"
+sleep 0.3
+type_in "$mine" "$TRAILS edit"
+sleep 1.5
+assert_eq "$(panes)" "edit shell view " "still one editor"
+assert_eq "$(client_at "$client" '#{window_id} #{pane_id}')" "$cell $epane" "taken to it again"
 tmux switch-client -c "$client" -t "=default:$mine"
 sleep 0.3
 type_in "$mine" "$TRAILS shell"
 sleep 1.5
-assert_eq "$(panes)" "editor shell view " "still one shell"
-assert_eq "$(wins)" "proj·payments " "no shell window"
+assert_eq "$(panes)" "edit shell view " "still one shell"
+assert_eq "$(geom "$spane")" "0 $((H - H / 4)) $EW $((H / 4))" "the shell stays under the editor"
 
 # From the shell pane itself, trails shell goes back to the pane you came from.
 tmux select-pane -t "$epane"
@@ -67,7 +77,21 @@ tmux select-pane -t "$spane"
 wait_shell "$spane" || fail "the shell pane never came up"
 type_in "$spane" "$TRAILS shell"
 wait_for 5 at_pane "$epane" || fail "the toggle did not go back: on $(client_at "$client" '#{pane_id}')"
-assert_eq "$(panes)" "editor shell view " "nothing closed"
+assert_eq "$(panes)" "edit shell view " "nothing closed"
+
+# The editor quits: its pane goes, and the shell goes back along the bottom, full width.
+type_in "$epane" exit
+wait_for 5 sh -c "[ \"\$(tmux list-panes -t '$cell' | wc -l | tr -d ' ')\" = 2 ]" || fail "the editor's pane outlived the editor"
+wait_for 5 sh -c "[ \"\$(tmux display-message -pt '$spane' '#{pane_width}')\" = $W ]" || fail "the shell kept its column: $(geom "$spane")"
+assert_eq "$(geom "$spane")" "0 $((H - H / 4)) $W $((H / 4))" "the shell: along the bottom again"
+
+# And the editor again, for what follows.
+tmux switch-client -c "$client" -t "=default:$mine"
+sleep 0.3
+type_in "$mine" "$TRAILS edit"
+wait_for 5 sh -c "[ \"\$(tmux list-panes -t '$cell' | wc -l | tr -d ' ')\" = 3 ]" || fail "no edit pane the second time"
+epane=$(tmux list-panes -t "$cell" -F '#{pane_id} #{@trails_pane}' | awk '$2 == "edit" { print $1 }')
+wait_for 5 at_pane "$epane" || fail "not taken to the second editor"
 
 # Outside tmux, trails edit DIR attaches to the workspace on the cell.
 driver "$TRAILS" edit "$PROJ"
@@ -87,7 +111,7 @@ wait_for 5 sh -c "tmux list-windows -t default -F '#{window_name}' | grep -qx 'o
 owid=$(tmux list-windows -t default -F '#{window_id} #{window_name}' | awk '$2 == "other·ed" { print $1 }')
 wait_for 5 screen_has "$owid" "ed in $T/other" || fail "the editor is not in that codebase"
 assert_eq "$(tmux display-message -pt "$owid" '#{@trails_companion} #{@trails_dir} #{@trails_ws} #{@trails_label} #{@trails_pane}')" \
-  "edit $T/other default other editor" "the window's options"
+  "edit $T/other default other edit" "the window's options"
 wait_for 5 sh -c "tmux list-clients -F '#{session_name} #{window_id}' | grep -qx 'default $owid'" || fail "not taken to it"
 rm -f "$T/omenu"
 DRIVER_DIR=$T/other FZF_PICK='' FZF_DUMP=$T/omenu driver "$TRAILS"
@@ -113,7 +137,7 @@ wait_for 5 sh -c "[ \"\$(tmux list-clients -F '#{session_name} #{window_id}' | g
 # trails shell in that codebase goes under its editor.
 DRIVER_DIR=$T/other driver "$TRAILS" shell
 wait_for 5 sh -c "[ \"\$(tmux list-panes -t '$owid' | wc -l | tr -d ' ')\" = 2 ]" || fail "no shell under the editor alone"
-assert_eq "$(tmux list-panes -t "$owid" -F '#{@trails_pane}' | sort | tr '\n' ' ')" "editor shell " "its panes"
+assert_eq "$(tmux list-panes -t "$owid" -F '#{@trails_pane}' | sort | tr '\n' ' ')" "edit shell " "its panes"
 
 # The agent exits with the editor and the shell beside it: the view goes, and the cell keeps
 # them as the codebase's editor window — named for the editor, marked, no longer a cell, not
@@ -123,7 +147,7 @@ wait_for 5 no_session default/payments || fail "the view outlived its agent"
 wait_for 5 sh -c "[ \"\$(tmux display-message -pt '$cell' '#{window_name}')\" = 'proj·ed' ]" || fail "the cell was not released: $(tmux display-message -pt "$cell" '#{window_name} #{@trails_cell} #{@trails_companion}')"
 assert_eq "$(tmux display-message -pt "$cell" '#{@trails_companion}|#{@trails_cell}|#{@trails_dir}')" "edit||$PROJ" "a companion now"
 wait_for 5 sh -c "[ \"\$(tmux list-panes -t '$cell' | wc -l | tr -d ' ')\" = 2 ]" || fail "the view pane lingers"
-assert_eq "$(panes)" "editor shell " "the editor and the shell stay"
+assert_eq "$(panes)" "edit shell " "the editor and the shell stay"
 assert_eq "$(cd "$PROJ" && "$TRAILS" ls | wc -l | tr -d ' ')" 0 "not a trail"
 assert_no_file "$STATE/default/payments" "the record went"
 

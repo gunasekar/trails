@@ -26,10 +26,13 @@ it through a cell**: a window in the workspace session named like the trail,
 marked `@trails_cell` with the trail's key, whose first pane is a tmux client
 attached to the view, the way a map pane views an agent. Nothing is linked.
 
-- **The editor and a shell are panes of the cell** (`@trails_pane` `editor`,
+- **The editor and a shell are panes of the cell** (`@trails_pane` `edit`,
   `shell`), beside the view pane. The view holds the agent alone, so an editor's
   panel or a map pane never sees them. ADR 15's refusal to split a trail's window
-  is withdrawn: the cell is no editor's window.
+  is withdrawn: the cell is no editor's window. The layout follows from which
+  panes exist (`cell_layout`): the editor on the left 60% with the view on the
+  right, the shell along the bottom when alone with the view and under the
+  editor when there is one.
 - **A cell is rebuilt, a view is not.** A killed cell is remade by the next
   attach from a terminal (`ensure_cell`); a view that is gone is a trail that is
   gone. The view goes when the agent exits, and the cell's client with it.

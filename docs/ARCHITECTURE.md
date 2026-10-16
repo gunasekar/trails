@@ -77,7 +77,7 @@ not in trails.
 | Trail | one agent working in one codebase | a session of its own, its *view*, `<workspace>/<codebase>[-N]`, holding one window with the agent in it |
 | View | what an editor attaches to: one trail, nothing else | that session, `status off` |
 | Cell | how the workspace shows a trail | a window in the workspace session named like the trail, marked `@trails_cell`, whose first pane is a tmux client of the view |
-| Companion | the editor and a shell beside the agent | panes of the cell, marked `@trails_pane` `editor` or `shell`; with no trail in the codebase, a window `<codebase>·nvim` marked `@trails_companion` |
+| Companion | the editor and a shell beside the agent | panes of the cell, marked `@trails_pane` `edit` or `shell`; with no trail in the codebase, a window `<codebase>·nvim` marked `@trails_companion` |
 | Layout | side-by-side views (the map) | panes, in a window no editor attaches to |
 
 A trail's window is named `<codebase>·<agent>`, `<codebase>·<agent>-N` for the
@@ -100,7 +100,7 @@ parsed back out of a name:
 | `@trails_since` | when it started, Unix time |
 
 The cell carries `@trails_cell` (the trail's key), `@trails_dir`, `@trails_ws`
-and `@trails_label`, and each of its panes `@trails_pane`: `view`, `editor` or
+and `@trails_label`, and each of its panes `@trails_pane`: `view`, `edit` or
 `shell`. The view pane also carries `@ag` and `@dir`, the agent and the codebase
 label, as a map pane does: its own command is `tmux`, so a `pane-border-format`
 that labels panes by command reads them instead, e.g.
@@ -466,11 +466,21 @@ keychain) would otherwise take its error with it and look like nothing happened.
 ## Companions
 
 `trails edit` and `trails shell` put the editor and a shell beside the agent, as
-panes of the trail's cell: the editor splits the view pane's left half
-(`split-window -bh`), the shell the window's bottom quarter (`split-window -v -f`),
-each marked `@trails_pane`. The view holds the agent alone, so an editor's panel
-or a map pane attached to it sees neither. Run again, the command selects the pane
-that is there; run from that pane, it goes back with `select-pane -l`. The window
+panes of the trail's cell, marked `@trails_pane` `edit` and `shell` beside the
+`view`. The view holds the agent alone, so an editor's panel or a map pane
+attached to it sees neither. Run again, the command selects the pane that is
+there; run from that pane, it goes back with `select-pane -l`.
+
+`cell_layout` decides where the panes go from which of them exist, whatever the
+order they were opened in: the view alone fills the window; a shell with no edit
+pane runs along the bottom, full width, a quarter high; an edit pane takes the
+left 60% and the view the right 40%; a shell with an edit pane sits under the
+editor only, a quarter high. It uses `move-pane` (tmux 3.2), which puts a pane
+where it belongs whether it was there already or not, then `resize-pane` for the
+sizes, since a size given to `move-pane` is taken from the pane it splits. It
+runs after every pane is made, and the edit pane's command ends by running
+`trails --layout` in the background, so a shell that sat under the editor goes
+back along the bottom once the pane has gone. The window
 you are on decides: from a cell or a companion window, that window; from a plain
 window in the workspace, the cell of the trail in the pane's directory that most
 wants you; outside tmux, the current directory's or `DIR`'s. Directories are

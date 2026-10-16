@@ -341,11 +341,19 @@ Unnamed trails work as before, with a name Claude picks for itself.
 
 ### Companions
 
-The editor or a shell beside the agent, in the trail's window: the editor to the
-agent's left, the shell along the bottom, a quarter high. The view holds the agent
-alone, so an editor attached to it sees neither. Where nothing runs, the editor
-gets a window of its own in the workspace, `checkout·nvim`, and the shell goes
-along its bottom.
+The editor or a shell beside the agent, as panes of the trail's window. The
+view holds the agent alone, so an editor attached to it sees neither. The panes
+are the **view** (the agent), the **edit** pane and the **shell** pane, and they
+go where they go whichever you open first:
+
+- view alone: the whole window
+- view and shell: the shell along the bottom, full width, a quarter high
+- view and edit: the editor on the left 60%, the agent on the right 40%
+- all three: the shell under the editor only, a quarter high; the agent keeps
+  its full-height column
+
+Where nothing runs, the editor gets a window of its own in the workspace,
+`checkout·nvim`, and the shell goes along its bottom.
 
 | Command | Opens |
 |---|---|

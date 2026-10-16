@@ -19,8 +19,8 @@ the bottom of that window, marked `@trails_shell`.
 
 *Amended 2026-10 (ADR 16): with the trail's window in the workspace a cell that
 no editor attaches to, the editor and the shell are panes of that cell, marked
-`@trails_pane` `editor` and `shell`, the editor to the agent's left and the
-shell along the bottom. The `·ide` window and `@trails_of` go. The editor alone
+`@trails_pane` `edit` and `shell`: the editor on the left 60%, the shell along
+the bottom, or under the editor when there is one. The `·ide` window and `@trails_of` go. The editor alone
 remains a window, `augur·nvim`, where nothing runs, with the shell along its
 bottom; a cell whose trail ends keeps its panes as such a window.*
 
