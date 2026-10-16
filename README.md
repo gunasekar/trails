@@ -200,12 +200,14 @@ Plain tmux moves you around: the next and previous window keys, `prefix s` or
 `choose-tree`, `switch-client`. `tmux a -t acme` is the workspace and
 `tmux a -t acme/checkout` is one trail. trails sets nothing on any of it beyond
 `@trails_*` options, never touches your tmux.conf, and binds no keys: `trails keys`
-prints lines to paste if you want some.
+prints lines to paste if you want some. The popups take the terminal's own
+background: tmux 3.8 shades them grey by default, which a list in dim text does
+not survive.
 
 ```text
 # trails: paste what you want into tmux.conf
-bind a display-popup -E -w 80% -h 70% trails
-bind W display-popup -E -w 60% -h 50% 'trails ws'
+bind a display-popup -E -w 80% -h 70% -s bg=default -S bg=default,fg=brightblack trails
+bind W display-popup -E -w 60% -h 50% -s bg=default -S bg=default,fg=brightblack 'trails ws'
 bind e run-shell 'trails edit'
 bind ` run-shell 'trails shell'
 ```
