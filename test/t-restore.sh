@@ -40,13 +40,14 @@ assert_eq "$(sed -n 's/^id=//p' "$STATE/default/fast")" "$newid" "record follows
 # Nothing left to restore.
 assert_eq "$(cd "$T" && "$TRAILS" restore 2>&1)" "trails: nothing to restore" "idempotent"
 
-# A killed editor view is not a lost trail: the window lives on in the workspace, the
-# record is alive, and the next attach rebuilds the view.
-tmux kill-session -t default/fast
+# A killed cell is not a lost trail: the trail lives in its view, the record is alive, and
+# the next attach from a terminal rebuilds the cell.
+cell=$(tmux list-windows -t default -F '#{window_id} #{window_name}' | awk '$2 == "proj·fast" { print $1 }')
+tmux kill-window -t "$cell"
 assert_eq "$(cd "$PROJ" && "$TRAILS" ls | awk -F'\t' '$3 == "default/fast" { print $1 }')" running "still running"
 assert_eq "$(cd "$T" && "$TRAILS" restore 2>&1)" "trails: nothing to restore" "nothing lost"
-wid=$(tmux list-windows -t default -F '#{window_id} #{window_name}' | awk '$2 == "proj·fast" { print $1 }')
-FZF_PICK='#fast' driver TRAILS_ATTACH=view "$TRAILS"
-wait_for 5 has_session default/fast || fail "the view was not rebuilt"
-assert_eq "$(tmux list-windows -t default/fast -F '#{window_id}')" "$wid" "and holds the trail's window"
-wait_for 5 sh -c "tmux list-clients -F '#{session_name}' | grep -qx default/fast" || fail "the editor was not attached to the view"
+FZF_PICK='#fast' trails_bg
+wait_for 5 sh -c "tmux list-windows -t default -F '#{@trails_cell}' | grep -qx default/fast" || fail "the cell was not rebuilt"
+cell=$(tmux list-windows -t default -F '#{window_id} #{@trails_cell}' | awk '$2 == "default/fast" { print $1 }')
+assert_eq "$(tmux display-message -pt "$cell" '#{window_name}')" "proj·fast" "named like the trail"
+wait_for 5 sh -c "tmux list-clients -F '#{session_name} #{window_id}' | grep -qx 'default $cell'" || fail "not attached on the rebuilt cell"

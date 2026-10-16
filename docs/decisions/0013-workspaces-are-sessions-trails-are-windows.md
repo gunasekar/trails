@@ -1,6 +1,6 @@
 # 13. Workspaces are tmux sessions, trails are windows in them
 
-- Status: accepted
+- Status: accepted, amended by [ADR 16](0016-the-trail-lives-in-its-view.md)
 - Date: 2026-10
 
 ## Context
@@ -35,12 +35,16 @@ makes sense with trails uninstalled.
   `augur·claude-2` for the second unnamed trail in that codebase, or
   `augur·payments` for a named one. What trails knows about it lives on the
   window as `@trails_*` options (agent, conversation, directory, workspace, view,
-  label, name, start time), so nothing is parsed out of a name.
+  label, name, start time), so nothing is parsed out of a name. *Amended 2026-10
+  (ADR 16): the agent's window lives in the trail's view, and the window of that
+  name in the workspace is a cell showing it; the options are on the agent's
+  window, the cell carries `@trails_cell`.*
 - **Inside tmux the agent is never run bare.** It gets a window like anywhere
   else, and the client you are in is switched to it.
 - **trails sets nothing but `@trails_*` options** on what it makes: no `status
   off`, no `@agent_locked`, no key bindings. `trails keys` prints lines to
-  paste.
+  paste. *Amended 2026-10 (ADR 16): a view, a session trails makes for itself
+  and shows only through other frames, gets `status off`.*
 - **Sessions from before 1.0 keep working** until they end. They are listed,
   attached to and ended as before, and a record of one that died with tmux
   restores as a window in the workspace its directory belongs to now.
@@ -61,6 +65,7 @@ makes sense with trails uninstalled.
 - A directory no workspace claims is not refused: the picker asks once whether
   to add it, and `trails new` runs it in `default` and says so.
 - Principle 3 costs the 0.6 niceties: an editor's panel now shows the user's
-  status line unless their tmux.conf turns it off for views.
+  status line unless their tmux.conf turns it off for views. *Amended: views
+  have it off since ADR 16.*
 - ADR 1's reasons for tmux stand; its "one session per agent" and "bare inside
   tmux" do not, and it is superseded by this one.

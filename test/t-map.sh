@@ -21,17 +21,17 @@ wait_for 5 sh -c "tmux list-clients -F '#{session_name}' | grep -qx default/ledg
   fail "the cells are not clients of the views: $(tmux list-clients -F '#{session_name}')"
 assert_eq "$(tmux display-message -pt 'trails_map:0.0' '#{@dir}')" other "pane 0 is the one that wants you"
 
-# A killed view is rebuilt for the map.
+# A killed cell changes nothing for the map: the trail lives in its view.
 tmux kill-session -t trails_map
-tmux kill-session -t default/payments
+tmux kill-window -t "$(tmux list-windows -t default -F '#{window_id} #{@trails_cell}' | awk '$2 == "default/payments" { print $1 }')"
 driver "$TRAILS" map 2
-wait_for 5 sh -c "tmux list-clients -F '#{session_name}' | grep -qx default/payments" || fail "the view was not rebuilt for the map"
+wait_for 5 sh -c "tmux list-clients -F '#{session_name}' | grep -qx default/payments" || fail "the map lost the trail with its cell"
 
 # trails end, from anywhere: the window, its view and its record go.
 out=$(cd "$T" && "$TRAILS" end default/payments)
 assert_eq "$out" "ended default/payments" "said so"
 wait_for 3 no_session default/payments || fail "the view survived"
-assert_eq "$(tmux list-windows -t default -F '#{window_name}')" "other·ledger" "the window went"
+wait_for 5 sh -c "[ \"\$(tmux list-windows -t default -F '#{window_name}')\" = 'other·ledger' ]" || fail "the cell stayed: $(tmux list-windows -t default -F '#{window_name}' | tr '\n' ' ')"
 assert_no_file "$STATE/default/payments" "the record went"
 assert_match "$(cd "$T" && "$TRAILS" end nope 2>&1)" 'no trail nope' "unknown refused"
 

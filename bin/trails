@@ -43,10 +43,11 @@
 # It was `aigent` for a while, which dodged that but not speech-to-text, which hears
 # "agent" every time. `trails` is a word nobody mishears and no other tool claims.
 #
-# Trails live in tmux: each is a window in a session named after its workspace (see
-# "Workspaces" and "Trails" below, and docs/design/trails-1.0.md), linked as well into a
-# small session of its own, <workspace>/<codebase>, that an editor attaches to. Before 1.0
-# each was a session named trails-<project>; those keep working until they end.
+# Trails live in tmux: each is a small session of its own, <workspace>/<codebase>, holding
+# the agent and nothing else — what an editor attaches to — and is shown in a session named
+# after its workspace through a cell, a window attached to it, beside which the editor and a
+# shell go (see "Workspaces", "Trails" and "Companions" below, and docs/design/trails-1.0.md).
+# Before 1.0 each was a session named trails-<project>; those keep working until they end.
 #
 # Why tmux: Zed's remote mode runs this on the ssh host, and when Zed disconnects the
 # agent process dies with its terminal, leaving `claude --resume` (which replays the
@@ -514,14 +515,18 @@ available_agents() {
 }
 
 # ─── Trails ──────────────────────────────────────────────────────────────────
-# A trail is one agent in one codebase. Since 1.0 it is a *window* in its workspace's
-# session — a session named after the workspace, marked @trails_workspace — and that window
-# is also linked into a small session of its own, the editor view, named
-# <workspace>/<codebase>[-N] or <workspace>/<name>: what an editor attaches to, holding that
-# one window and nothing else. docs/design/trails-1.0.md has the model and the reasons.
+# A trail is one agent in one codebase. It is a session of its own, its *view*, named
+# <workspace>/<codebase>[-N] or <workspace>/<name>, holding one window with the agent in it
+# and nothing else: what an editor attaches to. Its workspace — a session named after the
+# workspace, marked @trails_workspace — shows it through a *cell*: a window named like the
+# trail's, whose first pane is a tmux client attached to the view, the way a map pane views
+# an agent (ensure_cell). The editor and a shell go beside the agent as panes of the cell
+# (companion), which the view, and so an editor's panel, never sees. docs/design/trails-1.0.md
+# has the model and the reasons; ADR 16 the move of the agent from the workspace's window
+# into its view.
 #
-# The window carries what trails knows about the trail, as window options, so nothing has to
-# be parsed back out of a name:
+# The trail's window, in its view, carries what trails knows about it, as window options, so
+# nothing has to be parsed back out of a name:
 #   @agent         the agent picked, with " (YOLO)" when it was armed
 #   @trails_id     its conversation, the one its record holds
 #   @trails_dir    the directory it runs in, verbatim from $PWD at launch
@@ -530,6 +535,9 @@ available_agents() {
 #   @trails_label  the codebase label its window and view are named from
 #   @trails_name   the name you gave it, if any
 #   @trails_since  when it started, Unix time
+#
+# The cell carries @trails_cell (the trail's key) with @trails_dir, @trails_ws and
+# @trails_label, and each of its panes @trails_pane: view, editor or shell.
 #
 # Before 1.0 a trail was a session of its own, trails-<project>, and one still running keeps
 # working until it ends (D6 in the design): everything below lists, attaches to and kills
@@ -614,8 +622,8 @@ command -v tmux >/dev/null 2>&1 && USE_TMUX=1
 
 # The client this run acts for, read before anything else is made. A switch-client with no
 # -c acts on tmux's idea of the current client, which is the most recently active one — and
-# by the time trails switches, that can be a nested client it has just started (an ide
-# window's view of the trail, a map cell), which then gets switched instead of you. Named
+# by the time trails switches, that can be a nested client it has just started (a trail's
+# cell, a map cell), which then gets switched instead of you. Named
 # up front, from a key binding, a popup or a pane, it is the client that asked.
 CLIENT=
 [ -n "$TMUX" ] && CLIENT=$(tmux display-message -p '#{client_name}' 2>/dev/null)
@@ -735,17 +743,17 @@ screen_hash() { printf '%s\n' "$1" | cksum; }
 # badge, task. Unclassified and unfiltered — the picker keeps this directory's or this
 # workspace's, `trails ls -a` the lot.
 #
-#   wid       the trail's window, what every tmux call below targets (capture-pane, kill-window)
-#   key       its record's key and the name to attach to: its editor view, or a 0.6 session name
+#   wid       the trail's window, in its view: what every tmux call below targets
+#   key       its record's key and the name to attach to: its view, or a 0.6 session name
 #   ws        its workspace, or - for a 0.6 session
 #   label     @agent — "claude", or "claude (YOLO)" — or the pane's command for a session
 #             trails did not start
 #   codebase  the codebase label its window is named from (augur, augur@retry)
 #   badge     #name, #N, or -
 #
-# One list-windows for the lot. A trail's window is linked into its editor view too, so it
-# lists twice; the row from its workspace session is the one kept. A 0.6 session's row is
-# its active window.
+# One list-windows for the lot. A trail's window is the one in its view, the session named
+# by its key; its cell in the workspace shows it but is not it, and has no @agent. A 0.6
+# session's row is its active window.
 #
 # Also the one place a trail's record learns what it is working on (rec_note_task): the task
 # is only ever on screen, and a trail that dies takes its screen with it. This runs every
@@ -762,7 +770,7 @@ sessions() {
     "#{window_id}|#{session_name}|#{@trails_ws}|#{@trails_view}|#{?@agent,#{@agent},#{pane_current_command}}|#{@agent}|#{@trails_id}|#{?@trails_dir,#{@trails_dir},#{session_path}}|#{pane_pid}|#{@trails_label}|#{@trails_name}|#{window_active}|$TASK_FMT" 2>/dev/null |
     while IFS='|' read -r wid sname ws view label s_agent s_id dir pid clabel cname active task; do
       if [ -n "$ws" ]; then
-        [ "$sname" = "$ws" ] && [ -n "$s_agent" ] || continue
+        [ "$sname" = "$view" ] && [ -n "$s_agent" ] || continue
         key=$view
       else
         case $sname in
@@ -1247,11 +1255,16 @@ kill_session() {
     tmux kill-window -t "$1" 2>/dev/null
     return 0
   fi
+  # The agent's window first, then its view: one call for a trail whose window is its view's
+  # only one, and the window itself for a trail from before ADR 16, linked into its
+  # workspace, which a kill-session would leave running there.
   key=$(trail_key "$1")
   case $key in
-    */*) tmux kill-window -t "$1" 2>/dev/null ;;
-    *) tmux kill-session -t "=$key" 2>/dev/null ;;
+    */*) cell_release "$key" ;;
+    *) ;;
   esac
+  tmux kill-window -t "$1" 2>/dev/null
+  tmux kill-session -t "=$key" 2>/dev/null
   rec_forget "$key"
   # Recompute the cached running block so the reload that follows drops the killed row (and
   # re-reads the survivors' state). Guarded on the cache path so a bare `trails --kill x` (no
@@ -1622,6 +1635,7 @@ ws_switch() {
       exit 1
     }
     top=$(top_trail "$1")
+    [ -z "$top" ] || top=$(ensure_cell "$top" "$(trail_key "$top")" "$1") || exit 1
     [ -z "$TMUX" ] || switch_to "=$1${top:+:$top}"
     exec tmux attach-session -t "=$1${top:+:$top}"
   fi
@@ -1817,15 +1831,24 @@ EOF
   # trail that never was.
   [ -n "$id" ] && rec_write "$view" "$1" "$PWD" "$id" "$2" "$ws" "$label" "$name"
 
+  # The agent's window is made as its view: a session of its own named after the trail,
+  # holding that one window (see "Trails" above). The workspace shows it through a cell,
+  # made next by ensure_cell.
+  #
   # remain-on-exit keeps the pane after the agent exits, so the guard below can read why.
   # Chained into the creating command's own list rather than set by a second tmux call: an
   # agent that dies in milliseconds is reaped before a follow-up call can land, which is the
-  # exact case worth catching. The new window is addressed by its exact name (=ws:=name),
-  # since a chained command after new-window -d does not inherit it as its target.
+  # exact case worth catching. The new window is addressed by its exact name (=view:=name),
+  # since a chained command after new-session -d does not inherit it as its target.
   # remain-on-exit-format '' drops tmux's own "Pane is dead" banner, leaving the capture to be
   # the agent's words and nothing else. -q on that one: the option is tmux 3.3's, and on an
   # older tmux (Ubuntu 22.04, RHEL 9) it failed the whole chain after the window and its
   # record already existed. Without the option, tmux's banner just joins the capture.
+  #
+  # status off on the view: it is only ever looked at through something else — a cell, an
+  # editor's panel, a map pane — each of which has its own frame, and the view's status line
+  # inside that frame read as a second tmux. A session option on a session trails made for
+  # itself, not on anything of yours (principle 3 of the design).
   #
   # The agent runs under $WRAP (see "Surviving tmux"), which forgets the record when the
   # agent exits by itself and is killed alongside it when tmux goes.
@@ -1845,18 +1868,11 @@ EOF
     -u TRAILS_RESTORE_OK -u USE_TMUX -u LAUNCH_DETACHED -u TRAILS_NAME -u TRAILS_ATTACH
     -u TRAILS_WS -u NVIM -u ZED_TERM tmux'
   # shellcheck disable=SC2086
-  if tmux has-session -t "=$ws" 2>/dev/null; then
-    wid=$($door new-window -d -t "=$ws:" -n "$win" -c "$PWD" -P -F '#{window_id}' \
-      sh -c "$WRAP" trails-wrap "$SELF" "$view" "${3:+resume}" "$cmd" $args \
-      \; set-option -w -t "=$ws:=$win" remain-on-exit on \
-      \; set-option -qw -t "=$ws:=$win" remain-on-exit-format '') || exit 1
-  else
-    wid=$($door new-session -d -s "$ws" -n "$win" -c "$PWD" -P -F '#{window_id}' \
-      sh -c "$WRAP" trails-wrap "$SELF" "$view" "${3:+resume}" "$cmd" $args \
-      \; set-option -w -t "=$ws:=$win" remain-on-exit on \
-      \; set-option -qw -t "=$ws:=$win" remain-on-exit-format '' \
-      \; set-option -t "$ws" @trails_workspace "$ws") || exit 1
-  fi
+  wid=$($door new-session -d -s "$view" -n "$win" -c "$PWD" -P -F '#{window_id}' \
+    sh -c "$WRAP" trails-wrap "$SELF" "$view" "${3:+resume}" "$cmd" $args \
+    \; set-option -w -t "=$view:=$win" remain-on-exit on \
+    \; set-option -qw -t "=$view:=$win" remain-on-exit-format '' \
+    \; set-option -t "=$view:" status off) || exit 1
   case $wid in
     @*) ;;
     *)
@@ -1877,7 +1893,11 @@ EOF
     \; set-option -w -t "$wid" @trails_name "$name" \
     \; set-option -w -t "$wid" @trails_since "$(date +%s)"
   [ -n "$id" ] && tmux set-option -w -t "$wid" @trails_id "$id"
-  ensure_view "$wid" "$view"
+  ensure_cell "$wid" "$view" "$ws" >/dev/null || {
+    tmux kill-session -t "=$view" 2>/dev/null
+    rec_forget "$view"
+    exit 1
+  }
 
   # Dead on arrival. tmux drops a window the moment its command exits and the error goes
   # with it, so an agent that can't start (bad token, no keychain) made trails look like it
@@ -1885,12 +1905,13 @@ EOF
   # the agent said rather than attaching to a corpse.
   #
   # -S- to read history, unlike screen_of(): a dying pane scrolls its output up out of the
-  # visible screen, so the last thing it said is only in the scrollback.
+  # visible screen, so the last thing it said is only in the scrollback. The view goes as a
+  # session, and its cell's client exits with it, taking the cell.
   sleep "$BOOT"
   if [ "$(tmux display-message -pt "$wid" '#{pane_dead}' 2>/dev/null)" = 1 ]; then
     echo "trails: $1 exited immediately (status $(tmux display-message -pt "$wid" '#{pane_dead_status}' 2>/dev/null))" >&2
     tmux capture-pane -pS- -t "$wid" 2>/dev/null | awk 'NF' | tail -n 15 >&2
-    tmux kill-window -t "$wid" 2>/dev/null
+    tmux kill-session -t "=$view" 2>/dev/null
     rec_forget "$view"
     exit 1
   fi
@@ -1908,21 +1929,73 @@ EOF
   attach_to "$wid" "$view" "$ws"
 }
 
-# A trail's editor view: a session of its own holding the trail's window and nothing else,
-# so an editor attached to it sees one trail (R9), while the workspace session moves freely.
-# Made as a session with a placeholder window, which link-window -k then replaces with the
-# trail's: the one way tmux has to make a session around an existing window. The placeholder
-# lives for the few milliseconds between the two. Nothing to do for a view already there, or
+# A trail's cell: the window in its workspace's session that shows it, a pane attached to its
+# view (view_cmd, the way a map cell views an agent), named like the trail's own window and
+# marked @trails_cell with the trail's key. Made at launch, and again here if you killed it:
+# the trail lives in its view, so the cell is rebuilt for free. The workspace session is made
+# around it when there is none (D1's refusal applies). Prints the cell's window id.
+#
+#   ensure_cell WID KEY WS     WID is the trail's window, in its view
 # for a 0.6 session, which is its own view.
-ensure_view() {
-  case $2 in
-    */*) ;;
-    *) return 0 ;;
+ensure_cell() {
+  ec_wid=$1 ec_key=$2 ec_ws=$3
+  ec_cell=$(cell_wid "$ec_key" "$ec_ws")
+  [ -z "$ec_cell" ] || {
+    printf '%s\n' "$ec_cell"
+    return 0
+  }
+  IFS='|' read -r ec_win ec_dir ec_label <<EOF
+$(tmux display-message -pt "$ec_wid" '#{window_name}|#{@trails_dir}|#{@trails_label}' 2>/dev/null)
+EOF
+  [ -n "$ec_win" ] || return 1
+  if tmux has-session -t "=$ec_ws" 2>/dev/null; then
+    [ "$(tmux display-message -pt "$ec_ws" '#{@trails_workspace}' 2>/dev/null)" = "$ec_ws" ] || {
+      echo "trails: a tmux session named \"$ec_ws\" exists and isn't a trails workspace." >&2
+      echo "        Rename it (tmux rename-session -t $ec_ws NEW) or the workspace in $CONFIG." >&2
+      return 1
+    }
+    set -- new-window -d -t "=$ec_ws:" -n "$ec_win" -c "${ec_dir:-$PWD}" -P -F '#{window_id}' "$(view_cmd "$ec_key")"
+  else
+    set -- new-session -d -s "$ec_ws" -n "$ec_win" -c "${ec_dir:-$PWD}" -P -F '#{window_id}' "$(view_cmd "$ec_key")"
+  fi
+  ec_cell=$(tmux "$@") || return 1
+  [ -n "$ec_cell" ] || return 1
+  tmux set-option -t "$ec_cell" @trails_workspace "$ec_ws" \
+    \; set-option -w -t "$ec_cell" @trails_cell "$ec_key" \
+    \; set-option -w -t "$ec_cell" @trails_dir "$ec_dir" \
+    \; set-option -w -t "$ec_cell" @trails_ws "$ec_ws" \
+    \; set-option -w -t "$ec_cell" @trails_label "$ec_label" \
+    \; set-option -p -t "$ec_cell" @trails_pane view
+  printf '%s\n' "$ec_cell"
+}
+
+# The cell showing trail KEY in workspace WS, if any (its window id).
+cell_wid() {
+  tmux list-windows -t "=$2" -F "#{@trails_cell}$TAB#{window_id}" 2>/dev/null |
+    awk -F"$TAB" -v k="$1" '$1 == k { print $2; exit }'
+}
+
+# Trail KEY is ending (the agent exited, or you ended it): what becomes of its cell. The view
+# pane goes by itself when the view does, its client exits. A cell that was only that pane
+# goes with it. One that holds the editor or a shell you opened beside the agent (companion)
+# keeps them, as a plain companion window of the codebase: named for the editor when there is
+# one, else <codebase>·shell, marked @trails_companion, the cell mark dropped. Run before the
+# view is killed, while the cell can still be found by its key.
+cell_release() {
+  cr_ws=$(rec_ws "$1")
+  [ -n "$cr_ws" ] || cr_ws=${1%%/*}
+  cr_cell=$(cell_wid "$1" "$cr_ws")
+  [ -n "$cr_cell" ] || return 0
+  cr_kinds=$(tmux list-panes -t "$cr_cell" -F '#{@trails_pane}' 2>/dev/null | grep -v '^view$' | sort -u | tr '\n' ' ')
+  [ -n "$cr_kinds" ] || return 0
+  cr_label=$(tmux display-message -pt "$cr_cell" '#{@trails_label}' 2>/dev/null)
+  case $cr_kinds in
+    *editor*) cr_kind=edit cr_name="${cr_label}·$(basename "${EDITOR:-nvim}")" ;;
+    *) cr_kind=shell cr_name="${cr_label}·shell" ;;
   esac
-  tmux has-session -t "=$2" 2>/dev/null && return 0
-  ev_dir=$(trail_dir "$1")
-  ev_dummy=$(tmux new-session -d -s "$2" -c "${ev_dir:-$PWD}" -P -F '#{window_id}' 'sleep 30') || return 1
-  tmux link-window -k -s "$1" -t "$ev_dummy"
+  tmux set-option -wu -t "$cr_cell" @trails_cell \
+    \; set-option -w -t "$cr_cell" @trails_companion "$cr_kind" \
+    \; rename-window -t "$cr_cell" "$cr_name" 2>/dev/null
 }
 
 # The last step of every route into a trail, launched or picked: show it in the terminal
@@ -1930,23 +2003,22 @@ ensure_view() {
 #
 #   attach_to WID KEY WS
 #
-# From an editor's terminal (from_editor) it is the trail's editor view, one trail and
-# nothing else; from a terminal of your own it is the workspace, with the trail's window
-# selected. Inside tmux the client you are in is switched there rather than nesting a second
-# tmux — except in an editor inside tmux, or a map cell, where the pane *is* the editor's
-# panel or the cell: that pane becomes a nested client of the view, the way map() builds
-# its cells, stamped with @dir/@ag in the map so its border reads like its neighbours'.
+# From an editor's terminal (from_editor) it is the trail's view, one trail and nothing else;
+# from a terminal of your own it is the workspace, on the trail's cell. Inside tmux the
+# client you are in is switched there rather than nesting a second tmux — except in an
+# editor inside tmux, or a map cell, where the pane *is* the editor's panel or the cell: that
+# pane becomes a nested client of the view, the way map() builds its cells, stamped with
+# @dir/@ag in the map so its border reads like its neighbours'.
 #
 # A 0.6 session is its own view and its own workspace, so every route is the session itself.
 attach_to() {
   at_wid=$1 at_key=$2 at_ws=$3
   case $at_key in
-    */*) at_target="=$at_ws:$at_wid" ;;
+    */*) at_target="=$at_ws:$(ensure_cell "$at_wid" "$at_key" "$at_ws")" || exit 1 ;;
     *) at_target="=$at_key" ;;
   esac
   if [ -n "$TMUX" ]; then
     if [ -n "$IN_MAP" ] || from_editor; then
-      ensure_view "$at_wid" "$at_key"
       if [ -n "$IN_MAP" ]; then
         tmux set-option -pt "$TMUX_PANE" @dir "$(map_dir "$at_key")"
         tmux set-option -pt "$TMUX_PANE" @ag "$(map_agent "$at_key")"
@@ -1956,7 +2028,6 @@ attach_to() {
     switch_to "$at_target"
   fi
   if from_editor; then
-    ensure_view "$at_wid" "$at_key"
     exec tmux attach-session -t "=$at_key"
   fi
   exec tmux attach-session -t "$at_target"
@@ -2632,39 +2703,37 @@ ago() {
 }
 
 # ─── Companions ──────────────────────────────────────────────────────────────
-# The editor or a shell for one codebase: an ordinary window in the workspace, beside that
-# codebase's trails, named like them (augur·nvim, augur·shell, augur·ide) and marked
-# @trails_companion so the picker can list it and `trails edit` can find it again. Not a
-# split in a trail's window — editors attached to that trail would see it — and never a
-# shell at the workspace level: every window runs in some codebase.
+# The editor or a shell for one codebase, beside its agent: panes in the trail's cell, the
+# editor to the agent's left and the shell along the bottom, each marked @trails_pane
+# (editor, shell) so it is found again and never mistaken for the view pane. The view is the
+# agent alone, so an editor's panel or a map pane attached to it sees none of this; only the
+# workspace does. With no trail in the codebase the editor gets a window of its own in the
+# workspace, <codebase>·nvim, marked @trails_companion edit with the codebase on it, and the
+# shell goes along its bottom. A cell whose trail ended keeps its panes as such a window
+# (cell_release). Never a shell at the workspace level: every window runs in some codebase.
 #
-#   trails edit    $EDITOR (nvim if unset) beside the codebase's trail when one runs: a
-#                  layout window, the editor and a nested client of the trail's editor view,
-#                  the way a map cell views an agent, for the trail you are on, else the
-#                  codebase's trail that most wants you; with none, the editor alone in a
-#                  window of its own
-#   trails shell   a shell in the codebase, as a pane across the bottom of that editor
-#                  window (made first if need be): tmux's default command, plain tmux
-#
-# The window kinds are edit (the editor alone) and ide (beside a trail); the shell is a
-# pane in either, marked @trails_shell.
+#   trails edit    $EDITOR (nvim if unset), as `nvim .`, in the cell of the trail you are on,
+#                  else of the codebase's trail that most wants you; alone when none runs
+#   trails shell   a shell in the codebase, tmux's default command, a quarter high along the
+#                  bottom of that same window
 #
 # The window you are on decides the codebase, since a workspace holds unrelated repos: run
-# from a trail or another companion, the command acts on that codebase; from a plain window
-# in the workspace, on the pane's directory; outside tmux, on $PWD. One of each kind per
-# codebase: run again it selects the one there, and run from the companion itself it goes
-# back to the window (or pane) you came from. The agent exits, the view goes, the ide's
-# nested client with it, and the window keeps the editor. Nothing here is restored: an
-# editor or a shell is reopened with one command.
+# from a cell or a companion window, the command acts on that window; from a plain window in
+# the workspace, on the pane's directory; outside tmux, on $PWD, or DIR after the command.
+# Run again it selects the pane that is there, and run from that pane it goes back to the
+# one you came from. Nothing here is restored: an editor or a shell is reopened with one
+# command.
 companion() {
   ck=$1
-  want_shell=
-  [ "$ck" = shell ] && want_shell=1 ck=edit
+  case $ck in
+    edit) mark=editor ;;
+    *) mark=shell ;;
+  esac
   here=${2:-$PWD}
-  ws='' cur_wid='' cur_kind='' cur_agent=''
+  ws='' cur_wid='' cur_kind='' cur_cell='' cur_pane=''
   if [ -n "$TMUX" ] && [ -z "${2:-}" ]; then
-    IFS='|' read -r cur_wid w_dir w_ws cur_kind cur_agent p_path <<EOF
-$(tmux display-message -p '#{window_id}|#{@trails_dir}|#{@trails_ws}|#{@trails_companion}|#{@agent}|#{pane_current_path}' 2>/dev/null)
+    IFS='|' read -r cur_wid w_dir w_ws cur_kind cur_cell cur_pane p_path <<EOF
+$(tmux display-message -p '#{window_id}|#{@trails_dir}|#{@trails_ws}|#{@trails_companion}|#{@trails_cell}|#{pane_id}|#{pane_current_path}' 2>/dev/null)
 EOF
     here=${w_dir:-${p_path:-$PWD}}
     ws=$w_ws
@@ -2675,41 +2744,47 @@ EOF
     exit 1
   }
   [ -n "$ws" ] || ws=$(workspace_of "$here") || ws=${TRAILS_WS:-default}
-  label=$(codebase_label "$here")
 
-  # The editor goes beside the trail when there is one (the trail you are on, else the
-  # codebase's): an editor alone is for a codebase with nothing running, and C-b z zooms the
-  # editor's pane when you want it whole. An ide window left behind by a trail that ended
-  # still counts as the editor.
-  if [ "$ck" = edit ]; then
-    if [ -n "$cur_agent" ] || [ -n "$(trail_in "$here")" ]; then
-      ck=ide
-    elif [ -n "$(companion_find ide "$ws" "$here")" ]; then
-      ck=ide
+  # The window: the cell or companion you are on; else the cell of the codebase's trail that
+  # most wants you, in that trail's workspace; else the codebase's editor window, made if
+  # need be. A 0.6 trail has no cell, so its codebase gets the editor alone.
+  if [ -n "$cur_cell" ] || [ -n "$cur_kind" ]; then
+    wid=$cur_wid
+  else
+    key=$(trail_in "$here")
+    case $key in
+      */*) ;;
+      *) key= ;;
+    esac
+    if [ -n "$key" ]; then
+      twid=$(trail_wid "$key")
+      ws=$(trail_ws "$twid")
+      wid=$(ensure_cell "$twid" "$key" "$ws") || exit 1
+    else
+      wid=$(companion_find edit "$ws" "$here")
+      [ -n "$wid" ] || [ "$ck" != shell ] || wid=$(companion_find shell "$ws" "$here")
+      [ -n "$wid" ] || wid=$(companion_make "$here" "$ws" "$(codebase_label "$here")") || exit 1
     fi
   fi
 
-  # On it already: back to where you came from.
-  if [ -z "$want_shell" ] && [ "$cur_kind" = "$ck" ] && same_dir "$(trail_dir "$cur_wid")" "$here"; then
+  # The pane: on it already, back to the pane (or window) you came from; there, selected;
+  # else made. The editor splits the view pane's left half, so a shell along the bottom stays
+  # whole; the shell is a full-width split of the window.
+  pane=$(tmux list-panes -t "$wid" -F '#{pane_id} #{@trails_pane}' 2>/dev/null | awk -v k="$mark" '$2 == k { print $1; exit }')
+  if [ -n "$pane" ] && [ "$pane" = "$cur_pane" ]; then
+    [ "$(tmux list-panes -t "$wid" 2>/dev/null | wc -l)" -gt 1 ] && exec tmux select-pane -l
     exec tmux last-window
   fi
-  wid=$(companion_find "$ck" "$ws" "$here")
-  if [ -z "$wid" ]; then
-    wid=$(companion_make "$ck" "$here" "$ws" "$label" "$cur_agent" "$cur_wid") || exit 1
-  fi
-  # The shell: a pane across the bottom of that window, a quarter high, marked on the pane.
-  # On it already, back to the pane you came from; there already, selected; else made.
-  if [ -n "$want_shell" ]; then
-    sp=$(tmux list-panes -t "$wid" -F '#{pane_id} #{@trails_shell}' 2>/dev/null | awk '$2 == 1 { print $1; exit }')
-    if [ -n "$sp" ] && [ -n "$TMUX" ] && [ "$(tmux display-message -p '#{pane_id}' 2>/dev/null)" = "$sp" ]; then
-      exec tmux select-pane -l
+  if [ -z "$pane" ]; then
+    if [ "$ck" = edit ]; then
+      vp=$(tmux list-panes -t "$wid" -F '#{pane_id} #{@trails_pane}' 2>/dev/null | awk '$2 == "view" { print $1; exit }')
+      pane=$(tmux split-window -bh -t "${vp:-$wid}" -c "$here" -P -F '#{pane_id}' "${EDITOR:-nvim} .") || exit 1
+    else
+      pane=$(tmux split-window -v -f -l 25% -t "$wid" -c "$here" -P -F '#{pane_id}') || exit 1
     fi
-    if [ -z "$sp" ]; then
-      sp=$(tmux split-window -v -f -l 25% -t "$wid" -c "$here" -P -F '#{pane_id}') || exit 1
-      tmux set-option -p -t "$sp" @trails_shell 1
-    fi
-    tmux select-pane -t "$sp"
+    tmux set-option -p -t "$pane" @trails_pane "$mark"
   fi
+  tmux select-pane -t "$pane"
   [ -z "$TMUX" ] || switch_to "=$ws:$wid"
   exec tmux attach-session -t "=$ws:$wid"
 }
@@ -2733,32 +2808,13 @@ trail_in() {
     END { print b ? b : (i ? i : f) }'
 }
 
-# Make the companion window: kind, dir, workspace, label, and for ide the @agent and window
-# of the trail you are on (empty otherwise). Prints its window id. The workspace session is
-# made around it when there is none (D1's refusal applies), as a trail's launch would.
+# The editor alone, for a codebase with no trail running: a window in the workspace, dir,
+# workspace, label. Prints its window id. The workspace session is made around it when
+# there is none (D1's refusal applies), as a trail's cell would be.
 companion_make() {
-  cm_kind=$1 cm_dir=$2 cm_ws=$3 cm_label=$4
+  cm_dir=$1 cm_ws=$2 cm_label=$3
   ed=${EDITOR:-nvim}
-  edname=$(basename "${ed%% *}")
-  case $cm_kind in
-    edit) cm_name="${cm_label}·${edname}" ;;
-    *) cm_name="${cm_label}·${cm_kind}" ;;
-  esac
-  # ide: the trail you are on, or the codebase's trail that most wants you.
-  cm_key=
-  if [ "$cm_kind" = ide ]; then
-    if [ -n "$5" ]; then
-      cm_key=$(trail_key "$6")
-    else
-      cm_key=$(trail_in "$cm_dir")
-    fi
-    [ -n "$cm_key" ] || {
-      echo "trails: no trail in $(tilde_path "$cm_dir") to put the editor beside — start one first" >&2
-      return 1
-    }
-    cm_wid=$(trail_wid "$cm_key")
-    ensure_view "$cm_wid" "$cm_key" || return 1
-  fi
+  cm_name="${cm_label}·$(basename "${ed%% *}")"
   if tmux has-session -t "=$cm_ws" 2>/dev/null; then
     [ "$(tmux display-message -pt "$cm_ws" '#{@trails_workspace}' 2>/dev/null)" = "$cm_ws" ] || {
       echo "trails: a tmux session named \"$cm_ws\" exists and isn't a trails workspace." >&2
@@ -2775,15 +2831,11 @@ companion_make() {
   w=$(tmux "$@" "$ed .")
   [ -n "$w" ] || return 1
   tmux set-option -t "$cm_ws" @trails_workspace "$cm_ws" \
-    \; set-option -w -t "$w" @trails_companion "$cm_kind" \
+    \; set-option -w -t "$w" @trails_companion edit \
     \; set-option -w -t "$w" @trails_dir "$cm_dir" \
     \; set-option -w -t "$w" @trails_ws "$cm_ws" \
-    \; set-option -w -t "$w" @trails_label "$cm_label"
-  if [ "$cm_kind" = ide ]; then
-    tmux split-window -d -h -t "$w" -c "$cm_dir" "$(view_cmd "$cm_key")" \
-      \; select-layout -t "$w" even-horizontal >/dev/null
-    tmux set-option -w -t "$w" @trails_of "$cm_key"
-  fi
+    \; set-option -w -t "$w" @trails_label "$cm_label" \
+    \; set-option -p -t "$w" @trails_pane editor
   printf '%s\n' "$w"
 }
 
@@ -2794,13 +2846,13 @@ same_dir() {
   [ "$(cd "$1" 2>/dev/null && pwd -P)" = "$(cd "$2" 2>/dev/null && pwd -P)" ]
 }
 
-# The companions in workspace $1, or with none this directory's, as the picker's raw rows
-# (print_menu): the state is "companion", the agent column its kind, and the title what it
-# runs — the editor the window was named for, the shell's command, or for an ide the editor
-# and the trail beside it.
+# The companion windows in workspace $1, or with none this directory's, as the picker's raw
+# rows (print_menu): the state is "companion", the agent column what it is (editor, shell),
+# and the title what the window was named for. Panes beside an agent are the trail's, and
+# have no row of their own.
 companions() {
-  tmux list-windows -a -F "#{window_id}|#{session_name}|#{@trails_companion}|#{@trails_dir}|#{@trails_ws}|#{@trails_label}|#{pane_current_command}|#{window_name}|#{@trails_of}" 2>/dev/null |
-    while IFS='|' read -r wid sname kind dir ws label cmd wname of; do
+  tmux list-windows -a -F "#{window_id}|#{session_name}|#{@trails_companion}|#{@trails_dir}|#{@trails_ws}|#{@trails_label}|#{window_name}" 2>/dev/null |
+    while IFS='|' read -r wid sname kind dir ws label wname; do
       [ -n "$kind" ] && [ "$sname" = "$ws" ] || continue
       if [ -n "${1:-}" ]; then
         [ "$ws" = "$1" ] || continue
@@ -2808,10 +2860,10 @@ companions() {
         same_dir "$dir" "$PWD" || continue
       fi
       case $kind in
-        ide) word=editor title="$(basename "${EDITOR:-nvim}") · $(rec_label "$of")" ;;
-        *) word=editor title=${wname#*·} ;;
+        shell) word=shell ;;
+        *) word=editor ;;
       esac
-      printf 'companion\tcompanion\t%s\t%s\t%s\t%s\t-\t-\t-\t%s\n' "$wid" "$dir" "$label" "$word" "$title"
+      printf 'companion\tcompanion\t%s\t%s\t%s\t%s\t-\t-\t-\t%s\n' "$wid" "$dir" "$label" "$word" "${wname#*·}"
     done
 }
 
@@ -2837,8 +2889,6 @@ bind a display-popup -E -w 80% -h 70% -s bg=default -S bg=default,fg=brightblack
 bind W display-popup -E -w 60% -h 50% -s bg=default -S bg=default,fg=brightblack '$SELF ws'
 bind e run-shell '$SELF edit'
 bind \` run-shell '$SELF shell'
-# an editor view (what an editor attaches to) with no status line, if you want that only there:
-# set-hook -g session-created 'if -F "#{m:*/*,#{session_name}}" "set -t #{session_name} status off"'
 EOF
 }
 
@@ -2862,9 +2912,11 @@ end_trail() {
     exit 1
   }
   case $1 in
-    */*) tmux kill-window -t "$et_wid" 2>/dev/null ;;
-    *) tmux kill-session -t "=$1" 2>/dev/null ;;
+    */*) cell_release "$1" ;;
+    *) ;;
   esac
+  tmux kill-window -t "$et_wid" 2>/dev/null
+  tmux kill-session -t "=$1" 2>/dev/null
   rec_forget "$1"
   echo "ended $(rec_label "$1")"
 }
@@ -3104,11 +3156,10 @@ map() {
   # This narrows the window to microseconds rather than closing it; a session dying between
   # this check and the attach still lands in the old behaviour. Nothing can close it — the
   # agent is another process — and narrowing is the whole of the available win.
-  # A trail's cell attaches to its editor view (D5 in the design), made here if it is
-  # missing — you may have killed it, and the trail lives on in its workspace.
+  # A map cell attaches to the trail's view (D5 in the design), which is where the trail
+  # lives: a view that is gone is a trail that is gone.
   names=$(printf '%s\n' "$names" | while read -r n; do
-    w=$(trail_wid "$n")
-    [ -n "$w" ] && ensure_view "$w" "$n" && printf '%s\n' "$n"
+    [ -n "$(trail_wid "$n")" ] && printf '%s\n' "$n"
   done)
   [ -n "$names" ] || {
     echo "trails: the agents you picked are gone" >&2
@@ -3427,7 +3478,7 @@ usage: trails [command]
   (none)            the picker for where you are: this codebase's trails and the agents
                     you can start; a workspace's trails, from a shell in its session; or
                     the workspaces, from ~
-  new NAME [AGENT]  start a trail named NAME: its editor view is <workspace>/NAME, and
+  new NAME [AGENT]  start a trail named NAME: its view is <workspace>/NAME, and
                     the agent takes the name where it can (claude's peers message it
                     as NAME); -y for YOLO
   ls [-a | DIR]     this directory's trails, running or not; DIR's, or -a for
@@ -3441,11 +3492,11 @@ usage: trails [command]
   ws list           the workspaces in the config, and the codebases each holds
   ws of [DIR]       the workspace DIR (here) belongs to
   ws add NAME [DIR] put DIR (here) in workspace NAME, creating it if new
-  edit | shell      the codebase's editor ($EDITOR) beside its trail (alone when nothing
-                    runs there) as a window in the workspace, or a shell across the
-                    bottom of that window: made once, then selected; run from it, back
-                    to where you were. The window you are on says which codebase, or
-                    DIR after the command
+  edit | shell      the editor ($EDITOR) beside the agent, or a shell along the bottom,
+                    as panes of the trail's window in the workspace (the editor alone
+                    in a window of its own when nothing runs there): made once, then
+                    selected; run from the pane, back to where you were. The window you
+                    are on says which codebase, or DIR after the command
   end KEY           end a trail by its key, as trails ls prints it, from anywhere
   keys              print tmux.conf lines that bind the picker and the companions
   swiftbar          link the menu-bar plugin into SwiftBar (macOS); --remove unlinks
@@ -3566,6 +3617,10 @@ case $1 in
     ;;
   # Called by the wrapper launch() puts around every agent, when the agent exits.
   --forget)
+    case $2 in
+      */*) cell_release "$2" ;;
+      *) ;;
+    esac
     rec_forget "$2"
     exit 0
     ;;

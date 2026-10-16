@@ -1,6 +1,6 @@
 # 15. Companions: the editor and a shell as marked windows beside a trail
 
-- Status: accepted
+- Status: accepted, amended by [ADR 16](0016-the-trail-lives-in-its-view.md)
 - Date: 2026-10
 
 ## Context
@@ -16,6 +16,13 @@ one codebase, and opening it twice must not make two.
 codebase's trails, named like a trail's (`augur·ide`, `augur·nvim`) and marked
 `@trails_companion` with the codebase on it. `trails shell` is a pane across
 the bottom of that window, marked `@trails_shell`.
+
+*Amended 2026-10 (ADR 16): with the trail's window in the workspace a cell that
+no editor attaches to, the editor and the shell are panes of that cell, marked
+`@trails_pane` `editor` and `shell`, the editor to the agent's left and the
+shell along the bottom. The `·ide` window and `@trails_of` go. The editor alone
+remains a window, `augur·nvim`, where nothing runs, with the shell along its
+bottom; a cell whose trail ends keeps its panes as such a window.*
 
 - **The window you are on decides the codebase.** From a trail or another
   companion, that one's directory; from a plain window, the pane's directory;
@@ -34,7 +41,9 @@ the bottom of that window, marked `@trails_shell`.
   and `ide` went. `C-b z` gives the editor the whole window when wanted.
 - **Never a split in a trail's window**, which the editors attached to that
   trail would see: the shell splits the editor's window, a layout window no
-  editor attaches to. Never a shell at the workspace level.
+  editor attaches to. Never a shell at the workspace level. *Amended: the
+  trail's window in the workspace is a cell, which editors never attach to, so
+  it is split; the view, which they do attach to, is not.*
 - The picker lists companions on both trail screens, goes to one on Enter and
   closes one on ctrl-x; ctrl-e opens the editor for the row's codebase. An
   editor's terminal sees no companion rows: it wants trails only (R9).

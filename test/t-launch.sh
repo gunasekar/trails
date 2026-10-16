@@ -1,7 +1,7 @@
 #!/bin/sh
-# trails new: a named trail gets a window in its workspace's session, an editor view of its
-# own, its options and its record; quitting the agent takes all of them away, and the
-# workspace session goes when its last trail does.
+# trails new: a named trail gets a view of its own holding the agent, a cell in its
+# workspace's session showing it, its options and its record; quitting the agent takes all of
+# them away, and the workspace session goes when its last trail does.
 . "$REPO/test/lib.sh"
 t_setup
 
@@ -13,11 +13,19 @@ screen=$(screen default/payments)
 assert_match "$screen" 'agent id=[0-9a-f-]{36} name=payments resume=0 yolo=0' "the agent's arguments"
 id=$(printf '%s\n' "$screen" | sed -n 's/.*id=\([0-9a-f-]*\) .*/\1/p' | head -n 1)
 
-# The workspace session is marked, holds the trail's window, and the view holds the same one.
+# The view holds the agent's window; the workspace session is marked and holds the cell, a
+# window named like it whose pane is a client of the view.
 assert_eq "$(tmux display-message -pt default '#{@trails_workspace}')" default "@trails_workspace"
-assert_eq "$(tmux list-windows -t default -F '#{window_name}')" "proj·payments" "the window, named"
-wid=$(tmux list-windows -t default -F '#{window_id}')
-assert_eq "$(tmux list-windows -t default/payments -F '#{window_id}')" "$wid" "the view holds the same window"
+wid=$(tmux list-windows -t default/payments -F '#{window_id}')
+assert_eq "$(tmux list-windows -t default/payments -F '#{window_name}')" "proj·payments" "the window, named"
+wait_for 5 sh -c "[ \"\$(tmux list-windows -t default -F '#{window_name}')\" = 'proj·payments' ]" || fail "no cell in the workspace"
+cell=$(tmux list-windows -t default -F '#{window_id}')
+[ "$cell" != "$wid" ] || fail "the cell is the trail's own window"
+assert_eq "$(tmux display-message -pt "$cell" '#{@trails_cell} #{@trails_dir} #{@trails_ws} #{@trails_label} #{@trails_pane}')" \
+  "default/payments $PROJ default proj view" "the cell's options"
+wait_for 5 sh -c "tmux list-clients -t default/payments -F '#{client_tty}' | grep -qx \"\$(tmux display-message -pt '$cell' '#{pane_tty}')\"" ||
+  fail "the cell's pane is not a client of the view"
+assert_eq "$(tmux show-options -t default/payments -v status)" off "the view has no status line"
 opts() { tmux display-message -pt "$wid" "$1"; }
 assert_eq "$(opts '#{@agent}')" stub "@agent"
 assert_eq "$(opts '#{@trails_id}')" "$id" "@trails_id"
@@ -29,9 +37,9 @@ assert_eq "$(opts '#{@trails_name}')" payments "@trails_name"
 assert_match "$(opts '#{@trails_since}')" '^[0-9]{10}$' "@trails_since"
 
 # The driver landed in the workspace, on that window (after BOOT, so wait for it).
-wait_for 5 sh -c 'tmux list-clients | grep -q .' || fail "the driver never attached"
-client=$(tmux list-clients -F '#{client_name}' | head -n 1)
-assert_eq "$(client_at "$client" '#{session_name} #{window_id}')" "default $wid" "attached to the workspace, window selected"
+wait_for 5 sh -c "tmux list-clients -F '#{session_name}' | grep -qx default" || fail "the driver never attached"
+client=$(tmux list-clients -F '#{client_name} #{session_name}' | awk '$2 == "default" { print $1; exit }')
+assert_eq "$(client_at "$client" '#{session_name} #{window_id}')" "default $cell" "attached to the workspace, on the cell"
 
 rec=$STATE/default/payments
 assert_file "$rec" "the record"
@@ -52,13 +60,13 @@ wait_for 5 screen_has default/fast 'agent (other)' || fail "the other agent neve
 assert_match "$(screen default/fast)" 'yolo=1' "yolo flag passed"
 assert_eq "$(tmux display-message -pt default/fast '#{@agent}')" "other (YOLO)" "@agent with YOLO"
 assert_eq "$(sed -n 's/^yolo=//p' "$STATE/default/fast")" yolo "record yolo"
-assert_eq "$(tmux list-windows -t default -F '#{window_name}' | sort | tr '\n' ' ')" "proj·fast proj·payments " "two windows"
+wait_for 5 sh -c "[ \"\$(tmux list-windows -t default -F '#{window_name}' | sort | tr '\n' ' ')\" = 'proj·fast proj·payments ' ]" || fail "two cells: $(tmux list-windows -t default -F '#{window_name}' | tr '\n' ' ')"
 
-# Quitting forgets: the window leaves the workspace and its view, and the record goes.
+# Quitting forgets: the view goes, the cell's client with it and so the cell, and the record.
 type_in default/payments exit
 wait_for 5 no_session default/payments || fail "the view outlived its agent"
 wait_for 2 test ! -e "$rec" || fail "record outlived its agent"
-assert_eq "$(tmux list-windows -t default -F '#{window_name}')" "proj·fast" "the other window stays"
+wait_for 5 sh -c "[ \"\$(tmux list-windows -t default -F '#{window_name}')\" = 'proj·fast' ]" || fail "the cell outlived its agent, or the other went: $(tmux list-windows -t default -F '#{window_name}' | tr '\n' ' ')"
 assert_file "$STATE/default/fast" "the other record stays"
 
 # The last trail out takes the workspace session with it: nothing is left behind.
@@ -73,7 +81,7 @@ cat >"$XDG_CONFIG_HOME/trails/config.json" <<CFG
 CFG
 DRIVER_DIR=$T/work/lattiq/augur driver "$TRAILS" new api
 wait_for 5 screen_has lattiq/api 'agent id=' || fail "no trail in lattiq"
-assert_eq "$(tmux list-windows -t lattiq -F '#{window_name}')" "augur·api" "the window, in the workspace"
+wait_for 5 sh -c "[ \"\$(tmux list-windows -t lattiq -F '#{window_name}')\" = 'augur·api' ]" || fail "no cell in lattiq"
 assert_file "$STATE/lattiq/api" "the record under the workspace"
 
 # A directory no workspace claims runs in default, and says so. (Run off a terminal, the

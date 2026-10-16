@@ -143,8 +143,8 @@ With no workspaces configured, everything runs in one workspace called
 | `trails` | the picker for where you are: this codebase's trails and the agents you can start; a workspace's trails, from a shell in its tmux session; or the workspaces, from `~` |
 | `trails ws [NAME]` | pick a workspace, or go to `NAME`: switch to its session inside tmux, attach outside, landing on the trail that most wants you; its picker when nothing runs there |
 | `trails ws list` / `ws of [DIR]` / `ws add NAME [DIR]` | the workspaces in the config; the one `DIR` (here) belongs to; put `DIR` (here) in workspace `NAME`, creating it if new |
-| `trails new NAME [AGENT]` | start a trail named `NAME`, with `-y` for YOLO: its editor view is `<workspace>/NAME`, and claude takes `NAME` as its own name, so other Claude sessions can message it by that name |
-| `trails edit` / `shell` | the codebase's editor beside its trail (alone when nothing runs there) as a window in the workspace, or a shell across the bottom of that window: made once, then selected. The window you are on says which codebase, or `DIR` after the command |
+| `trails new NAME [AGENT]` | start a trail named `NAME`, with `-y` for YOLO: its view is `<workspace>/NAME`, and claude takes `NAME` as its own name, so other Claude sessions can message it by that name |
+| `trails edit` / `shell` | the editor beside the agent, or a shell along the bottom, as panes of the trail's window in the workspace (the editor alone in a window of its own when nothing runs there): made once, then selected. The window you are on says which codebase, or `DIR` after the command |
 | `trails ls [-a \| DIR]` | this directory's trails: running, lost when tmux died, or finished in the last 10 days. `DIR` lists that directory instead, `-a` every directory |
 | `trails end KEY` | end a trail from anywhere, by the key `trails ls` prints (`acme/checkout-2`) |
 | `trails restore` | bring back every trail lost when tmux died, each on its own conversation, into its workspace, detached |
@@ -180,20 +180,22 @@ as paths or globs, with an optional `root`:
 
 ### What tmux shows
 
-A workspace is a tmux session named after it, and each trail is a window in it.
-Each trail's window is also linked into a small session of its own, the *editor
-view*, which is what an editor attaches to: one trail and nothing it can wander
-off to.
+Each trail is a small tmux session of its own, its *view*, holding the agent and
+nothing else: what an editor attaches to, with nothing it can wander off to. A
+workspace is a tmux session named after it, with a window per trail that shows
+the trail's view, the way a pane of the map does. The editor and a shell you open
+beside the agent are panes of that window, so the view, and any editor on it,
+never sees them.
 
 ```text
 acme                    ← workspace
-├─ checkout·claude      ← a trail
-├─ checkout·claude-2    ← another trail, same codebase
-├─ checkout·nvim        ← its editor (trails edit)
-└─ ledger·codex
-acme/checkout           ← editor view: checkout·claude, linked
-acme/checkout-2         ← editor view: checkout·claude-2, linked
-acme/ledger             ← editor view: ledger·codex, linked
+├─ checkout·claude      ← shows acme/checkout; nvim and a shell beside it (trails edit, shell)
+├─ checkout·claude-2    ← shows acme/checkout-2
+├─ ledger·codex         ← shows acme/ledger
+└─ billing·nvim         ← the editor alone, nothing running in billing
+acme/checkout           ← a trail: claude in ~/code/checkout
+acme/checkout-2         ← another, same codebase
+acme/ledger             ← codex in ~/code/ledger
 ```
 
 Plain tmux moves you around: the next and previous window keys, `prefix s` or
@@ -225,9 +227,9 @@ lost trails first, its companions (not in an editor's terminal, which wants
 trails only), then one *new trail* row per agent, then
 **↩ resume old trails**, which opens a second list of the conversations that
 ended here (Esc goes back). The cursor starts on the trail that most wants you.
-Picking a running trail from a terminal of your own lands in the workspace with
-that window selected; from an editor's terminal it attaches to the trail's
-editor view, so the editor sees that one trail.
+Picking a running trail from a terminal of your own lands in the workspace on
+that trail's window; from an editor's terminal it attaches to the trail's view,
+so the editor sees that one trail.
 
 **This workspace** (a shell in a workspace's tmux session, or a popup over one):
 the same, across its codebases, with a codebase column:
@@ -319,8 +321,8 @@ Name a trail when you start it, and that one name is how everything refers to it
 #2 @checkout-7   ● your turn  claude         acme  ~/code/checkout  Fix the flaky cart-total test
 ```
 
-- **tmux** has its window as `checkout·payments` and its editor view as
-  `acme/payments`, so `tmux a -t acme/payments` works.
+- **tmux** has its view as `acme/payments`, so `tmux a -t acme/payments` works,
+  and its window in the workspace as `checkout·payments`.
 - **The picker and `trails ls`** show `#payments` where an unnamed trail shows `#2`.
 - **Claude** runs with `--name payments`, the name its peers use. In another
   Claude session, "ask payments how the retries look" reaches it.
@@ -332,22 +334,25 @@ Unnamed trails work as before, with a name Claude picks for itself.
 
 ### Companions
 
-The editor or a shell for one codebase, as a window in the workspace beside that
-codebase's trails: `checkout·ide` (the editor beside the trail) or `checkout·nvim`
-(the editor alone), with the shell as a pane along its bottom.
+The editor or a shell beside the agent, in the trail's window: the editor to the
+agent's left, the shell along the bottom, a quarter high. The view holds the agent
+alone, so an editor attached to it sees neither. Where nothing runs, the editor
+gets a window of its own in the workspace, `checkout·nvim`, and the shell goes
+along its bottom.
 
 | Command | Opens |
 |---|---|
-| `trails edit` | `$EDITOR` (nvim if unset) beside a live view of the codebase's trail, in one window: the trail you run it from, else the one there that most wants you. Alone in its own window when nothing runs there. `C-b z` zooms the editor's pane |
-| `trails shell` | a shell in the codebase, tmux's own default command, as a pane across the bottom of that editor window, a quarter high |
+| `trails edit` | `$EDITOR` (nvim if unset) beside the agent, in the trail you run it from, else in the codebase's trail that most wants you; alone in a window of its own when nothing runs there. `C-b z` zooms a pane |
+| `trails shell` | a shell in the codebase, tmux's own default command, along the bottom of that same window |
 
-The window you are on decides the codebase: run from a trail or another
-companion, the command acts on that codebase; from a plain window, on the pane's
-directory; outside tmux, on the current directory, or on `DIR` given after the
-command. Run again, it selects the window that is already there; run from the
-companion itself, it goes back where you were. The picker lists the editor
-windows, and ctrl-e there opens the editor for any row's codebase. Companions
-aren't restored: one command reopens them.
+The window you are on decides the codebase: run from a trail or an editor window,
+the command acts on that window; from a plain window in the workspace, on the
+pane's directory; outside tmux, on the current directory, or `DIR` after the
+command. Run again, it selects the pane that is there; run from that pane, it
+goes back to the one you came from. When the agent exits or you end the trail
+with the editor or a shell beside it, they stay, as the codebase's editor window
+(`checkout·nvim`, or `checkout·shell` with only a shell). Nothing here is
+restored after tmux dies: an editor or a shell is reopened with one command.
 
 ### trails ls
 
@@ -385,7 +390,7 @@ life  state  session  agent  yolo  dir  id  when  pid  peer  workspace  title
 |---|---|
 | `life` | `running` (the trail is there) or `stopped` |
 | `state` | `needs-you`, `your-turn`, `working` (running) · `lost`, `closed`, `elsewhere` (stopped) |
-| `session` | what to attach to: the trail's editor view (`acme/checkout-2`), or a `trails-…` session from before 1.0; `-` for a conversation nothing is running |
+| `session` | what to attach to: the trail's view (`acme/checkout-2`), or a `trails-…` session from before 1.0; `-` for a conversation nothing is running |
 | `yolo` | `yolo` or `-` |
 | `when` | when an ended conversation was last active (Unix time), else `-` |
 | `pid` | the process holding an `elsewhere` one, else `-` |
@@ -531,7 +536,7 @@ trails refuses a YOLO launch as root for the two flags that also bypass a sandbo
 
 Any editor that can run a command in a terminal pane can run `trails`, and every
 editor and every shell shares one set of trails. In an editor's terminal, picking
-a trail attaches to its editor view, so the panel shows that one trail; trails
+a trail attaches to its view, so the panel shows that one trail; trails
 tells an editor's terminal from your own by the variables editors set (`NVIM`,
 `ZED_TERM`, `TERM_PROGRAM`), and `TRAILS_ATTACH=view` or `=workspace` settles it
 by hand. Inside tmux, an editor's pane becomes a nested client of the view, and a
@@ -577,13 +582,13 @@ state and config files stay where they were; the records of new trails go one
 directory down, under their workspace.
 
 The `trails ls` TSV has a new `workspace` field before the title, and `session`
-now holds the editor view's name. The menu-bar plugin that ships with this version
-reads both.
+now holds the view's name. The menu-bar plugin that ships with this version reads
+both.
 
 ## How it works
 
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) covers how workspaces, trails and
-editor views map onto tmux, how trails are found and named, how *working*, *your
+their views map onto tmux, how trails are found and named, how *working*, *your
 turn* and *needs you* are read from the agent or off the screen, how trails
 survive tmux dying, where recent conversations come from, and how the map and the
 companions borrow views without owning them. Key design decisions are recorded in

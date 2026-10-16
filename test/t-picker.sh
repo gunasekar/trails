@@ -34,7 +34,7 @@ assert_match "$(printf '%s\n' "$rows" | head -n 1 | cut -f3)" '● (your turn|wo
 # A second unnamed trail here is the -2 sibling, and wears #2.
 FZF_PICK='stub · new trail' trails_bg
 wait_for 5 has_session default/proj-2 || fail "no view default/proj-2"
-assert_eq "$(tmux list-windows -t default -F '#{window_name}' | sort | tr '\n' ' ')" "proj·stub proj·stub-2 " "the sibling window"
+wait_for 5 sh -c "[ \"\$(tmux list-windows -t default -F '#{window_name}' | sort | tr '\n' ' ')\" = 'proj·stub proj·stub-2 ' ]" || fail "no sibling cell: $(tmux list-windows -t default -F '#{window_name}' | tr '\n' ' ')"
 rows=$(menu)
 assert_match "$(printf '%s\n' "$rows" | grep -c '^attach')" '^2$' "two attach rows"
 assert_match "$(printf '%s\n' "$rows" | grep '^attach' | cut -f3 | tr '\n' '|')" '#2' "the #2 badge"
@@ -53,7 +53,7 @@ wait_for 5 screen_has default/billing 'name=billing' || fail "the name never rea
 wid2=$(tmux display-message -pt default/proj-2 '#{window_id}')
 (cd "$PROJ" && "$TRAILS" --kill "$wid2")
 wait_for 3 no_session default/proj-2 || fail "ctrl-x left the view"
-assert_eq "$(tmux list-windows -t default -F '#{window_name}' | sort | tr '\n' ' ')" "proj·billing proj·stub " "the window went"
+wait_for 5 sh -c "[ \"\$(tmux list-windows -t default -F '#{window_name}' | sort | tr '\n' ' ')\" = 'proj·billing proj·stub ' ]" || fail "the cell stayed: $(tmux list-windows -t default -F '#{window_name}' | tr '\n' ' ')"
 assert_no_file "$STATE/default/proj-2" "the record went"
 
 # Esc starts nothing.

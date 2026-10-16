@@ -1,6 +1,6 @@
 # 14. An editor attaches to a view: a session holding one linked window
 
-- Status: accepted
+- Status: accepted, amended by [ADR 16](0016-the-trail-lives-in-its-view.md)
 - Date: 2026-10
 
 ## Context
@@ -19,6 +19,11 @@ of its own: the **editor view**, named `<workspace>/<codebase>[-N]`, or
 else, so an editor attached to it sees one trail. The view is made with the
 trail, rebuilt by the next attach if it was killed, and goes by itself when the
 agent exits, since the window leaves both sessions.
+
+*Amended 2026-10 (ADR 16): the view is the trail's own session, holding the
+agent's window outright, and nothing is linked. The workspace shows it through
+a cell, a window whose pane is a client of the view. The view is made first, by
+`launch`; the cell is what gets rebuilt. The routes below stand.*
 
 Where an attach lands depends on who is asking:
 
@@ -44,12 +49,15 @@ it is used.
   once as its view. Both are named for what they are, and the design's
   principle 5 (nothing hidden) is met by saying so in the docs.
 - The map's cells attach to views, which already hold exactly one trail, and
-  make a missing view before attaching.
+  make a missing view before attaching. *Amended: a missing view is a trail
+  that is gone.*
 - A view that a user kills is not a lost trail: the window lives on in the
   workspace, and a record is alive while any window carries its key and
-  conversation.
+  conversation. *Amended: it is the cell that may be killed without loss; a
+  killed view ends the trail.*
 - Listing a trail from its window reads it from the workspace session's row and
-  skips the view's, so one `list-windows -a` lists every trail once.
+  skips the view's, so one `list-windows -a` lists every trail once. *Amended:
+  the agent's window lists once, in its view; a cell has no `@agent`.*
 - Detecting an editor by environment is a guess. The override exists because
   the guess will be wrong somewhere, and the failure either way is only which
   of two right things you land in.
