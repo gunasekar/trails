@@ -688,11 +688,12 @@ TAB=$(printf '\t')
 # no LANG or LC_*, and a tmux client in the C locale rewrites every byte it cannot print
 # as `_` on the way out: the tab between two fields of a format, the `·` in a window's
 # name. The fields then never match, and a trail that `ls` lists is one `end` cannot find.
-# Any UTF-8 locale the system has will do; nothing here depends on the language.
+# Any UTF-8 locale the system has will do; nothing here depends on the language. Taken
+# as `locale -a` spells it: glibc says C.utf8 where macOS says C.UTF-8.
 if [ -z "${LANG:-}${LC_ALL:-}${LC_CTYPE:-}" ]; then
-  for l in C.UTF-8 en_US.UTF-8 UTF-8; do
-    locale -a 2>/dev/null | grep -qx "$l" && {
-      LC_CTYPE=$l
+  for l in 'C\.UTF-?8' 'en_US\.UTF-?8' 'UTF-8'; do
+    LC_CTYPE=$(locale -a 2>/dev/null | grep -ixE "$l" | head -n 1)
+    [ -z "$LC_CTYPE" ] || {
       export LC_CTYPE
       break
     }
