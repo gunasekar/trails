@@ -12,6 +12,9 @@
 #            so paths read as they would for anyone; created here and removed by demo_done,
 #            and refused if any of them, or its claude history, already exists
 #   codex    a stand-in (agent), only ever listed, never started
+#   tmux     the real one, through a wrapper that gives the demo server its own config: the
+#            `trails keys` bindings for the repo's trails and a plain status line, so the
+#            recording machine's tmux.conf (its prefix, its bindings) is not in the shot
 real_claude=$(command -v claude) || {
   echo "trails demo: needs claude on PATH, logged in" >&2
   return 1
@@ -45,6 +48,29 @@ mkdir -p "$project/payments" "$TMUX_TMPDIR" "$demo/bin" "$XDG_CONFIG_HOME/trails
 ln -s "$here/agent" "$demo/bin/codex"
 printf '#!/bin/sh\nunset CLAUDE_CONFIG_DIR\nexec "%s" "$@"\n' "$real_claude" >"$demo/bin/claude"
 chmod +x "$demo/bin/claude"
+real_tmux=$(command -v tmux)
+printf '#!/bin/sh\nexec "%s" -f "%s" "$@"\n' "$real_tmux" "$demo/tmux.conf" >"$demo/bin/tmux"
+chmod +x "$demo/bin/tmux"
+# default-shell /bin/sh: tmux runs popups and run-shell commands through it, and the login
+# shell's startup files (a .zshenv setting XDG_CONFIG_HOME) would put the machine's own trails
+# config back in front of the sandbox's. Panes keep the login shell as their command.
+{
+  echo 'set -g default-shell /bin/sh'
+  echo "set -g default-command '$SHELL'"
+  echo 'set -g focus-events on'  # or Claude Code's welcome screen asks for it
+  echo 'set -g status-style "bg=default"'
+  echo 'set -g status-left " #S "'
+  echo 'set -g status-right ""'
+  echo 'set -g status-left-length 30'
+  # The terminal title an agent's view emits, "claude · what it is working on", which the
+  # map's pane borders read: tmux seeds pane_title with the hostname, so a title-less agent
+  # falls back to its directory, and Claude Code's leading spinner glyph is dropped.
+  echo 'set -g set-titles on'
+  echo 'set -g set-titles-string "#{?@agent,#{@agent} · #{?#{==:#{pane_title},#{host}},#{b:pane_current_path},#{s|^[^ ]+ ||:pane_title}},#S:#W}"'
+  "$here/../../bin/trails" keys
+} >"$demo/tmux.conf"
+# The demos' editor: Neovim with no personal config, as the nvim() below runs it.
+export EDITOR="nvim --clean"
 
 # The agents by full path, not by name: a terminal that runs its command through the user's
 # login shell (Neovim's :terminal does) can reorder PATH, and the real claude would then run
@@ -56,7 +82,11 @@ cat >"$XDG_CONFIG_HOME/trails/config.json" <<JSON
     { "name": "claude", "program": "$demo/bin/claude", "yolo": "--dangerously-skip-permissions",
       "session": { "start": "--session-id {id}", "resume": "--resume {id}", "id": "uuid", "find": "claude" } },
     { "name": "codex", "program": "$demo/bin/codex", "yolo": "--dangerously-bypass-approvals-and-sandbox" }
-  ]
+  ],
+  "workspaces": {
+    "acme":     { "root": "~/code", "codebases": ["~/code/*"] },
+    "personal": ["~/.dotfiles"]
+  }
 }
 JSON
 
@@ -272,7 +302,7 @@ nvim() {
 # The map demo's off-camera step: hand a running session its task. Claude asks to trust a
 # folder it hasn't seen, and only then — so this reads the screen and answers only when
 # asked; pressing keys blindly could pull an old prompt out of claude's history and send it.
-demo_task() { # session, task
+demo_task() { # session, task (empty: only answer the trust question, hand out nothing)
   for _ in $(seq 60); do
     screen=$(tmux capture-pane -pt "$1" 2>/dev/null)
     case $screen in
@@ -282,6 +312,7 @@ demo_task() { # session, task
     esac
     sleep 0.5
   done
+  [ -n "$2" ] || return 0
   sleep 1
   tmux send-keys -t "$1" -l "$2"
   tmux send-keys -t "$1" Enter

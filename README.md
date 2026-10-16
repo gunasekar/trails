@@ -5,21 +5,48 @@
   </picture>
 </h1>
 
-**Start an agent in VS Code, check on it from a terminal, pick it up in Neovim.**
+**Your coding agents, in tmux, by workspace. Reachable from any editor, any
+terminal, and over one ssh connection.**
 
 trails runs Claude Code, Codex, Gemini, Copilot, Cursor, opencode or any other
-agent CLI in tmux, one window per task, grouped into a session per workspace, so
-every editor and terminal sees the same agents. It shows which are working and
-which are waiting on you, brings old ones back when you need them, and puts the
-editor beside the agent with one key. A cockpit view puts several side by side.
+agent CLI in tmux. Each agent is a *trail*: a window in a session named after its
+workspace, which is a set of codebases you choose. From anywhere, `trails` shows
+what is running and what is waiting on you, opens the one you pick, brings old
+ones back, and puts the editor beside the agent with one key.
+
+![Over one connection: the workspaces, a workspace's trails, and the editor and a shell beside the agent](assets/workspace.gif)
 
 ![Picking a new trail in a Neovim side panel](assets/nvim.gif)
 
 ![Four Claude Code sessions in four projects, side by side in trails map](assets/map.gif)
 
-That's all trails does. There's no TUI or GUI of its own: the sessions are tmux,
-and once an agent is running trails gets out of the way. Uninstall it and
-everything left is ordinary tmux that still makes sense.
+## What it's for
+
+- **One machine holds the agents.** A laptop, a desktop or a server runs tmux and
+  the agents; everything else, including a second laptop, is a thin client over
+  ssh. Close the lid, drop Wi-Fi, come back: the conversation is where you left
+  it, mid-turn.
+- **Work grouped the way you think of it.** A workspace is a company, a client,
+  or "personal": unrelated repos together. One ssh connection carries every
+  workspace, and `trails ws` moves between them without reconnecting.
+- **The agent first, the editor beside it.** Start the agent, and bring up
+  nvim and a shell next to it when you want them, in the same tmux session.
+- **Every editor sees the same trails.** Zed over ssh, VS Code Remote, a Neovim
+  panel and a plain terminal all land on the same running agents. An editor's
+  panel sees exactly one trail; your terminal sees the workspace.
+- **Nothing but tmux.** No TUI or daemon of its own, no key bindings, no tmux
+  options beyond its own `@trails_*` marks. `tmux ls` reads as your layout, plain
+  tmux keys drive it, and uninstalling trails leaves ordinary tmux behind.
+
+## Works with
+
+| | |
+|---|---|
+| Agents | Claude Code, Codex, Gemini, Copilot, Cursor, opencode built in; any CLI by one config entry. Claude and Codex report their own state and conversation; the rest are read off the screen |
+| Editors | Zed (local and over ssh), VS Code and Cursor (local and Remote-SSH), Neovim, anything with a terminal pane |
+| Terminals | any, including over ssh; a popup inside tmux with `trails keys` |
+| Systems | macOS and Linux; tmux 3.3 or later, fzf, jq. The menu-bar plugin is macOS, through SwiftBar |
+| From 0.6 | running `trails-<project>` sessions keep working until they end, and restore into the new model |
 
 Because it's just a command, it plugs into whatever you already use:
 
