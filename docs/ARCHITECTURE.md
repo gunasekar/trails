@@ -492,7 +492,10 @@ which `switch-client` works (the popup check behind D4 of the design is
 `test/t-popup.sh`), and the two companions. The popups are styled onto the
 terminal's own background (`-s`, `-S`, tmux 3.3): tmux 3.8's default
 `popup-style` is a theme grey, gray45 when the terminal reports a light theme,
-and the picker's dim text is unreadable on it. `prefix a`, `W`, `e` and `` ` `` are
+and the picker's dim text is unreadable on it. The colour's name is chosen by
+`tmux -V`: in a style `bg=default` means the base style's background, which for
+a popup is `popup-style` itself, so on 3.8 it keeps the grey; 3.8 added
+`bg=terminal` for the terminal's own, and a tmux before it rejects the word. `prefix a`, `W`, `e` and `` ` `` are
 free in tmux 3.8's default table; the backtick for the shell is the editors' own
 toggle-terminal key.
 

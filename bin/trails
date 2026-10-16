@@ -2888,11 +2888,29 @@ companions() {
 # popup grey by default (popup-style bg=themedarkgrey; gray45 when the terminal says it is
 # light, as Ghostty does over a black window), and a list drawn in dim text on that grey is
 # hard to read. brightblack for the frame: a mid grey in every palette, on dark or light.
+#
+# The colour that means "the terminal's own" depends on the tmux: in a style, bg=default
+# means the *base* style's background, which for a popup is popup-style itself — so on
+# 3.8 it keeps the grey. 3.8 added bg=terminal for the real thing, and a tmux before it
+# rejects the word (a bad style, and no popup), while its popup-style was plain default,
+# so bg=default was the terminal's there. Hence the version check: this prints for the
+# tmux it runs under, and a tmux upgrade past 3.8 wants the lines pasted again.
 keys() {
+  tbg=default
+  case $(tmux -V 2>/dev/null) in
+    "tmux next"* | "tmux master"*) tbg=terminal ;;
+    "tmux "*)
+      kv=$(tmux -V | sed 's/^tmux //; s/[^0-9.].*$//')
+      kmaj=${kv%%.*} kmin=${kv#*.}
+      case $kmin in '' | *.*) kmin=0 ;; esac
+      [ "${kmaj:-0}" -gt 3 ] 2>/dev/null || { [ "${kmaj:-0}" -eq 3 ] && [ "${kmin:-0}" -ge 8 ]; } 2>/dev/null && tbg=terminal
+      ;;
+    *) ;;
+  esac
   cat <<EOF
 # trails: paste what you want into tmux.conf
-bind a display-popup -E -w 80% -h 70% -s bg=default -S bg=default,fg=brightblack '$SELF'
-bind W display-popup -E -w 60% -h 50% -s bg=default -S bg=default,fg=brightblack '$SELF ws'
+bind a display-popup -E -w 80% -h 70% -s bg=$tbg -S bg=$tbg,fg=brightblack '$SELF'
+bind W display-popup -E -w 60% -h 50% -s bg=$tbg -S bg=$tbg,fg=brightblack '$SELF ws'
 bind e run-shell '$SELF edit'
 bind \` run-shell '$SELF shell'
 EOF

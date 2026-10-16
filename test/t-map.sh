@@ -38,4 +38,8 @@ assert_match "$(cd "$T" && "$TRAILS" end nope 2>&1)" 'no trail nope' "unknown re
 # trails keys prints bindings, and changes nothing.
 before=$(tmux list-keys | wc -l)
 assert_match "$("$TRAILS" keys)" "^bind a display-popup .* '$TRAILS'$" "the picker binding, by absolute path"
+case $(tmux -V) in
+  "tmux 3."[0-7]*) assert_match "$("$TRAILS" keys)" 'bind a .* -s bg=default ' "default is the terminal's before 3.8" ;;
+  *) assert_match "$("$TRAILS" keys)" 'bind a .* -s bg=terminal ' "terminal is the terminal's from 3.8" ;;
+esac
 assert_eq "$(tmux list-keys | wc -l)" "$before" "nothing bound"
