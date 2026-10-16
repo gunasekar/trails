@@ -28,7 +28,7 @@ t_setup() {
   TMUX_TMPDIR=$T
   PATH=$REPO/test/bin:$PATH
   export HOME XDG_CONFIG_HOME XDG_STATE_HOME TMUX_TMPDIR PATH
-  unset TMUX TMUX_PANE TERM_PROGRAM NVIM ZED_TERM TRAILS_ATTACH
+  unset TMUX TMUX_PANE TERM_PROGRAM NVIM ZED_TERM TRAILS_ATTACH TRAILS_CLIENT
   trap 't_teardown' EXIT
   trap 'exit 130' INT
   trap 'exit 143' TERM
@@ -75,13 +75,19 @@ EOF
 # passed with -e, since a pane starts from the server's environment, not the caller's; any
 # other goes as a NAME=VALUE word in front of the command, which env takes. The command runs
 # in $PROJ, or in $DRIVER_DIR when set. Drivers are numbered so one test can run several.
+#
+# The size is set again with resize-window, which also pins it: tmux 3.4 gives a detached
+# session's window the size of the most recently active client rather than -x/-y, and that
+# is a trail's nested view client, a fraction of a window wide, once a cell has an editor
+# beside the agent. 3.8 honours -x/-y. resize-window makes the window's size manual.
 DRIVERS=0
 driver() {
   DRIVERS=$((DRIVERS + 1))
   tmux new-session -d -s "driver-$DRIVERS" -c "${DRIVER_DIR:-$PROJ}" -x 120 -y 40 \
     -e "FZF_PICK=${FZF_PICK:-}" -e "FZF_QUERY=${FZF_QUERY:-}" -e "FZF_KEYS=${FZF_KEYS:-}" \
     -e "FZF_DUMP=${FZF_DUMP:-}" -e "FZF_PICKS=${FZF_PICKS:-}" -e "FZF_KEY=${FZF_KEY:-}" \
-    "env -u TMUX -u TMUX_PANE $*"
+    "env -u TMUX -u TMUX_PANE $*" \
+    \; resize-window -t "driver-$DRIVERS:" -x 120 -y 40
 }
 
 # Run trails attached, in a driver of its own: the session it starts or joins stays
