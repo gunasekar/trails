@@ -396,7 +396,10 @@ ws_list() {
       function tilde(p) { if (p == home) return "~"; if (index(p, home "/") == 1) return "~" substr(p, length(home) + 1); return p }
       {
         if (!($1 in seen)) { seen[$1] = 1; order[++n] = $1; root[$1] = $2 == "" ? "-" : tilde($2) }
-        if ($3 != "") pats[$1] = ($1 in pats ? pats[$1] ", " : "") tilde($3)
+        # Two statements: mawk makes pats[$1] exist before it evaluates the right-hand side
+        # of an assignment to it, so an `in` test there is always true.
+        if ($3 != "" && ($1 in pats)) pats[$1] = pats[$1] ", " tilde($3)
+        else if ($3 != "") pats[$1] = tilde($3)
       }
       END { for (i = 1; i <= n; i++) { w = order[i]; printf "%s\t%s\t%s\n", w, root[w], pats[w] } }'
     return 0
@@ -1373,8 +1376,10 @@ print_menu() {
   fi
 
   # Companions here, or in the workspace: read fresh, one list-windows, and ctrl-x on one
-  # has to see it gone.
-  comp=$(companions $in_ws)
+  # has to see it gone. Not in an editor's terminal, which wants trails and nothing else
+  # (R9): picking a companion there would put the whole workspace into the panel.
+  comp=
+  from_editor || comp=$(companions $in_ws)
 
   # `$(...)` eats trailing newlines, so each block gets its own back or the last row of one
   # welds onto the first of the next.
@@ -1499,7 +1504,7 @@ ws_menu() {
     counts=$(awk -F"$TAB" '$4 != "-" { run[$4]++; if ($1 == "blocked") need[$4]++; if ($1 == "idle") turn[$4]++ }
       END { for (w in run) print w "\t" run[w] "\t" need[w] + 0 "\t" turn[w] + 0 }' "$TRAILS_MENU_CACHE")
   last=$(tmux list-sessions -F "#{session_last_attached}$TAB#{@trails_workspace}" 2>/dev/null |
-    awk -F"$TAB" '$2 != "" && $1 > m { m = $1; w = $2 } END { print w }')
+    awk -F"$TAB" '$2 != "" && $1 + 0 > m + 0 { m = $1; w = $2 } END { print w }')
   {
     printf '%s\n' "$WORKSPACES" | cut -d'|' -f1
     [ -n "$WORKSPACES" ] || echo default

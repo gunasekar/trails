@@ -47,10 +47,11 @@ DRIVER_DIR=$T FZF_PICK='' FZF_DUMP=$T/d2 driver "$TRAILS"
 wait_for 5 test -s "$T/d2" || fail "the workspace picker never reached fzf"
 assert_match "$(dumped "$T/d2" 1 | head -n 1 | cut -f3)" '^lattiq +● 1 trail · 1 your turn +· last$' "lattiq counted and marked"
 
-# Picking lattiq attaches to it, on its trail.
+# Picking lattiq attaches to it, on its trail: a second client there (the first is the
+# driver that started api), waited for by count, since the attach comes after BOOT.
 DRIVER_DIR=$T FZF_PICK='^workspace	lattiq' driver "$TRAILS"
-wait_for 5 sh -c "tmux list-clients -F '#{session_name} #{window_name}' | grep -qx 'lattiq augur·api'" ||
-  fail "picking lattiq did not attach to it"
+wait_for 10 sh -c "[ \"\$(tmux list-clients -F '#{session_name} #{window_name}' | grep -cx 'lattiq augur·api')\" -ge 2 ]" ||
+  fail "picking lattiq did not attach to it: $(tmux list-clients -F '#{session_name} #{window_name}' | tr '\n' '|')"
 
 # Picking personal, with nothing running, shows its screen: no trails, nothing to start
 # from, only "another codebase…" — which lists ~/.dotfiles and leads to its screen, where
@@ -78,8 +79,10 @@ assert_match "$(printf '%s\n' "$rows" | grep '^browse' | cut -f3)" '\(2 more und
 assert_eq "$(printf '%s\n' "$rows" | cut -f1 | tr '\n' ' ')" "attach new new browse " "in that order"
 
 # Picking "augur · new other" there starts it in augur and switches the client to it.
-type_in lattiq "FZF_PICK='augur +· new other' $TRAILS"
-wait_for 5 has_session lattiq/augur || fail "no second trail in augur"
+wait_shell lattiq || fail "the shell never came back"
+type_in lattiq "FZF_PICK='augur.*new other' $TRAILS"
+wait_for 10 has_session lattiq/augur ||
+  fail "no second trail in augur; windows: $(tmux list-windows -t lattiq -F '#{window_name}' | tr '\n' ' '); pane: $(tmux capture-pane -pt lattiq | grep -v '^$' | tail -3 | tr '\n' '|')"
 wait_for 5 screen_has lattiq/augur 'agent (other)' || fail "the other agent never started"
 assert_eq "$(tmux list-windows -t lattiq -F '#{window_name}' | grep '·' | sort | tr '\n' ' ')" "augur·api augur·other " "its window"
 wait_for 5 sh -c "tmux list-clients -F '#{session_name} #{window_name}' | grep -qx 'lattiq augur·other'" ||

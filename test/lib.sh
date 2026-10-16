@@ -120,6 +120,12 @@ screen_has() { screen "$1" | grep -q "$2"; }
 # Type a line into a session's pane: the stub agent reads it as a command.
 type_in() { tmux send-keys -t "$1" "$2" Enter; }
 
+# Wait until the pane runs a shell again, before typing the next command into it: keys
+# sent while the previous command is still exiting reach dash as a broken line.
+wait_shell() {
+  wait_for 5 sh -c "tmux display-message -pt '$1' '#{pane_current_command}' | grep -qE '^(sh|bash|dash|zsh)$'"
+}
+
 fail() {
   echo "fail: $*" >&2
   exit 1

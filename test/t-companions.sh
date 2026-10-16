@@ -72,6 +72,12 @@ type_in "$mine" "FZF_DUMP=$T/wmenu $TRAILS"
 wait_for 5 test -s "$T/wmenu" || fail "no workspace screen"
 assert_match "$(sed 's/\x1b\[[0-9;]*m//g' "$T/wmenu" | grep "companion	$swid" | cut -f3)" '^shell +proj +(sh|bash|zsh)' "the shell's row, under the codebase column"
 
+# An editor's terminal (NVIM set) sees trails only: no companion rows.
+rm -f "$T/emenu"
+FZF_PICK='' FZF_DUMP=$T/emenu driver NVIM=1 "$TRAILS"
+wait_for 5 test -s "$T/emenu" || fail "no picker from the editor"
+assert_eq "$(sed 's/\x1b\[[0-9;]*m//g' "$T/emenu" | grep -v '^--- ' | cut -f1 | tr '\n' ' ')" "attach new new " "trails and new rows only"
+
 # Enter on a companion's row goes to its window.
 FZF_PICK="companion	$swid" trails_bg
 wait_for 5 sh -c "tmux list-clients -F '#{session_name} #{window_id}' | grep -qx 'default $swid'" || fail "picking the shell did not go there"
