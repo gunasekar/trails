@@ -70,7 +70,7 @@ Ctrl+B
 Type "e"
 Sleep 4s
 Ctrl+B
-Type "S"
+Type "`"
 Sleep 3s
 
 # The workspace's trails, in a popup, from anywhere in it.

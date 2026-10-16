@@ -49,5 +49,5 @@ the bottom of that window, marked `@trails_shell`.
   specifically the last trail.
 - Directories are compared resolved, because tmux reports a pane's path through
   symlinks and a trail keeps the path it was started by.
-- `trails keys` suggests `prefix e` and `S` for the two, checked free in tmux
-  3.8's default table. trails binds nothing itself.
+- `trails keys` suggests `prefix e` and `` ` `` for the two, checked free in tmux
+  3.8's default table; the backtick is the editors' own toggle-terminal key. trails binds nothing itself.

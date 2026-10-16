@@ -207,7 +207,7 @@ prints lines to paste if you want some.
 bind a display-popup -E -w 80% -h 70% trails
 bind W display-popup -E -w 60% -h 50% 'trails ws'
 bind e run-shell 'trails edit'
-bind S run-shell 'trails shell'
+bind ` run-shell 'trails shell'
 ```
 
 A session exists while something runs in it: the first trail creates the

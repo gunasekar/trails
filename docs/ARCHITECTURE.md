@@ -472,8 +472,9 @@ editor's terminal is shown no companion rows in the picker.
 trails binds nothing. `trails keys` prints lines for a tmux.conf: the picker and
 the workspace picker in a `display-popup`, which leaves no window behind and from
 which `switch-client` works (the popup check behind D4 of the design is
-`test/t-popup.sh`), and the two companions. `prefix a`, `W`, `e` and `S` are
-free in tmux 3.8's default table.
+`test/t-popup.sh`), and the two companions. `prefix a`, `W`, `e` and `` ` `` are
+free in tmux 3.8's default table; the backtick for the shell is the editors' own
+toggle-terminal key.
 
 ## The menu-bar plugin
 
