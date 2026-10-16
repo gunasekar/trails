@@ -54,7 +54,14 @@
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:${PATH}"
 
-SCRIPT_PATH="$(realpath -q "$0")"
+# Two paths to this file. $0 is the one SwiftBar ran, the link `trails swiftbar` made in
+# its plugin folder, and it is what the menu's actions call back: it survives a `brew
+# upgrade`. The real path, through Homebrew's Cellar, carries the version, and the old
+# version's directory goes with the upgrade, so a menu built before one pointed its Resume
+# and End at a file that was gone until the next refresh. The real path is for what sits
+# beside this file: the icons, and a by-hand install's trails.
+SCRIPT_PATH="$0"
+REAL_PATH="$(realpath -q "$0")"
 
 # trails comes from Homebrew (gunasekar/tap). SwiftBar runs plugins from launchd, whose
 # PATH is not the shell's, which is what the export above is for: both Homebrew prefixes
@@ -66,10 +73,48 @@ SCRIPT_PATH="$(realpath -q "$0")"
 # ../../../bin/trails. Without this a by-hand install showed nothing, forever, exactly like
 # "no agents running". Found nowhere, the plugin still says nothing.
 TRAILS=$(command -v trails) || {
-  for t in "$(dirname "$SCRIPT_PATH")/../../bin/trails" "$(dirname "$SCRIPT_PATH")/../../../bin/trails"; do
+  for t in "$(dirname "$REAL_PATH")/../../bin/trails" "$(dirname "$REAL_PATH")/../../../bin/trails"; do
     [ -x "$t" ] && TRAILS=$t && break
   done
   [ -n "$TRAILS" ] || exit 0
+}
+
+# Posted by SwiftBar itself rather than by osascript, which delivered them as "Script
+# Editor" — an app nobody chose, sharing a bucket with every other script on the machine,
+# so tuning or muting agent alerts meant tuning every AppleScript you own. SwiftBar tags
+# each notification with threadIdentifier = this plugin, so Notification Center collapses
+# the pile into one "trails" group, and clicking through has somewhere to go.
+#
+# It cannot clear the previous one. swiftbar://notify accepts no identifier, and SwiftBar
+# stamps every request with a fresh UUID (v2.0.1, PluginManger.swift:374), so "replace
+# what this session said last time" is not expressible through this API at all — six
+# finishes leave six entries in the group. Only the *banner* is bounded, by `said` below:
+# one per stop, however the screen is re-read.
+#
+# No silent=true, so these make a sound — the osascript they replaced never did, because
+# `display notification` is mute unless asked. A banner is Temporary by default: it shows
+# for a few seconds and is gone, which is no use to the one case this exists for, where
+# you are not at the screen. The sound is the part that survives not looking.
+#
+# Which also makes it the part that grates. `said` below holds it to one per stop, but
+# with no wait configured a stop is every turn-end, so on a session you are sitting in
+# it sounds once per reply — see the note up top. Muting it is at least a per-app toggle
+# now that it is SwiftBar's own notification, rather than silencing every AppleScript on
+# the machine, which is what the old shared "Script Editor" identity would have meant.
+#
+# jq's @uri, not hand-rolled escaping: the title and the agent's own task text are being
+# pasted into a URL, and the task is arbitrary prose. A bare & truncates the notification
+# at the ampersand and a bare # drops the rest, both silently. @uri also gets multi-byte
+# right (· and — survive), which a byte-wise shell loop would mangle.
+#
+# One thing encoding cannot save: SwiftBar rewrites "+" back to a space on the way out,
+# so a task title containing a plus loses it. Cosmetic, and not ours to fix.
+urlenc() { printf '%s' "$1" | jq -sRr @uri; }
+
+notify() { # title, body
+  # name= is the plugin, which SwiftBar knows by its file name: trails.10s.sh is "trails".
+  open -g "swiftbar://notify?name=trails&title=$(urlenc "$1")&body=$(urlenc "$2")" \
+    >/dev/null 2>&1 || true
 }
 
 # ─── Actions (SwiftBar re-runs this file with the function name as param1) ───
@@ -167,8 +212,11 @@ OSA
 # its transcript stays on disk for its own --resume. `trails end` closes its window (and the
 # session that holds it) or, for a session from before 1.0, the session, and forgets the
 # restore record — `trails restore` exists for trails tmux took down, not ones you closed.
+# A refusal is shown as a notification rather than lost: a click that did nothing, with
+# the row still there on the next refresh, is otherwise impossible to tell from a slow one.
 function end() {
-  "$TRAILS" end "$1" >/dev/null 2>&1
+  local out
+  out=$("$TRAILS" end "$1" 2>&1) || notify "trails: could not end $1" "${out:-trails end failed}"
 }
 
 # Picking a terminal from the menu: param2 is a terminal id, checked against the list.
@@ -247,44 +295,6 @@ superscript() {
   local n=$1 out='' i sup=(⁰ ¹ ² ³ ⁴ ⁵ ⁶ ⁷ ⁸ ⁹)
   for ((i = 0; i < ${#n}; i++)); do out+=${sup[${n:i:1}]}; done
   printf '%s' "$out"
-}
-
-# Posted by SwiftBar itself rather than by osascript, which delivered them as "Script
-# Editor" — an app nobody chose, sharing a bucket with every other script on the machine,
-# so tuning or muting agent alerts meant tuning every AppleScript you own. SwiftBar tags
-# each notification with threadIdentifier = this plugin, so Notification Center collapses
-# the pile into one "trails" group, and clicking through has somewhere to go.
-#
-# It cannot clear the previous one. swiftbar://notify accepts no identifier, and SwiftBar
-# stamps every request with a fresh UUID (v2.0.1, PluginManger.swift:374), so "replace
-# what this session said last time" is not expressible through this API at all — six
-# finishes leave six entries in the group. Only the *banner* is bounded, by `said` below:
-# one per stop, however the screen is re-read.
-#
-# No silent=true, so these make a sound — the osascript they replaced never did, because
-# `display notification` is mute unless asked. A banner is Temporary by default: it shows
-# for a few seconds and is gone, which is no use to the one case this exists for, where
-# you are not at the screen. The sound is the part that survives not looking.
-#
-# Which also makes it the part that grates. `said` below holds it to one per stop, but
-# with no wait configured a stop is every turn-end, so on a session you are sitting in
-# it sounds once per reply — see the note up top. Muting it is at least a per-app toggle
-# now that it is SwiftBar's own notification, rather than silencing every AppleScript on
-# the machine, which is what the old shared "Script Editor" identity would have meant.
-#
-# jq's @uri, not hand-rolled escaping: the title and the agent's own task text are being
-# pasted into a URL, and the task is arbitrary prose. A bare & truncates the notification
-# at the ampersand and a bare # drops the rest, both silently. @uri also gets multi-byte
-# right (· and — survive), which a byte-wise shell loop would mangle.
-#
-# One thing encoding cannot save: SwiftBar rewrites "+" back to a space on the way out,
-# so a task title containing a plus loses it. Cosmetic, and not ours to fix.
-urlenc() { printf '%s' "$1" | jq -sRr @uri; }
-
-notify() { # title, body
-  # name= is the plugin, which SwiftBar knows by its file name: trails.10s.sh is "trails".
-  open -g "swiftbar://notify?name=trails&title=$(urlenc "$1")&body=$(urlenc "$2")" \
-    >/dev/null 2>&1 || true
 }
 
 # Which terminal Resume opens in, worked out once per refresh: each check asks LaunchServices.
@@ -437,7 +447,7 @@ mv -f "$NEXT" "$STATE_FILE"
 #
 # The bar's appearance is the system's: a coloured image can't be a template image, so it
 # can't follow the bar by itself, and the ink has to be picked here.
-ICONS="$(dirname "$SCRIPT_PATH")/icons"
+ICONS="$(dirname "$REAL_PATH")/icons"
 want=$((blocked + idle))
 top=none
 [ "$idle" -gt 0 ] && top=idle
