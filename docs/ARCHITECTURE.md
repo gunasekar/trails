@@ -144,6 +144,13 @@ overrides. `launch` strips `NVIM` and `ZED_TERM` from the environment it starts 
 tmux server with, since a starting server copies its client's environment into
 every later pane.
 
+Every `switch-client` names the client trails is acting for, read at startup
+(`CLIENT`). Without `-c`, tmux switches its idea of the current client, the
+most recently active one, and by the time trails switches that can be a nested
+client it has just started: the ide window's view of the trail, or a map cell.
+Under a fast `default-shell` that client was up first, and got switched to the
+workspace in place of the terminal that asked.
+
 ## Finding trails
 
 `sessions` is one `list-windows -a` for the box. A window is a trail when it
@@ -523,20 +530,23 @@ it.
 
 ## The README demos
 
-`assets/nvim.gif` and `assets/map.gif` are recorded with
+`assets/workspace.gif`, `assets/nvim.gif` and `assets/map.gif` are recorded with
 [VHS](https://github.com/charmbracelet/vhs) from `assets/demo/*.tape`, with the real
 Claude Code: the map demo gives four agents a small task each, so a recording costs a little
 of your plan. Each tape first sources `assets/demo/sandbox.sh`, which gives trails
-its own config, records and tmux server, and a sample Go project at
-`~/code/checkout` (refused if that exists, removed afterwards). trails reads a
-sandboxed Claude history holding only two example conversations, so `trails ls -a`
-never lists the machine's own projects; a wrapper drops that setting before running
-the real `claude`, whose demo conversation is removed afterwards too. The repo's own
-`bin/trails` comes first on `PATH`, so a re-record shows the version being released.
-The current recordings predate 1.0's picker. After a change to what the picker or
+its own config (a workspace `acme` over `~/code/*`), records and tmux server, and a
+sample Go project at `~/code/checkout` (refused if that exists, removed afterwards).
+The demo's tmux runs through a wrapper that loads the demo's own config, the
+`trails keys` bindings and a plain status line, so the recording machine's tmux.conf
+is not in the shot. trails reads a sandboxed Claude history holding only two example
+conversations, so `trails ls -a` never lists the machine's own projects; a wrapper
+drops that setting before running the real `claude`, whose demo conversation is
+removed afterwards too. The repo's own `bin/trails` comes first on `PATH`, so a
+re-record shows the version being released. After a change to what the picker or
 `ls` shows, re-record from the repo root, with `claude` logged in:
 
 ```console
+vhs assets/demo/workspace.tape
 vhs assets/demo/nvim.tape
 vhs assets/demo/map.tape
 ```

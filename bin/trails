@@ -612,6 +612,15 @@ trail_wid() {
 USE_TMUX=
 command -v tmux >/dev/null 2>&1 && USE_TMUX=1
 
+# The client this run acts for, read before anything else is made. A switch-client with no
+# -c acts on tmux's idea of the current client, which is the most recently active one — and
+# by the time trails switches, that can be a nested client it has just started (an ide
+# window's view of the trail, a map cell), which then gets switched instead of you. Named
+# up front, from a key binding, a popup or a pane, it is the client that asked.
+CLIENT=
+[ -n "$TMUX" ] && CLIENT=$(tmux display-message -p '#{client_name}' 2>/dev/null)
+switch_to() { exec tmux switch-client ${CLIENT:+-c "$CLIENT"} -t "$1"; }
+
 # Where a picked trail is shown: its workspace, with its window selected, or its editor
 # view alone. An editor's terminal — nvim's panel, Zed's, VS Code's — should see one trail
 # and nothing to wander off to; a terminal of your own should see the workspace. nvim sets
@@ -1613,7 +1622,7 @@ ws_switch() {
       exit 1
     }
     top=$(top_trail "$1")
-    [ -z "$TMUX" ] || exec tmux switch-client -t "=$1${top:+:$top}"
+    [ -z "$TMUX" ] || switch_to "=$1${top:+:$top}"
     exec tmux attach-session -t "=$1${top:+:$top}"
   fi
   known=$(printf '%s\n' "$WORKSPACES" | cut -d'|' -f1)
@@ -1944,7 +1953,7 @@ attach_to() {
       fi
       exec env -u TMUX tmux attach-session -t "=$at_key"
     fi
-    exec tmux switch-client -t "$at_target"
+    switch_to "$at_target"
   fi
   if from_editor; then
     ensure_view "$at_wid" "$at_key"
@@ -2701,7 +2710,7 @@ EOF
     fi
     tmux select-pane -t "$sp"
   fi
-  [ -z "$TMUX" ] || exec tmux switch-client -t "=$ws:$wid"
+  [ -z "$TMUX" ] || switch_to "=$ws:$wid"
   exec tmux attach-session -t "=$ws:$wid"
 }
 
@@ -3035,7 +3044,7 @@ map() {
   # contract; this only spares you the rebuild when you did not ask for one. switch-client
   # inside tmux, attach outside — the same fork the build path ends on.
   if [ -z "${1:-}" ] && tmux has-session -t "=$MAP" 2>/dev/null; then
-    [ -z "$TMUX" ] || exec tmux switch-client -t "=$MAP"
+    [ -z "$TMUX" ] || switch_to "=$MAP"
     exec tmux attach-session -t "=$MAP"
   fi
 
@@ -3230,9 +3239,9 @@ map() {
   # already here — switched to the new one before the old goes, so it is never sent home.
   if [ -n "$TMUX" ]; then
     if tmux has-session -t "=$MAP" 2>/dev/null; then
-      exec tmux switch-client -t "=$build" \; kill-session -t "=$MAP" \; rename-session -t "=$build" "$MAP"
+      exec tmux switch-client ${CLIENT:+-c "$CLIENT"} -t "=$build" \; kill-session -t "=$MAP" \; rename-session -t "=$build" "$MAP"
     fi
-    exec tmux switch-client -t "=$build" \; rename-session -t "=$build" "$MAP"
+    exec tmux switch-client ${CLIENT:+-c "$CLIENT"} -t "=$build" \; rename-session -t "=$build" "$MAP"
   fi
   tmux kill-session -t "=$MAP" 2>/dev/null
   tmux rename-session -t "=$build" "$MAP" || exit 1
@@ -3875,7 +3884,7 @@ case $choice in
   attach*) attach_key "$(trail_key "$target")" "$target" ;;
   # A companion's window, in its workspace: switched to or attached, never nested.
   companion*)
-    [ -z "$TMUX" ] || exec tmux switch-client -t "=$(trail_ws "$target"):$target"
+    [ -z "$TMUX" ] || switch_to "=$(trail_ws "$target"):$target"
     exec tmux attach-session -t "=$(trail_ws "$target"):$target"
     ;;
   # A lost row comes back in its own directory, which on a workspace's screen is not here.
