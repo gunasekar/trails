@@ -159,6 +159,13 @@ function set_terminal() {
 }
 
 function resume() {
+  # The row that was clicked may be stale: SwiftBar does not redraw an open menu, and a poll
+  # is ten seconds apart, so a trail that ended in between is still on it. Asked first,
+  # since a tab whose command exits at once is a worse answer than a notification.
+  TRAILS_RECENT_MAX=0 "$TRAILS" ls -a 2>/dev/null | awk -F'\t' -v k="$1" '$1 == "running" && $3 == k { f = 1 } END { exit !f }' || {
+    notify "trails: $1 is gone" "It ended since the menu was drawn. The list refreshes on its own."
+    return 0
+  }
   case $(chosen_terminal) in
     ghostty)
       osascript - "$TRAILS" "$1" <<'OSA' >/dev/null
