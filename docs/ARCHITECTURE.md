@@ -160,7 +160,13 @@ Every `switch-client` names the client trails is acting for, read at startup
 most recently active one, and by the time trails switches that can be a nested
 client it has just started: a trail's cell, or a map cell.
 Under a fast `default-shell` that client was up first, and got switched to the
-workspace in place of the terminal that asked.
+workspace in place of the terminal that asked. With two terminals on one
+workspace the guess can also be the other terminal, so the client is found in
+order: `TRAILS_CLIENT`, which the `run-shell` bindings from `trails keys` pass
+as `#{client_name}` (run-shell expands formats, display-popup does not); from a
+shell in a pane, the client showing `TMUX_PANE`, the most recently active when
+several do; else tmux's guess, which inside a popup is the client that opened
+it.
 
 ## Finding trails
 

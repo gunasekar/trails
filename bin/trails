@@ -624,10 +624,18 @@ command -v tmux >/dev/null 2>&1 && USE_TMUX=1
 # The client this run acts for, read before anything else is made. A switch-client with no
 # -c acts on tmux's idea of the current client, which is the most recently active one — and
 # by the time trails switches, that can be a nested client it has just started (a trail's
-# cell, a map cell), which then gets switched instead of you. Named
-# up front, from a key binding, a popup or a pane, it is the client that asked.
-CLIENT=
-[ -n "$TMUX" ] && CLIENT=$(tmux display-message -p '#{client_name}' 2>/dev/null)
+# cell, a map cell), which then gets switched instead of you; with two terminals on one
+# workspace it can be the other terminal. So, in order: TRAILS_CLIENT, which the run-shell
+# bindings `trails keys` prints pass as #{client_name}, the client that pressed the key;
+# from a shell in a pane, the client showing that pane (TMUX_PANE), the most recently
+# active when several do; else tmux's guess, which from inside a popup is the client that
+# opened it, display-popup expanding no formats to say so.
+CLIENT=${TRAILS_CLIENT:-}
+if [ -z "$CLIENT" ] && [ -n "$TMUX" ]; then
+  [ -z "${TMUX_PANE:-}" ] || CLIENT=$(tmux list-clients -F '#{client_activity} #{client_name} #{pane_id}' 2>/dev/null |
+    awk -v p="$TMUX_PANE" '$3 == p' | sort -rn | head -n 1 | cut -d' ' -f2)
+  [ -n "$CLIENT" ] || CLIENT=$(tmux display-message -p '#{client_name}' 2>/dev/null)
+fi
 switch_to() { exec tmux switch-client ${CLIENT:+-c "$CLIENT"} -t "$1"; }
 
 # Where a picked trail is shown: its workspace, with its window selected, or its editor
@@ -1867,7 +1875,7 @@ EOF
   # untouched by anything the user renames or re-numbers.
   door='env -u TRAILS_PICKER -u TRAILS_YOLO_STATE -u TRAILS_MENU_CACHE -u TRAILS_RECENT_CACHE
     -u TRAILS_RESTORE_OK -u USE_TMUX -u LAUNCH_DETACHED -u TRAILS_NAME -u TRAILS_ATTACH
-    -u TRAILS_WS -u NVIM -u ZED_TERM tmux'
+    -u TRAILS_WS -u TRAILS_CLIENT -u NVIM -u ZED_TERM tmux'
   # shellcheck disable=SC2086
   wid=$($door new-session -d -s "$view" -n "$win" -c "$PWD" -P -F '#{window_id}' \
     sh -c "$WRAP" trails-wrap "$SELF" "$view" "${3:+resume}" "$cmd" $args \
@@ -2918,7 +2926,10 @@ companions() {
 #
 # By this script's own absolute path, not a bare `trails`: run-shell and display-popup run
 # with the server's PATH, which a server started by launchd or over ssh may not share with
-# your shell, and a bare name would then find nothing, or an older trails.
+# your shell, and a bare name would then find nothing, or an older trails. The run-shell
+# lines pass the client that pressed the key (TRAILS_CLIENT, see CLIENT above): run-shell
+# expands formats, so #{client_name} is exact where tmux's own guess picks the most recently
+# active client, which with two terminals on one workspace is sometimes the other one.
 #
 # The popups take the terminal's own background (-s and -S, tmux 3.3). tmux 3.8 shades a
 # popup grey by default (popup-style bg=themedarkgrey; gray45 when the terminal says it is
@@ -2947,8 +2958,8 @@ keys() {
 # trails: paste what you want into tmux.conf
 bind a display-popup -E -w 80% -h 70% -s bg=$tbg -S bg=$tbg,fg=brightblack '$SELF'
 bind W display-popup -E -w 60% -h 50% -s bg=$tbg -S bg=$tbg,fg=brightblack '$SELF ws'
-bind e run-shell '$SELF edit'
-bind \` run-shell '$SELF shell'
+bind e run-shell "TRAILS_CLIENT=#{client_name} '$SELF' edit"
+bind \` run-shell "TRAILS_CLIENT=#{client_name} '$SELF' shell"
 EOF
 }
 

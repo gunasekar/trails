@@ -217,9 +217,12 @@ after upgrading past 3.8.
 # trails: paste what you want into tmux.conf
 bind a display-popup -E -w 80% -h 70% -s bg=terminal -S bg=terminal,fg=brightblack trails
 bind W display-popup -E -w 60% -h 50% -s bg=terminal -S bg=terminal,fg=brightblack 'trails ws'
-bind e run-shell 'trails edit'
-bind ` run-shell 'trails shell'
+bind e run-shell "TRAILS_CLIENT=#{client_name} trails edit"
+bind ` run-shell "TRAILS_CLIENT=#{client_name} trails shell"
 ```
+
+The two `run-shell` lines pass the terminal that pressed the key, so with two
+terminals on one workspace the right one moves.
 
 A session exists while something runs in it: the first trail creates the
 workspace session, and the last one out takes it down. A session named like a
