@@ -2856,7 +2856,8 @@ $(tmux display-message -p ${CLIENT:+-c "$CLIENT"} '#{window_id}|#{@trails_dir}|#
 EOF
     here=${w_dir:-${p_path:-$PWD}}
     ws=$w_ws
-    [ -n "$ws" ] || ws=$(tmux display-message -p '#{@trails_workspace}' 2>/dev/null)
+    # shellcheck disable=SC2086 # the -t and its client are two words on purpose
+    [ -n "$ws" ] || ws=$(tmux display-message -p ${CLIENT:+-t "$CLIENT"} '#{@trails_workspace}' 2>/dev/null)
   fi
   [ -d "$here" ] || {
     echo "trails: no such directory: $here" >&2
@@ -3860,14 +3861,16 @@ fi
 # trails, whatever is around it (the editor never sees workspaces); a shell in a workspace
 # session — or a popup over one — gets that workspace's; nowhere in particular (~, a fresh
 # SSH login, /) gets the workspaces; and a shell in a codebase gets the codebase's. The
-# client's session says whether you are in a workspace: inside tmux every pane has a
-# client, and a popup inherits the one that opened it. TRAILS_PICKER already set is a
+# client's session says whether you are in a workspace: CLIENT, followed out of any nested
+# client, since tmux's own guess from a popup is the most recently active client, and a key
+# typed into a trail's window also wakes the nested one showing it, whose session is the
+# trail's, not the workspace's. TRAILS_PICKER already set is a
 # re-entry from one screen to another (or `trails ws`), and is kept.
 if [ -z "${TRAILS_PICKER:-}" ]; then
   if from_editor; then
     :
   elif [ -n "$TMUX" ] && [ -n "$USE_TMUX" ] &&
-    w=$(tmux display-message -p '#{@trails_workspace}' 2>/dev/null) && [ -n "$w" ]; then
+    w=$(tmux display-message -p ${CLIENT:+-t "$CLIENT"} '#{@trails_workspace}' 2>/dev/null) && [ -n "$w" ]; then
     TRAILS_PICKER=workspace TRAILS_WS=$w
   elif [ "$PWD" = "$HOME" ] || [ "$(pwd -P)" = / ]; then
     TRAILS_PICKER=ws
