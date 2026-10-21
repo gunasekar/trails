@@ -67,9 +67,9 @@ assert_eq "$(tmux list-windows -t personal -F '#{window_name}')" "_dotfiles·stu
 
 # From a shell in the workspace session: lattiq's screen, with a codebase column, "new" rows
 # for the codebase with a trail, and the rest behind "another codebase…".
-tmux new-window -t lattiq -c "$T/work/lattiq/ledger" sh
+shp=$(tmux new-window -P -F '#{pane_id}' -t lattiq -c "$T/work/lattiq/ledger" sh)
 rm -f "$T/d4"
-type_in lattiq "FZF_DUMP=$T/d4 $TRAILS"
+type_in "$shp" "FZF_DUMP=$T/d4 $TRAILS"
 wait_for 5 test -s "$T/d4" || fail "the workspace screen never reached fzf"
 rows=$(dumped "$T/d4" 1)
 assert_match "$(printf '%s\n' "$rows" | grep '^attach' | cut -f3)" '● your turn +augur +stub' "the trail, under its codebase"
@@ -78,13 +78,24 @@ assert_match "$(printf '%s\n' "$rows" | grep '^new' | head -n 1 | cut -f3)" '^ +
 assert_match "$(printf '%s\n' "$rows" | grep '^browse' | cut -f3)" '\(2 more under ~/work/lattiq\)' "ledger and extra behind the row"
 assert_eq "$(printf '%s\n' "$rows" | cut -f1 | tr '\n' ' ')" "attach new new browse " "in that order"
 
+# "another codebase…" there leads to that codebase's screen, not back to the workspace's:
+# the re-entry says which screen, where an empty one would work it out from the session again.
+wait_shell "$shp" || fail "the shell never came back"
+rm -f "$T/d4b"
+printf '%s\n' 'another codebase' 'ledger$' 'stub · new trail' >"$T/p4b"
+type_in "$shp" "FZF_PICKS=$T/p4b FZF_DUMP=$T/d4b $TRAILS"
+wait_for 10 has_session lattiq/ledger || fail "no trail in ledger: $(plain "$T/d4b" | tail -n 12 | tr '\n' '|')"
+assert_eq "$(dumped "$T/d4b" 3 | cut -f1 | tr '\n' ' ')" "new new " "ledger's own screen: an agent to start"
+
 # Picking "augur · new other" there starts it in augur and switches the client to it.
-wait_shell lattiq || fail "the shell never came back"
-type_in lattiq "FZF_PICK='augur.*new other' $TRAILS"
+wait_shell "$shp" || fail "the shell never came back"
+type_in "$shp" "FZF_PICK='augur.*new other' $TRAILS"
 wait_for 10 has_session lattiq/augur ||
   fail "no second trail in augur; windows: $(tmux list-windows -t lattiq -F '#{window_name}' | tr '\n' ' '); pane: $(tmux capture-pane -pt lattiq | grep -v '^$' | tail -3 | tr '\n' '|')"
 wait_for 5 screen_has lattiq/augur 'agent (other)' || fail "the other agent never started"
-assert_eq "$(tmux list-windows -t lattiq -F '#{window_name}' | grep '·' | sort | tr '\n' ' ')" "augur·api augur·other " "its window"
+wins() { tmux list-windows -t lattiq -F '#{window_name}' | grep '·' | sort | tr '\n' ' '; }
+wait_for 5 sh -c "[ \"\$(tmux list-windows -t lattiq -F '#{window_name}' | grep -c '·')\" -ge 3 ]" || true
+assert_eq "$(wins)" "augur·api augur·other ledger·stub " "its window"
 wait_for 5 sh -c "tmux list-clients -F '#{session_name} #{window_name}' | grep -qx 'lattiq augur·other'" ||
   fail "the client was not switched to the new trail"
 

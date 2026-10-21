@@ -3865,7 +3865,8 @@ fi
 # client, since tmux's own guess from a popup is the most recently active client, and a key
 # typed into a trail's window also wakes the nested one showing it, whose session is the
 # trail's, not the workspace's. TRAILS_PICKER already set is a
-# re-entry from one screen to another (or `trails ws`), and is kept.
+# re-entry from one screen to another (or `trails ws`), and is kept: `here` for a codebase's
+# screen asked for by name, which an empty one can't say, since empty means "work it out".
 if [ -z "${TRAILS_PICKER:-}" ]; then
   if from_editor; then
     :
@@ -3876,6 +3877,7 @@ if [ -z "${TRAILS_PICKER:-}" ]; then
     TRAILS_PICKER=ws
   fi
 fi
+[ "${TRAILS_PICKER:-}" != here ] || TRAILS_PICKER=
 export TRAILS_PICKER TRAILS_WS
 
 # A codebase screen in a directory no workspace claims asks once where it belongs
@@ -4040,7 +4042,7 @@ esac
 choice=$(printf '%s\n' "$MENU" | fzf "$@") || {
   rm -rf "$TRAILS_TMP"
   case ${TRAILS_PICKER:-} in
-    old) TRAILS_PICKER='' exec "$SELF" ;;
+    old) TRAILS_PICKER=here exec "$SELF" ;;
     workspace-old) TRAILS_PICKER=workspace exec "$SELF" ;;
     *) exit 0 ;;
   esac
@@ -4085,7 +4087,7 @@ if [ -n "$named" ] && [ "${TRAILS_PICKER:-}" = ws ]; then
   [ -n "$d" ] || exit 0
   ws_add "$query" "$d" >&2 || exit 1
   cd "$d" || exit 1
-  TRAILS_PICKER='' TRAILS_WS='' exec "$SELF"
+  TRAILS_PICKER=here TRAILS_WS='' exec "$SELF"
 fi
 if [ -n "$named" ]; then
   case $choice in
@@ -4142,7 +4144,7 @@ case $choice in
     d=$(pick_dir "$TRAILS_WS")
     [ -n "$d" ] || exit 0
     cd "$d" || exit 1
-    TRAILS_PICKER='' TRAILS_WS='' exec "$SELF"
+    TRAILS_PICKER=here TRAILS_WS='' exec "$SELF"
     ;;
   attach*) attach_key "$(trail_key "$target")" "$target" ;;
   # An editor or shell window, in its workspace: switched to or attached, never nested.
