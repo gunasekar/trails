@@ -446,8 +446,9 @@ codebase.
 |---|---|---|
 | this codebase | *(empty)* | running and lost trails here, editor and shell windows, a `new` row per agent, `↩ resume old trails` |
 | its ended conversations | `old` | closed and elsewhere, from that last row; Esc goes back |
-| a workspace | `workspace` | the same across its codebases with a codebase column, `<codebase> · new <agent>` per codebase with something running, lost or recent, `＋ another codebase…`, `↩ resume old trails` |
+| a workspace | `workspace` | its running and lost trails and windows across its codebases with a codebase column, `＋ new trail…`, `↩ resume old trails` |
 | its ended conversations | `workspace-old` | |
+| a codebase's agents | `agents` | a `new` row per agent, for the directory `＋ new trail…` picked; Esc goes back to the workspace (`TRAILS_BACK`) |
 | the workspaces | `ws` | one row each with what runs in it, the last attached marked and under the cursor |
 
 `print_menu` builds TSV rows of `verb`, `target`, `what's drawn`. fzf draws only

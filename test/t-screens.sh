@@ -53,45 +53,50 @@ DRIVER_DIR=$T FZF_PICK='^workspace	lattiq' driver "$TRAILS"
 wait_for 10 sh -c "[ \"\$(tmux list-clients -F '#{session_name} #{window_name}' | grep -cx 'lattiq augur·api')\" -ge 2 ]" ||
   fail "picking lattiq did not attach to it: $(tmux list-clients -F '#{session_name} #{window_name}' | tr '\n' '|')"
 
-# Picking personal, with nothing running, shows its screen: no trails, nothing to start
-# from, only "another codebase…" — which lists ~/.dotfiles and leads to its screen, where
-# "stub · new trail" starts a trail in personal.
+# Picking personal, with nothing running, shows its screen: no trails, only "＋ new trail…" —
+# which lists ~/.dotfiles, then its agents, where "stub · new trail" starts a trail in personal.
 rm -f "$T/d3"
-printf '%s\n' '^workspace	personal' 'another codebase' '\.dotfiles$' 'stub · new trail' >"$T/p3"
+printf '%s\n' '^workspace	personal' 'new trail…' '\.dotfiles$' 'stub · new trail' >"$T/p3"
 DRIVER_DIR=$T FZF_PICKS=$T/p3 FZF_DUMP=$T/d3 driver "$TRAILS"
 wait_for 5 screen_has personal/_dotfiles 'agent id=' || fail "no trail in personal: $(plain "$T/d3")"
-assert_eq "$(dumped "$T/d3" 2 | cut -f1 | tr '\n' ' ')" "browse " "personal's screen: only the way to a codebase"
-assert_match "$(dumped "$T/d3" 2 | cut -f3)" 'another codebase…  \([0-9]+ more under ~\)' "the count and root"
+assert_eq "$(dumped "$T/d3" 2 | cut -f1 | tr '\n' ' ')" "browse " "personal's screen: only the way to a new trail"
+assert_match "$(dumped "$T/d3" 2 | cut -f3)" 'new trail…  \([0-9]+ codebases under ~\)' "the count and root"
 assert_match "$(dumped "$T/d3" 3 | cut -f2 | tr '\n' ' ')" '^~/\.dotfiles ~/proj .*~/work $' "its entry, then the directories under ~"
+assert_eq "$(dumped "$T/d3" 4 | cut -f1,2 | tr '\t\n' '  ')" "new stub new other " "then the agents, and nothing else"
 assert_eq "$(tmux list-windows -t personal -F '#{window_name}')" "_dotfiles·stub" "the trail's window"
 
-# From a shell in the workspace session: lattiq's screen, with a codebase column, "new" rows
-# for the codebase with a trail, and the rest behind "another codebase…".
+# From a shell in the workspace session: lattiq's screen, its trails with a codebase column,
+# and "＋ new trail…" — no rows per codebase and agent.
 shp=$(tmux new-window -P -F '#{pane_id}' -t lattiq -c "$T/work/lattiq/ledger" sh)
 rm -f "$T/d4"
 type_in "$shp" "FZF_DUMP=$T/d4 $TRAILS"
 wait_for 5 test -s "$T/d4" || fail "the workspace screen never reached fzf"
 rows=$(dumped "$T/d4" 1)
 assert_match "$(printf '%s\n' "$rows" | grep '^attach' | cut -f3)" '● your turn +augur +stub' "the trail, under its codebase"
-assert_eq "$(printf '%s\n' "$rows" | grep '^new' | cut -f2 | tr '\n' ' ')" "stub:$T/work/lattiq/augur other:$T/work/lattiq/augur " "new rows for augur, per agent"
-assert_match "$(printf '%s\n' "$rows" | grep '^new' | head -n 1 | cut -f3)" '^ +augur +· new stub$' "drawn under the column"
-assert_match "$(printf '%s\n' "$rows" | grep '^browse' | cut -f3)" '\(2 more under ~/work/lattiq\)' "ledger and extra behind the row"
-assert_eq "$(printf '%s\n' "$rows" | cut -f1 | tr '\n' ' ')" "attach new new browse " "in that order"
+assert_match "$(printf '%s\n' "$rows" | grep '^browse' | cut -f3)" '\(3 codebases under ~/work/lattiq\)' "every codebase behind the row"
+assert_eq "$(printf '%s\n' "$rows" | cut -f1 | tr '\n' ' ')" "attach browse " "in that order"
 
-# "another codebase…" there leads to that codebase's screen, not back to the workspace's:
-# the re-entry says which screen, where an empty one would work it out from the session again.
+# Esc on the agents goes back to the workspace's screen, not the codebase's: the re-entry says
+# which screen, where an empty one would work it out from the session again.
 wait_shell "$shp" || fail "the shell never came back"
-rm -f "$T/d4b"
-printf '%s\n' 'another codebase' 'ledger$' 'stub · new trail' >"$T/p4b"
-type_in "$shp" "FZF_PICKS=$T/p4b FZF_DUMP=$T/d4b $TRAILS"
-wait_for 10 has_session lattiq/ledger || fail "no trail in ledger: $(plain "$T/d4b" | tail -n 12 | tr '\n' '|')"
-assert_eq "$(dumped "$T/d4b" 3 | cut -f1 | tr '\n' ' ')" "new new " "ledger's own screen: an agent to start"
+rm -f "$T/d4a"
+printf '%s\n' 'new trail…' 'ledger$' '' '' >"$T/p4a"
+type_in "$shp" "FZF_PICKS=$T/p4a FZF_DUMP=$T/d4a $TRAILS"
+wait_for 5 sh -c "grep -q '^--- 4' '$T/d4a'" || fail "esc never came back: $(plain "$T/d4a" | tr '\n' '|')"
+assert_eq "$(dumped "$T/d4a" 3 | cut -f1 | tr '\n' ' ')" "new new " "ledger's agents"
+assert_eq "$(dumped "$T/d4a" 4 | cut -f1 | tr '\n' ' ')" "attach browse " "back on lattiq's screen"
 
-# Picking "augur · new other" there starts it in augur and switches the client to it.
+# Picked through, "＋ new trail…" starts the agent in the codebase picked and switches the
+# client to it.
 wait_shell "$shp" || fail "the shell never came back"
-type_in "$shp" "FZF_PICK='augur.*new other' $TRAILS"
+printf '%s\n' 'new trail…' 'ledger$' 'stub · new trail' >"$T/p4b"
+type_in "$shp" "FZF_PICKS=$T/p4b $TRAILS"
+wait_for 10 has_session lattiq/ledger || fail "no trail in ledger"
+wait_shell "$shp" || fail "the shell never came back"
+printf '%s\n' 'new trail…' 'augur$' 'other · new trail' >"$T/p4c"
+type_in "$shp" "FZF_PICKS=$T/p4c $TRAILS"
 wait_for 10 has_session lattiq/augur ||
-  fail "no second trail in augur; windows: $(tmux list-windows -t lattiq -F '#{window_name}' | tr '\n' ' '); pane: $(tmux capture-pane -pt lattiq | grep -v '^$' | tail -3 | tr '\n' '|')"
+  fail "no second trail in augur; windows: $(tmux list-windows -t lattiq -F '#{window_name}' | tr '\n' ' '); pane: $(tmux capture-pane -pt "$shp" | grep -v '^$' | tail -3 | tr '\n' '|')"
 wait_for 5 screen_has lattiq/augur 'agent (other)' || fail "the other agent never started"
 wins() { tmux list-windows -t lattiq -F '#{window_name}' | grep '·' | sort | tr '\n' ' '; }
 wait_for 5 sh -c "[ \"\$(tmux list-windows -t lattiq -F '#{window_name}' | grep -c '·')\" -ge 3 ]" || true

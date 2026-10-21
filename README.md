@@ -173,7 +173,7 @@ as paths or globs, with an optional `root`:
   repo belongs to the repo, and a git worktree belongs where its main checkout
   does, wherever it lives.
 - The most specific entry wins an overlap: an exact path beats a glob.
-- `root` is where "＋ another codebase…" in the picker starts browsing; `~`
+- `root` is where "＋ new trail…" in the picker starts browsing; `~`
   without one.
 - A name is letters, digits, `-` and `_`: it becomes a tmux session name.
 - `trails ws add NAME` edits the file for you, and the picker offers to when you
@@ -245,25 +245,31 @@ that trail's window; from an editor's terminal it attaches to the trail's sessio
 so the editor sees that one trail.
 
 **This workspace** (a shell in a workspace's tmux session, or a popup over one):
-the same, across its codebases, with a codebase column:
+its trails across its codebases, with a codebase column, and one way to start a new one:
 
 ```console
-acme ▸ Pick a trail: █   # enter: open · tab: toggle YOLO · ctrl-n: name it · ctrl-e: editor · ctrl-/: preview · ctrl-x: end
+acme ▸ Pick a trail: █   # enter: open · ctrl-e: editor · ctrl-/: preview · ctrl-x: end
 ▌ ● needs you  checkout  claude · yolo  Add idempotency keys to payment retries
   ● your turn  ledger    codex          Migrate orders to Postgres 17
   ○ lost       checkout  claude         Spike: replay Stripe webhooks
   editor       checkout  nvim · acme/checkout
-             checkout  · new claude
-             checkout  · new codex
-             ledger    · new claude
-             ledger    · new codex
-  ＋ another codebase…  (51 more under ~/code)
+  ＋ new trail…  (53 codebases under ~/code)
   ↩ resume old trails  (12 ended)
 ```
 
-New-trail rows appear for the codebases with something running, lost or recent;
-the rest are behind **＋ another codebase…**, a list of the workspace's
-directories that leads to that codebase's screen.
+**＋ new trail…** lists the workspace's directories. Pick one, then an agent to
+start there, with Tab for YOLO and ctrl-n to name it. Esc on either list comes back:
+
+```console
+New trail in: █
+▌ ~/code/checkout
+  ~/code/ledger
+  …
+
+ledger (acme) ▸ Start an agent: █   # enter: start · tab: toggle YOLO · ctrl-n: name it · ctrl-e: editor · esc: back
+▌ claude · new trail
+  codex · new trail
+```
 
 **The workspaces** (from `~`, `/`, or `trails ws`): one row each, with what runs
 in it, the one you were in last marked and under the cursor. Enter attaches to
