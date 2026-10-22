@@ -96,6 +96,25 @@ Each on the real machine, in Ghostty, with `trails keys` pasted into tmux.conf.
 | M9 | `prefix P` on a busy trail, on a wide one, on a narrow one; ctrl-/ | Preview under the list to the popup's bottom, latest output, updating every second; wide one wrapped, narrow one at its width; ctrl-/ hides and shows |
 | M10 | `prefix N`, type, Enter; `prefix N`, Esc; `prefix N`, Enter on empty | Note added to `.scratch/trails/notes.md`; nothing added; notes open in a large popup |
 
+### Run, 2026-10-23
+
+On airbochs, with trails 1.5.0, then 1.5.1 for M7. All ten pass.
+
+| # | Result |
+|---|---|
+| M1 | `ssh airbochs -t trails` from probochs: the workspaces, attached on the trail that most wants you, `prefix W` to another without reconnecting, the last one marked on return |
+| M2 | Claude asking a question read as needs you, red, with the cursor on it, and in the menu bar; your turn once answered |
+| M3 | Editor left, back to the agent, shell under the editor; on `/exit`, the window kept as `imprint·nvim` with both panes |
+| M4 | On a tmux server of its own (`TMUX_TMPDIR`, `XDG_STATE_HOME`): lost after `kill-server`, restored on the same conversation, which still knew the word it was given |
+| M5 | The ended conversation listed as closed; Tab took YOLO off; resumed on it, `claude --resume` without the YOLO flag |
+| M6 | `brew upgrade` to 1.5.0, `trails keys` into tmux.conf: every line taken, every key working |
+| M7 | Listing and End fine, End on `default/it's` included. Resume failed: the tab said the trail was gone. Fixed in 1.5.1 (below), then Resume worked |
+| M8 | VS Code over Remote-SSH from probochs: attached to the trail's own session, `personal/trails`, not the workspace |
+| M9 | Under the list, filled, refreshing; a wide trail wrapped; nothing for a row that is no trail; ctrl-/ hides and shows |
+| M10 | A note added once, nothing on Esc, the notes in a large popup on Enter on an empty line |
+
+M7's failure: Resume runs `trails open` in a new tab through `bash --noprofile --norc`, which has the system's PATH alone. trails was called by its full path but couldn't find tmux there, and read a running trail as gone. trails now adds the directory it runs from and the Homebrew prefixes to PATH when tmux isn't on it (1.5.1, pinned in `t-edges`).
+
 ## Bug hunt
 
 Beyond the scenarios, each area was pushed with odd input and failure: names with
@@ -152,6 +171,5 @@ Data loss first.
 | Notes in a git worktree are its own, not the main checkout's | the repository's top is where they live, by design (N2) |
 | A trail session renamed by hand drops out of the lists | renaming trails' sessions is outside what trails supports |
 | Map pane borders read the host name without a `set-titles` in tmux.conf | cosmetic |
-| The menu bar's Resume and End for a key with `'` or `"` | unverified without SwiftBar: M7 |
 | A temp directory left by a picker killed with SIGKILL | KILL can't be trapped |
 | A `y/n` question stays "needs you" until it scrolls off | the screen heuristic's limit, for agents without a state of their own |
