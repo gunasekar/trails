@@ -186,6 +186,13 @@ showing that pane (`client_outer`): a key pressed there with the double prefix
 names it, and switching it to the workspace would put the workspace inside its
 own window.
 
+A client on a session grouped with a workspace's (`tmux new-session -t acme`, a
+second terminal on one workspace) is that workspace: `client_ws` reads the mark
+from the session its group is named after, since tmux copies no session options
+into a group, and `switch_to` keeps such a client on its own session, selecting
+the same window there, so it keeps a current window of its own. Any other client
+is switched as asked.
+
 ## Finding trails
 
 `sessions` is one `list-windows -a` for the box. A window is a trail when it

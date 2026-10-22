@@ -242,6 +242,21 @@ A session exists while something runs in it: the first trail creates the
 workspace session, and the last one out takes it down. A session named like a
 workspace that trails didn't make is refused, never added to.
 
+**A workspace in two terminals.** Every terminal on a tmux session shares its
+current window, so a second terminal on `acme` moves when the first does. For a
+second terminal that moves on its own, give it a session grouped with the
+workspace's: the same trails, and a current window of its own.
+
+```sh
+tmux new-session -t acme -s 'acme~2' ; set destroy-unattached on
+```
+
+`-t acme` groups it with `acme`, `-s` names it, and `destroy-unattached` takes it
+away when that terminal closes. trails treats it as `acme`: the picker shows
+acme's trails, and picking one, or opening the editor or a shell, moves that
+terminal alone and keeps it on `acme~2`. trails never makes such a session
+itself, and the workspaces list counts `acme` once.
+
 ### The picker
 
 One picker at four levels: the workspaces, a workspace, a codebase, and the

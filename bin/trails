@@ -665,7 +665,40 @@ if [ -z "$CLIENT" ] && [ -n "$TMUX" ]; then
   [ -n "$CLIENT" ] || CLIENT=$(tmux display-message -p '#{client_name}' 2>/dev/null)
 fi
 [ -z "$CLIENT" ] || CLIENT=$(client_outer "$CLIENT")
-switch_to() { exec tmux switch-client ${CLIENT:+-c "$CLIENT"} -t "$1"; }
+# A client on a session grouped with the target's (`tmux new-session -t personal`, a second
+# terminal on one workspace) stays on its own session: a group shares its windows, so the same
+# window is selected there, and the client keeps a current window of its own rather than
+# joining the one the target's clients share. Any other client, or a failed lookup, switches
+# to the target as asked.
+switch_to() {
+  st=$1
+  if [ -n "$CLIENT" ]; then
+    st_ws=${st#=}
+    st_ws=${st_ws%%:*}
+    st_own=$(tmux display-message -p -t "$CLIENT" '#{session_name}|#{session_group}' 2>/dev/null)
+    st_grp=$(tmux display-message -p -t "=$st_ws:" '#{session_group}' 2>/dev/null)
+    if [ -n "$st_own" ] && [ "${st_own%%|*}" != "$st_ws" ] && [ -n "$st_grp" ] && [ "${st_own#*|}" = "$st_grp" ]; then
+      case $st in
+        *:*) st="=${st_own%%|*}:${st#*:}" ;;
+        *) st="=${st_own%%|*}" ;;
+      esac
+    fi
+  fi
+  exec tmux switch-client ${CLIENT:+-c "$CLIENT"} -t "$st"
+}
+
+# The workspace the client's session is: its @trails_workspace, or, on a session grouped with
+# one, the group's. tmux copies no session options into a grouped session, and a group is
+# named after the session it was made from, so the mark is read from that one. Empty when
+# neither has it.
+client_ws() {
+  cw=$(tmux display-message -p ${CLIENT:+-t "$CLIENT"} '#{@trails_workspace}|#{session_group}' 2>/dev/null) || return 1
+  cw_ws=${cw%%|*}
+  cw_grp=${cw#*|}
+  [ -n "$cw_ws" ] || [ -z "$cw_grp" ] ||
+    cw_ws=$(tmux display-message -p -t "=$cw_grp:" '#{@trails_workspace}' 2>/dev/null)
+  printf '%s' "$cw_ws"
+}
 
 # Where a picked trail is shown: its workspace, with its window selected, or its editor
 # session alone. An editor's terminal — nvim's panel, Zed's, VS Code's — should see one trail
@@ -3006,8 +3039,7 @@ $(tmux display-message -p ${CLIENT:+-c "$CLIENT"} '#{window_id}|#{@trails_dir}|#
 EOF
     here=${w_dir:-${p_path:-$PWD}}
     ws=$w_ws
-    # shellcheck disable=SC2086 # the -t and its client are two words on purpose
-    [ -n "$ws" ] || ws=$(tmux display-message -p ${CLIENT:+-t "$CLIENT"} '#{@trails_workspace}' 2>/dev/null)
+    [ -n "$ws" ] || ws=$(client_ws)
   fi
   [ -d "$here" ] || {
     echo "trails: no such directory: $here" >&2
@@ -4017,14 +4049,15 @@ fi
 # client's session says whether you are in a workspace: CLIENT, followed out of any nested
 # client, since tmux's own guess from a popup is the most recently active client, and a key
 # typed into a trail's window also wakes the nested one showing it, whose session is the
-# trail's, not the workspace's. TRAILS_PICKER already set is a
+# trail's, not the workspace's; and a session grouped with a workspace's is that workspace
+# (client_ws). TRAILS_PICKER already set is a
 # re-entry from one screen to another (or `trails ws`), and is kept: `here` for a codebase's
 # screen asked for by name, which an empty one can't say, since empty means "work it out".
 if [ -z "${TRAILS_PICKER:-}" ]; then
   if from_editor; then
     :
   elif [ -n "$TMUX" ] && [ -n "$USE_TMUX" ] &&
-    w=$(tmux display-message -p ${CLIENT:+-t "$CLIENT"} '#{@trails_workspace}' 2>/dev/null) && [ -n "$w" ]; then
+    w=$(client_ws) && [ -n "$w" ]; then
     TRAILS_PICKER=workspace TRAILS_WS=$w
   elif [ "$PWD" = "$HOME" ] || [ "$(pwd -P)" = / ]; then
     TRAILS_PICKER=ws
