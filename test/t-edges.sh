@@ -39,6 +39,10 @@ assert_no_file "$STATE/trails-proj" "the lost one forgotten"
 assert_eq "$("$TRAILS" --peek -)" "" "no preview for a row that is no trail"
 assert_eq "$("$TRAILS" --peek default/on)" "" "no preview for a trail that is gone"
 
+# With the system's PATH alone (a tab the menu bar opened, launchd), trails still finds tmux,
+# and so its trails: Resume read a running trail as gone.
+assert_match "$(PATH=/usr/bin:/bin "$TRAILS" ls -a 2>&1 | grep default/one)" "^running" "a bare PATH still sees the trail running"
+
 # ── Names ──────────────────────────────────────────────────────────────────────────────
 # stderr alone: the refusal, not what a start would print.
 # shellcheck disable=SC2069

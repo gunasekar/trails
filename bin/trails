@@ -676,6 +676,20 @@ key_ok() {
 # in the pane there, where no other editor could reach it (R6 in the design); now it gets a
 # window in its workspace like anywhere else, and the client you are in is switched to it.
 # Without tmux the agent runs bare, and nothing in this file applies.
+# A bare environment, a terminal tab the menu bar opened or a launchd job, can have the
+# system's PATH alone, without the tmux, fzf and jq trails runs on, and then a running trail
+# read as gone. They are where trails was installed from (Homebrew's bin), or in a Homebrew
+# prefix: those go on the end of PATH, after anything the caller chose.
+if ! command -v tmux >/dev/null 2>&1; then
+  for p in "$(cd "$(dirname "$0")" 2>/dev/null && pwd)" /opt/homebrew/bin /usr/local/bin /home/linuxbrew/.linuxbrew/bin; do
+    [ -d "$p" ] || continue
+    case ":$PATH:" in
+      *":$p:"*) ;;
+      *) PATH=$PATH:$p ;;
+    esac
+  done
+  export PATH
+fi
 USE_TMUX=
 command -v tmux >/dev/null 2>&1 && USE_TMUX=1
 
