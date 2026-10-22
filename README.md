@@ -61,7 +61,7 @@ Every one of them lands on the same trails.
 
 ```console
 ~/code/checkout $ trails
-checkout (acme) ▸ Pick a trail: █   # enter: open · ctrl-e: editor · ctrl-/: preview · ctrl-x: end or forget · esc: up
+checkout (acme) ▸ Pick a trail: █   # enter: open · ctrl-e: editor · ctrl-/: preview · ctrl-x: end, forget · esc: up
   ＋ new trail…
 ▌ ● needs you  claude · yolo  Add idempotency keys to payment retries
   ● your turn  claude    #2   Fix the flaky cart-total test
@@ -191,7 +191,8 @@ as paths or globs, with an optional `root`:
 - The most specific entry wins an overlap: an exact path beats a glob.
 - `root` is where `browse…`, under "＋ new trail…" in the picker, starts walking;
   `~` without one.
-- A name is letters, digits, `-` and `_`: it becomes a tmux session name.
+- A name is letters, digits, `-` and `_`: it becomes a tmux session name. It
+  can't be `trails-…`, how a trail from 0.6 is named, nor `list`, `of` or `add`.
 - `trails ws add NAME` adds a codebase for you, and the picker offers to when
   you start a trail in a directory no workspace claims. Edits never move a running
   trail.
@@ -233,15 +234,19 @@ after upgrading past 3.8.
 
 ```text
 # trails: paste what you want into tmux.conf
-bind P display-popup -E -w 60% -h 70% -s bg=terminal -S bg=terminal,fg=brightblack trails
-bind W display-popup -E -w 60% -h 50% -s bg=terminal -S bg=terminal,fg=brightblack 'trails ws'
-bind e run-shell "TRAILS_CLIENT=#{client_name} trails edit"
-bind ` run-shell "TRAILS_CLIENT=#{client_name} trails shell"
-bind N display-popup -E -w 70% -h 3 -s bg=terminal -S bg=terminal,fg=brightblack 'trails note'
+bind P display-popup -E -w 60% -h 70% -s bg=terminal -S bg=terminal,fg=brightblack "'trails' || { echo; echo press enter to close; read -r _; }"
+bind W display-popup -E -w 60% -h 50% -s bg=terminal -S bg=terminal,fg=brightblack "'trails' ws || { echo; echo press enter to close; read -r _; }"
+bind e run-shell "TRAILS_CLIENT=#{client_name} 'trails' edit"
+bind ` run-shell "TRAILS_CLIENT=#{client_name} 'trails' shell"
+bind N display-popup -E -w 70% -h 3 -s bg=terminal -S bg=terminal,fg=brightblack "'trails' note"
 ```
 
-The two `run-shell` lines pass the terminal that pressed the key, so with two
-terminals on one workspace the right one moves. All five keys are unbound in
+`trails keys` prints trails' full path where these show `trails`. The two
+`run-shell` lines pass the terminal that pressed the key, so with two terminals
+on one workspace the right one moves. A popup closes as soon as trails exits, so
+when trails refuses something there, the picker's and the workspaces' popups
+wait for Enter to let you read why, and the note's shows it on tmux's message
+line. All five keys are unbound in
 tmux's defaults. Change any of them.
 
 A session exists while something runs in it: the first trail creates the
@@ -404,8 +409,9 @@ Name a trail when you start it, and that one name is how everything refers to it
 - **Claude** runs with `--name payments`, the name its peers use. In another
   Claude session, "ask payments how the retries look" reaches it.
 
-A name is letters, digits, `-` and `_`, not digits alone, and unused by any running
-or lost trail. A named Claude shows its name as its title instead of a summary of
+A name is letters, digits, `-` and `_`, not digits alone, not starting with `-`,
+not the codebase's name with a `-N` (which reads as an unnamed trail), and unused
+by any running or lost trail. A named Claude shows its name as its title instead of a summary of
 what it's doing. Resuming or restoring a named conversation brings its name back.
 Unnamed trails work as before, with a name Claude picks for itself.
 

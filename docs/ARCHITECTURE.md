@@ -209,6 +209,16 @@ the map.
 The badge (`#2`, `#payments`, `-`) is read off the key against the codebase label
 and the name, never off a name alone.
 
+What tmux is asked for comes back with its fields between `$US`, the unit
+separator, never `|` (a directory may hold one) nor a tab (the shell reads a tab
+as whitespace and drops empty fields). A `read` with that IFS is never fed a
+command substitution of its own: its IFS would split the substitution's words.
+
+A key a command is given (`trails end`, `open`) is checked by `key_ok`: a
+`WORKSPACE/NAME`, or a 0.6 `trails-…` looked up by its exact name, and nothing
+with `..` or a leading `/`. `rec_path` keeps a record's path inside its
+directory whatever it is given.
+
 ## Agents
 
 What trails can start comes from `~/.config/trails/config.json`, or the built-in
@@ -331,6 +341,13 @@ for a menu-bar poll that only wants running trails.
 
 ## Surviving tmux
 
+`launch` takes a lock (`launch_lock`, a directory, broken after five seconds)
+from choosing a trail's session through marking its window, so two launches at
+once can't take one name, and a restore that finds its trail back on its own
+conversation stops (status 3) rather than starting a second agent. Records are
+rewritten (`rec_rewrite`) only while they exist, each writer with its own temp
+file, so the menu bar's `trails ls` can't bring back a trail that just ended.
+
 Every agent lives inside the tmux server, so a reboot, a crash or
 `tmux kill-server` takes them all down. The conversations survive, since each CLI
 keeps its transcripts. What dies is the knowledge of which conversation belonged
@@ -441,6 +458,12 @@ pid being alive. Resuming it would put a second Claude on the conversation, each
 adding turns the other never sees.
 
 ## The picker
+
+The config is checked once, first (`config_check`): not JSON, empty or not an
+object is named, and every command but `help`, `config`, `keys` and `ls` stops.
+The newer fzf options the lists use are asked of fzf itself (`fzf_ok`, cached per
+run): without `--info-command` the keys go in a header, without `--listen` the
+preview is a snapshot, without `wrap-word` it wraps plainly.
 
 One picker at four levels, workspaces, workspace, codebase and agent
 ([ADR 17](decisions/0017-one-picker-levels-not-screens.md)), each a screen chosen

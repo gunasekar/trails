@@ -75,4 +75,4 @@ assert_eq "$(cut -d" " -f2- "$T/opened")" "$NOTES" "the notes"
 [ "$rows" -gt 3 ] || fail "the notes opened $rows rows high, in the note's popup"
 
 # trails keys offers the note box on prefix N.
-assert_match "$("$TRAILS" keys)" "bind N display-popup .*'$TRAILS note'" "the binding"
+assert_match "$("$TRAILS" keys)" "bind N display-popup .*\"'$TRAILS' note\"" "the binding"

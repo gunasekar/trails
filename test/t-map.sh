@@ -58,11 +58,17 @@ assert_match "$(cd "$T" && "$TRAILS" end nope 2>&1)" 'no trail nope' "unknown re
 driver "$TRAILS" open default/ledger
 driver_attached || fail "open never attached"
 assert_eq "$(client_at "$(tmux list-clients -F '#{client_name} #{client_tty}' | awk -v t="$(tmux display-message -pt "driver-$DRIVERS" '#{pane_tty}')" '$2 == t { print $1 }')")" 'default other·ledger' "open landed on the trail's window"
-assert_match "$(cd "$T" && "$TRAILS" open nope 2>&1)" 'gone' "unknown refused"
+assert_match "$(cd "$T" && "$TRAILS" open default/nope 2>&1)" 'gone' "an unknown trail refused"
+assert_match "$(cd "$T" && "$TRAILS" open nope 2>&1)" 'no trail nope' "a key that names no trail refused"
 
 # trails keys prints bindings, and changes nothing.
 before=$(tmux list-keys | wc -l)
-assert_match "$("$TRAILS" keys)" "^bind P display-popup .* '$TRAILS'$" "the picker binding, by absolute path"
+assert_match "$("$TRAILS" keys)" "^bind P display-popup .* \"'$TRAILS' [|][|] .*press enter to close.*\"$" "the picker binding, by absolute path, waiting on a failure"
+# Every line is one tmux takes, on a server of its own.
+"$TRAILS" keys | grep '^bind' >"$T/keys.conf"
+tmux -L keyscheck -f /dev/null new-session -d 'sleep 10'
+assert_eq "$(tmux -L keyscheck source-file "$T/keys.conf" 2>&1)" "" "tmux takes every line"
+tmux -L keyscheck kill-server 2>/dev/null
 assert_match "$("$TRAILS" keys)" "^bind e run-shell \"TRAILS_CLIENT=#{client_name} '$TRAILS' edit\"$" "the editor binding names the pressing client"
 case $(tmux -V) in
   "tmux 3."[0-7]*) assert_match "$("$TRAILS" keys)" 'bind P .* -s bg=default ' "default is the terminal's before 3.8" ;;

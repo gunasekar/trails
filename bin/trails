@@ -192,24 +192,26 @@ load_agents() {
   out=$(printf '%s' "$json" | jq -r '
     def words: split(" ") | map(select(. != ""));
     (.default_agent // "") as $d
-    | [.agents[]?] | (map(select(.name == $d)) + map(select(.name != $d)))[]
-    | if (.name | type) != "string" or (.name | test("^[A-Za-z0-9._-]+$") | not)
+    | [.agents[]? | if type == "object" then . else { bad: tostring } end]
+    | (map(select(.name == $d)) + map(select(.name != $d)))[]
+    | if has("bad") or (.name | type) != "string" or (.name | test("^[A-Za-z0-9._-]+$") | not)
          or (.program | type) != "string" or ((.program | words | length) == 0)
-      then "!" + (.name // "(no name)" | tostring)
-      else [.name, (.program | words | .[0]), (.program | words | .[1:] | join(" ")),
-            (.yolo // ""), (.session.start // ""), (.session.resume // ""), (.session.id // ""),
-            (.session.create // ""), (.session.find // ""), (.session.name // "")]
+      then "!" + (.name // .bad // "(no name)" | tostring)
+      else (.session | if type == "object" then . else {} end) as $s
+      | [.name, (.program | words | .[0]), (.program | words | .[1:] | join(" ")),
+            (.yolo | if type == "string" then . else "" end), ($s.start // ""), ($s.resume // ""),
+            ($s.id // ""), ($s.create // ""), ($s.find // ""), ($s.name // "")]
            | map(tostring | gsub("\\|"; "")) | join("|")
       end' 2>&1) || {
     echo "trails: can't read $src: $out" >&2
     return 1
   }
-  printf '%s\n' "$out" | while read -r line; do
-    case $line in
-      !*) echo "trails: skipping agent '${line#!}' in $src — it needs a name (letters, digits, . _ -) and a program" >&2 ;;
-      *) printf '%s\n' "$line" ;;
-    esac
-  done
+  # The first agent by a name is the one that runs, so a second by that name is skipped and
+  # said so, not shown as a row that starts the first.
+  printf '%s\n' "$out" | awk -F'|' -v src="$src" '
+    /^!/ { printf "trails: skipping agent \047%s\047 in %s — it needs a name (letters, digits, . _ -) and a program\n", substr($0, 2), src > "/dev/stderr"; next }
+    $1 in seen { printf "trails: skipping a second agent named \047%s\047 in %s\n", $1, src > "/dev/stderr"; next }
+    NF { seen[$1] = 1; print }'
 }
 
 agent_row() {
@@ -296,7 +298,7 @@ load_workspaces() {
       elif startswith("~/") then $home + .[1:] elif . == "~" then $home else . end;
     (.workspaces // {}) | if type != "object" then {} else . end | to_entries[]
     | .key as $n
-    | (if (.value | type) == "array" then { codebases: .value }
+    | (if (.value | type) == "array" then { codebases: .value } elif (.value | type) == "string" then { codebases: [.value] }
        elif (.value | type) == "object" then .value else {} end) as $w
     | if ($n | test("^[A-Za-z0-9_-]+$") | not) then "!" + $n
       else (($w.root // "") | if type == "string" then tilde else "" end) as $r
@@ -317,6 +319,10 @@ load_workspaces() {
 # throughout: the config's globs are matched against what `pwd -P` would say.
 workspace_candidates() {
   d=$(cd "$1" 2>/dev/null && pwd -P) || return 1
+  # The path as reached first, when a link makes it differ: a link inside a workspace
+  # directory is that workspace's, wherever it points.
+  l=$(cd "$1" 2>/dev/null && pwd -L)
+  [ "$l" = "$d" ] || printf '%s\n' "$l"
   printf '%s\n' "$d"
   command -v git >/dev/null 2>&1 || return 0
   top=$(git -C "$d" rev-parse --show-toplevel 2>/dev/null) || return 0
@@ -351,11 +357,12 @@ workspace_of() {
         *) continue ;;
       esac
       # An exact path is the most specific; a folder inside a listed path ranks like a glob,
-      # by length, so the nearest entry claims it.
+      # by length, so the nearest entry claims it, and the listed path wins a tie with a glob
+      # as long, being the narrower of the two.
       case $p in
-        *[\*\?\[]*) s=${#p} ;;
-        "$d") s=$((100000 + ${#p})) ;;
-        *) s=${#p} ;;
+        *[\*\?\[]*) s=$((2 * ${#p})) ;;
+        "$d") s=$((200000 + ${#p})) ;;
+        *) s=$((2 * ${#p} + 1)) ;;
       esac
       [ "$s" -gt "$score" ] && best=$n score=$s
     done <<EOF
@@ -372,6 +379,17 @@ check_ws_name() {
   case $1 in
     '' | *[!A-Za-z0-9_-]*)
       echo "trails: a workspace name is letters, digits, - and _ (got '$1')" >&2
+      return 1
+      ;;
+    # trails-<project> is how a 0.6 trail's session is named, so a workspace by such a name
+    # would be taken for one; the others are `trails ws` commands, which `trails ws NAME`
+    # could never reach.
+    trails-*)
+      echo "trails: '$1' can't name a workspace: trails-<name> is a trail from trails 0.6" >&2
+      return 1
+      ;;
+    list | of | add)
+      echo "trails: '$1' can't name a workspace: it is trails ws $1" >&2
       return 1
       ;;
     *) ;;
@@ -427,8 +445,13 @@ ws_list() {
       entry=$(tilde_path "$p")
       case $p in
         *[\*\?\[]*)
+          # Expanded, never split: a path with a space is one path.
+          wl_ifs=$IFS
+          IFS='
+'
           # shellcheck disable=SC2086 # the glob is the point
           set -- $p
+          IFS=$wl_ifs
           c=0
           for d; do [ -d "$d" ] && c=$((c + 1)); done
           count="$c codebase$([ "$c" -eq 1 ] || echo s)"
@@ -473,23 +496,31 @@ ws_add() {
     echo "trails: no such directory: ${2:-$PWD}" >&2
     return 1
   }
-  entry=$(tilde_path "$d")
+  [ "$d" != / ] || {
+    echo "trails: / can't be a codebase" >&2
+    return 1
+  }
+  # As the config lists it: ~-relative, its glob characters escaped, since an entry is a
+  # pattern and a folder named a[1] should claim itself, not a1.
+  entry=$(tilde_path "$d" | sed 's/[][*?\\]/\\&/g')
   if [ ! -f "$CONFIG" ]; then
     mkdir -p "$(dirname "$CONFIG")" || return 1
     printf '%s\n' "$DEFAULT_CONFIG" | jq . >"$CONFIG" || return 1
     echo "trails: wrote the built-in agents to $CONFIG" >&2
   fi
   if jq -e --arg n "$1" --arg e "$entry" '
-      (.workspaces // {})[$n] | (if type == "array" then . else (.codebases // []) end) | index($e) != null
+      (.workspaces // {})[$n] | (if type == "array" then . elif type == "string" then [.] else (.codebases // []) end) | index($e) != null
     ' "$CONFIG" >/dev/null 2>&1; then
     echo "trails: $entry is already in $1" >&2
     return 0
   fi
   jq --arg n "$1" --arg e "$entry" '
       .workspaces = (.workspaces // {})
-      | .workspaces[$n] = (.workspaces[$n] | if type == "array" then { codebases: . } elif type == "object" then . else {} end)
+      | .workspaces[$n] = (.workspaces[$n] | if type == "array" then { codebases: . } elif type == "string" then { codebases: [.] } elif type == "object" then . else {} end)
       | .workspaces[$n].codebases = ((.workspaces[$n].codebases // []) + [$e])
-    ' "$CONFIG" >"$CONFIG.tmp" && mv -f "$CONFIG.tmp" "$CONFIG" || {
+    ' "$CONFIG" >"$CONFIG.tmp" && [ -s "$CONFIG.tmp" ] && cat "$CONFIG.tmp" >"$CONFIG" && rm -f "$CONFIG.tmp" || {
+    # Copied over, not moved into place: a config that is a link into dotfiles stays one, and
+    # keeps its mode.
     rm -f "$CONFIG.tmp"
     echo "trails: could not write $CONFIG" >&2
     return 1
@@ -622,8 +653,23 @@ agent_wid() {
   case $1 in
     */*) tmux list-windows -a -F "#{?@trails_session,#{@trails_session},#{@trails_view}}$TAB#{window_id}" 2>/dev/null |
       awk -F"$TAB" -v k="$1" '$1 == k { print $2; exit }' ;;
-    *) tmux display-message -pt "$1" '#{window_id}' 2>/dev/null ;;
+    # A 0.6 trail's session, by its exact name: tmux takes a bare name as a prefix too, and
+    # trails-proj would find a live trails-proj-2.
+    "$PREFIX"*) tmux display-message -pt "=$1:" '#{window_id}' 2>/dev/null ;;
+    *) ;;
   esac
+}
+
+# A trail's key as a command takes it: <workspace>/<name> or a 0.6 trails-<project>, and
+# nothing that could step out of the records' directory (.., a leading or trailing /).
+key_ok() {
+  case $1 in
+    '' | /* | */ | *..* | *//*) ;;
+    */* | "$PREFIX"*) return 0 ;;
+    *) ;;
+  esac
+  echo "trails: no trail $1 — a trail's key is WORKSPACE/NAME, as trails ls prints it" >&2
+  return 1
 }
 
 # The agent runs in tmux wherever there is one — inside tmux too, since 1.0. 0.6 ran it bare
@@ -678,12 +724,12 @@ switch_to() {
   if [ -n "$CLIENT" ]; then
     st_ws=${st#=}
     st_ws=${st_ws%%:*}
-    st_own=$(tmux display-message -p -t "$CLIENT" '#{session_name}|#{session_group}' 2>/dev/null)
+    st_own=$(tmux display-message -p -t "$CLIENT" "#{session_name}${US}#{session_group}" 2>/dev/null)
     st_grp=$(tmux display-message -p -t "=$st_ws:" '#{session_group}' 2>/dev/null)
-    if [ -n "$st_own" ] && [ "${st_own%%|*}" != "$st_ws" ] && [ -n "$st_grp" ] && [ "${st_own#*|}" = "$st_grp" ]; then
+    if [ -n "$st_own" ] && [ "${st_own%%"$US"*}" != "$st_ws" ] && [ -n "$st_grp" ] && [ "${st_own#*"$US"}" = "$st_grp" ]; then
       case $st in
-        *:*) st="=${st_own%%|*}:${st#*:}" ;;
-        *) st="=${st_own%%|*}" ;;
+        *:*) st="=${st_own%%"$US"*}:${st#*:}" ;;
+        *) st="=${st_own%%"$US"*}" ;;
       esac
     fi
   fi
@@ -695,9 +741,9 @@ switch_to() {
 # named after the session it was made from, so the mark is read from that one. Empty when
 # neither has it.
 client_ws() {
-  cw=$(tmux display-message -p ${CLIENT:+-t "$CLIENT"} '#{@trails_workspace}|#{session_group}' 2>/dev/null) || return 1
-  cw_ws=${cw%%|*}
-  cw_grp=${cw#*|}
+  cw=$(tmux display-message -p ${CLIENT:+-t "$CLIENT"} "#{@trails_workspace}${US}#{session_group}" 2>/dev/null) || return 1
+  cw_ws=${cw%%"$US"*}
+  cw_grp=${cw#*"$US"}
   [ -n "$cw_ws" ] || [ -z "$cw_grp" ] ||
     cw_ws=$(tmux display-message -p -t "=$cw_grp:" '#{@trails_workspace}' 2>/dev/null)
   printf '%s' "$cw_ws"
@@ -725,6 +771,10 @@ from_editor() {
 }
 
 TAB=$(printf '\t')
+# Between the fields of what tmux is asked for: a path or a session name can hold a | or a
+# tab, and the shell reads a tab as whitespace, dropping empty fields. The unit separator is
+# meant for this, and appears in no name.
+US=$(printf '\037')
 
 # A locale, when the caller has none: launchd jobs (the menu-bar plugin, a cron) start with
 # no LANG or LC_*, and a tmux client in the C locale rewrites every byte it cannot print
@@ -811,6 +861,21 @@ TASK_FMT='#{=45:#{?#{==:#{pane_title},#{host}},,#{s|^[^A-Za-z0-9 ]+ ||:pane_titl
 # hidden under "working" cannot happen.
 SETTLE=${AGENT_SETTLE:-0.35}
 ASK_RE=${AGENT_ASK_RE:-'Do you want|Would you like|Allow |Approve|\[y/[nN]\]|\(y/[nN]\)|❯ +[0-9]\.'}
+# Both from the environment, so a typo in either is said once and the default used: a settle
+# that isn't a number made sleep print its usage on every pass, and a regex grep can't read
+# made every state "your turn".
+case $SETTLE in
+  '' | *[!0-9.]* | *.*.*)
+    echo "trails: AGENT_SETTLE is '$SETTLE', not a number of seconds; using 0.35" >&2
+    SETTLE=0.35
+    ;;
+  *) ;;
+esac
+printf '' | grep -qE -- "$ASK_RE" 2>/dev/null
+if [ $? -eq 2 ]; then
+  echo "trails: AGENT_ASK_RE isn't a regex grep -E reads; using the built-in one" >&2
+  ASK_RE='Do you want|Would you like|Allow |Approve|\[y/[nN]\]|\(y/[nN]\)|❯ +[0-9]\.'
+fi
 
 RED=$(printf '\033[31m')
 YEL=$(printf '\033[33m')
@@ -857,8 +922,8 @@ screen_hash() { printf '%s\n' "$1" | cksum; }
 sessions() {
   PS_TREE=$(ps -A -o pid= -o ppid=)
   tmux list-windows -a -F \
-    "#{window_id}|#{session_name}|#{@trails_ws}|#{?@trails_session,#{@trails_session},#{@trails_view}}|#{?@agent,#{@agent},#{pane_current_command}}|#{@agent}|#{@trails_id}|#{?@trails_dir,#{@trails_dir},#{session_path}}|#{pane_pid}|#{@trails_label}|#{@trails_name}|#{window_active}|$TASK_FMT" 2>/dev/null |
-    while IFS='|' read -r wid sname ws sess label s_agent s_id dir pid clabel cname active task; do
+    "#{window_id}${US}#{session_name}${US}#{@trails_ws}${US}#{?@trails_session,#{@trails_session},#{@trails_view}}${US}#{?@agent,#{@agent},#{pane_current_command}}${US}#{@agent}${US}#{@trails_id}${US}#{?@trails_dir,#{@trails_dir},#{session_path}}${US}#{pane_pid}${US}#{@trails_label}${US}#{@trails_name}${US}#{window_active}${US}$TASK_FMT" 2>/dev/null |
+    while IFS="$US" read -r wid sname ws sess label s_agent s_id dir pid clabel cname active task; do
       if [ -n "$ws" ]; then
         [ "$sname" = "$sess" ] && [ -n "$s_agent" ] || continue
         key=$sess
@@ -1060,7 +1125,7 @@ ls_rows() {
       case $label in *"(YOLO)"*) yolo=yolo ;; *) ;; esac
       id=$(printf '%s\n' "$meta" | awk -F"$TAB" -v n="$wid" '$1 == n { print $2; exit }')
       printf '%s\trunning\t%s\t%s\t%s\t%s\t%s\t%s\t-\t-\t%s\t%s\t%s\n' "$badge" \
-        "$(state_of "$state")" "$key" "$agent" "$yolo" "${dir:--}" "${id:--}" "$peer" "$ws" "$task"
+        "$(state_of "$state")" "$key" "$agent" "$yolo" "${dir:--}" "${id:--}" "$peer" "$ws" "${task:--}"
     done | awk -F"$TAB" -v states="$STATES_FLAT" "$STATES_AWK"'
       { n++; row[n] = $0; st[n] = $3 }
       END { for (r = 1; r <= ns; r++) for (i = 1; i <= n; i++) if (rank[st[i]] == r) print row[i] }'
@@ -1069,7 +1134,7 @@ ls_rows() {
       ws=$(rec_get "$key" workspace)
       printf '%s\tstopped\tlost\t%s\t%s\t%s\t%s\t%s\t-\t-\t-\t%s\t%s\n' "$(rec_badge "$key")" "$key" \
         "$(rec_get "$key" agent)" "${yolo:--}" "$(rec_get "$key" dir)" "$(rec_get "$key" id)" \
-        "${ws:--}" "$(rec_get "$key" task)"
+        "${ws:--}" "$(t=$(rec_get "$key" task); printf '%s' "${t:--}")"
     done
   } | d=$1 awk -F"$TAB" 'ENVIRON["d"] == "" || $7 == ENVIRON["d"]'
   recent_rows "$1" | while IFS="$TAB" read -r m agent dir id yolo pid title; do
@@ -1080,7 +1145,7 @@ ls_rows() {
       [ -n "$peer" ] || peer=-
     fi
     ws=$(workspace_of "$dir") || ws=-
-    printf -- '-\tstopped\t%s\t-\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$state" "$agent" "$yolo" "$dir" "$id" "$m" "$pid" "$peer" "$ws" "$title"
+    printf -- '-\tstopped\t%s\t-\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$state" "$agent" "$yolo" "$dir" "$id" "$m" "$pid" "$peer" "$ws" "${title:--}"
   done
 }
 
@@ -1157,6 +1222,7 @@ list_sessions() {
     }
     {
       n++; badge = $1; st[n] = $3; dir = $7; peer = $11; ws = $12; ti[n] = $13
+      if (ti[n] == "-") ti[n] = ""
       ag[n] = $5 ($6 == "yolo" ? " · yolo" : ""); aw[n] = length($5 ($6 == "yolo" ? " - yolo" : ""))
       if (badge == "-") badge = ""
       # A named trail shows its name as its title, which the badge already says.
@@ -1292,10 +1358,10 @@ next_session() {
 # peers are: two claudes called payments would be one address.
 trail_name_taken() {
   tmux has-session -t "=$PREFIX$1" 2>/dev/null && return 0
-  tmux list-windows -a -F '#{@trails_name}' 2>/dev/null | grep -qxF "$1" && return 0
+  tmux list-windows -a -F '#{@trails_name}' 2>/dev/null | grep -qxF -e "$1" && return 0
   [ "${2:-}" != "$PREFIX$1" ] && [ -f "$(rec_path "$PREFIX$1")" ] && return 0
   [ -d "$STATE_DIR" ] || return 1
-  grep -rlxF "name=$1" "$STATE_DIR" 2>/dev/null | grep -qv "^$(rec_path "${2:-//}")\$"
+  grep -rlxF -e "name=$1" "$STATE_DIR" 2>/dev/null | grep -qv "^$(rec_path "${2:-//}")\$"
 }
 
 # ─── Picker internals (invoked by fzf, one process each) ─────────────────────
@@ -1604,8 +1670,16 @@ ws_menu() {
   [ -n "$TRAILS_MENU_CACHE" ] && [ -s "$TRAILS_MENU_CACHE" ] &&
     counts=$(awk -F"$TAB" '$4 != "-" { run[$4]++; if ($1 == "blocked") need[$4]++; if ($1 == "idle") turn[$4]++ }
       END { for (w in run) print w "\t" run[w] "\t" need[w] + 0 "\t" turn[w] + 0 }' "$TRAILS_MENU_CACHE")
-  last=$(tmux list-sessions -F "#{session_last_attached}$TAB#{@trails_workspace}" 2>/dev/null |
-    awk -F"$TAB" '$2 != "" && $1 + 0 > m + 0 { m = $1; w = $2 } END { print w }')
+  # A session grouped with a workspace's (a second terminal on it) counts as that workspace.
+  last=$(tmux list-sessions -F "#{session_last_attached}$TAB#{@trails_workspace}$TAB#{session_group}" 2>/dev/null |
+    awk -F"$TAB" '{ t[NR] = $1; w[NR] = $2; g[NR] = $3; if ($2 != "") isws[$2] = 1 }
+      END {
+        for (i = 1; i <= NR; i++) {
+          n = w[i] != "" ? w[i] : (g[i] in isws ? g[i] : "")
+          if (n != "" && t[i] + 0 > m + 0) { m = t[i]; best = n }
+        }
+        print best
+      }')
   {
     printf '%s\n' "$WORKSPACES" | cut -d'|' -f1
     [ -n "$WORKSPACES" ] || echo default
@@ -1648,7 +1722,11 @@ ws_codebases() {
   printf '%s\n' "$WORKSPACES" | awk -F'|' -v n="$1" '$1 == n && $3 != "" { print $3 }' | {
     pats=$(cat)
     wsdirs=$(printf '%s\n' "$pats" | sed -n 's|/\*$||p' | grep -v '[][*?]')
+    # A glob is expanded, never split: a path with a space is one path.
+    IFS='
+'
     printf '%s\n' "$pats" | while IFS= read -r pat; do
+      [ -n "$pat" ] || continue
       wd=
       case $pat in
         */\*) wd=${pat%/\*} ;;
@@ -1757,7 +1835,7 @@ ws_codebase_count() {
 pick_codebase() {
   while :; do
     choice=$(codebase_tree "$1" | fzf --reverse --ansi --delimiter="$TAB" --with-nth=2 --height=~80% \
-      --info='inline:   ' --color='info:dim' --info-command="echo '# enter: pick · esc: back'" \
+      --info='inline:   ' --color='info:dim' "$(hint_opt "# enter: pick · esc: back")" \
       --expect=esc --prompt="$1 ▸ New trail in: ") || return 2
     [ "$(printf '%s\n' "$choice" | head -n 1)" != esc ] || return 1
     t=$(printf '%s\n' "$choice" | sed -n 2p | cut -f1)
@@ -1791,7 +1869,7 @@ walk_dir() {
         [ -d "$c" ] && printf 'in\t%s\t%s/\n' "$c" "${c##*/}"
       done
     } | fzf --reverse --ansi --delimiter="$TAB" --with-nth=3 --height=~80% \
-      --info='inline:   ' --color='info:dim' --info-command="echo '# enter: open · esc: back'" \
+      --info='inline:   ' --color='info:dim' "$(hint_opt "# enter: open · esc: back")" \
       --expect=esc --prompt="$(tilde_path "$wd") ▸ ") || return 2
     [ "$(printf '%s\n' "$pick" | head -n 1)" != esc ] || return 1
     pick=$(printf '%s\n' "$pick" | sed -n 2p)
@@ -1814,12 +1892,14 @@ pick_dir() {
   done)
   [ -n "$list" ] || {
     echo "trails: no directories to pick from under $(tilde_path "$1")" >&2
-    return 1
+    return 2
   }
-  printf '%s\n' "$list" | while IFS= read -r d; do
+  pd_out=$(printf '%s\n' "$list" | while IFS= read -r d; do
     printf '%s\t%s\n' "$d" "$(tilde_path "$d")"
   done | fzf --reverse --no-info --delimiter='\t' --with-nth=2 --height=~80% \
-    --prompt="${2:-Pick a codebase: }" | cut -f1
+    --expect=esc --prompt="${2:-Pick a codebase: }") || return 2
+  [ "$(printf '%s\n' "$pd_out" | head -n 1)" != esc ] || return 1
+  printf '%s\n' "$pd_out" | sed -n 2p | cut -f1
 }
 
 # This directory belongs to no workspace, and some are configured: which workspace its trail
@@ -1917,6 +1997,38 @@ BOOT=1.5
 # and KEY is the record the trail comes back from, whose name it keeps if it still can. With
 # LAUNCH_DETACHED set, it prints the new key and returns instead of attaching — restore needs
 # the key back, and `trails restore` brings back several without sitting in any of them.
+
+# tmux with trails' own variables and the editors' markers out of its environment: the one
+# door for any call that may start the server (see launch, where the reason is spelled out).
+tmux_door() {
+  env -u TRAILS_PICKER -u TRAILS_YOLO_STATE -u TRAILS_MENU_CACHE -u TRAILS_RECENT_CACHE \
+    -u TRAILS_RESTORE_OK -u USE_TMUX -u LAUNCH_DETACHED -u TRAILS_NAME -u TRAILS_ATTACH -u TRAILS_BACK \
+    -u TRAILS_WS -u TRAILS_CLIENT -u NVIM -u ZED_TERM tmux "$@"
+}
+
+# One launch at a time through the part that names a trail: choosing its session, writing
+# its record, making the session and marking its window. Two at once could pick one name,
+# and the one tmux turned away would leave its record over the running one's; two restores
+# could each bring the same trail back. A directory, because mkdir makes it or fails in one
+# step. A lock older than five seconds is a launch that was killed in it, and is broken.
+launch_lock() {
+  mkdir -p "$STATE_DIR" 2>/dev/null
+  ll_n=0
+  until mkdir "$STATE_DIR/.launching" 2>/dev/null; do
+    ll_n=$((ll_n + 1))
+    if [ "$ll_n" -ge 50 ]; then
+      rmdir "$STATE_DIR/.launching" 2>/dev/null
+      ll_n=0
+    fi
+    sleep 0.1
+  done
+  trap 'launch_unlock' EXIT
+}
+launch_unlock() {
+  rmdir "$STATE_DIR/.launching" 2>/dev/null
+  trap - EXIT
+}
+
 launch() {
   refuse_bad_cwd
   row=$(agent_row "$1")
@@ -2037,6 +2149,14 @@ EOF
     [ -z "$name" ] || check_name "$name" 2>/dev/null || name=
   fi
 
+  launch_lock
+  # Brought back already, on this conversation, by another restore while this one waited.
+  if [ -n "$4" ] && [ -n "$3" ] && [ "$(tmux display-message -pt "=$4:" '#{@trails_id}' 2>/dev/null)" = "$3" ]; then
+    launch_unlock
+    echo "trails: $(rec_label "$4") is back already" >&2
+    exit 3
+  fi
+
   # Its session, and so its key: ws/name for a named trail, else ws/label, or ws/label-N for the
   # Nth unnamed one here. A restore asks for its old name back, and gets it unless something
   # has since taken it — a fresh agent you started in that codebase after the reboot, say —
@@ -2044,7 +2164,16 @@ EOF
   # trail would, and the old record goes with it below.
   if [ -n "$name" ]; then
     sess=$ws/$name
-    session_taken "$sess" "$4" && sess=$(next_session "$ws" "$name" "$4")
+    if session_taken "$sess" "$4"; then
+      # A new trail by a name that was free when it was checked, and was taken while this one
+      # waited: refused, as it would have been a moment later. Only a restore takes a -N.
+      [ -n "$4" ] || {
+        launch_unlock
+        echo "trails: '$name' is taken — trails ls -a shows what by" >&2
+        exit 1
+      }
+      sess=$(next_session "$ws" "$name" "$4")
+    fi
   elif [ -n "$4" ] && [ "${4%%/*}" = "$ws" ] && ! session_taken "$4" "$4"; then
     sess=$4
   else
@@ -2062,7 +2191,14 @@ EOF
   # what clears it, and that only works if the record is already there when the agent exits.
   # An agent that dies at 1.6s would otherwise outrun its own record and leave a lost row for a
   # trail that never was.
-  [ -n "$id" ] && rec_write "$sess" "$1" "$PWD" "$id" "$2" "$ws" "$label" "$name"
+  # What the key's record said before, put back if the session can't be made: two trails
+  # started at once can pick one name, and the one tmux turns away must not leave its record
+  # over the one that runs.
+  rec_prev=
+  if [ -n "$id" ]; then
+    rec_prev=$(cat "$(rec_path "$sess")" 2>/dev/null)
+    rec_write "$sess" "$1" "$PWD" "$id" "$2" "$ws" "$label" "$name"
+  fi
 
   # The agent's window is made as its session: a session of its own named after the trail,
   # holding that one window (see "Trails" above). The workspace shows it through a trail's window,
@@ -2093,19 +2229,23 @@ EOF
   # conversations only, and LAUNCH_DETACHED (before 0.4.2) made every later trails print the
   # session name instead of attaching. Nor may the editors' markers (from_editor): a server
   # started from nvim's terminal would have every later pane believe it was in nvim.
-  # Stripped here, at the one door, rather than by watching how each caller sets them.
+  # Stripped by tmux_door, the one door, rather than by watching how each caller sets them.
   #
   # -P -F hands back the new window's id, which is what every later call targets: exact, and
   # untouched by anything the user renames or re-numbers.
-  door='env -u TRAILS_PICKER -u TRAILS_YOLO_STATE -u TRAILS_MENU_CACHE -u TRAILS_RECENT_CACHE
-    -u TRAILS_RESTORE_OK -u USE_TMUX -u LAUNCH_DETACHED -u TRAILS_NAME -u TRAILS_ATTACH -u TRAILS_BACK
-    -u TRAILS_WS -u TRAILS_CLIENT -u NVIM -u ZED_TERM tmux'
   # shellcheck disable=SC2086
-  wid=$($door new-session -d -s "$sess" -n "$win" -c "$PWD" -P -F '#{window_id}' \
+  wid=$(tmux_door new-session -d -s "$sess" -n "$win" -c "$PWD" -P -F '#{window_id}' \
     sh -c "$WRAP" trails-wrap "$SELF" "$sess" "${3:+resume}" "$cmd" $args \
     \; set-option -w -t "=$sess:=$win" remain-on-exit on \
     \; set-option -qw -t "=$sess:=$win" remain-on-exit-format '' \
-    \; set-option -t "=$sess:" status off) || exit 1
+    \; set-option -t "=$sess:" status off) || {
+    if [ -n "$rec_prev" ]; then
+      printf '%s\n' "$rec_prev" >"$(rec_path "$sess")"
+    else
+      rec_forget "$sess"
+    fi
+    exit 3
+  }
   case $wid in
     @*) ;;
     *)
@@ -2126,6 +2266,7 @@ EOF
     \; set-option -w -t "$wid" @trails_name "$name" \
     \; set-option -w -t "$wid" @trails_since "$(date +%s)"
   [ -n "$id" ] && tmux set-option -w -t "$wid" @trails_id "$id"
+  launch_unlock
   ensure_window "$wid" "$sess" "$ws" >/dev/null || {
     tmux kill-session -t "=$sess" 2>/dev/null
     rec_forget "$sess"
@@ -2184,8 +2325,8 @@ ensure_window() {
     # since every route in lands on this window and would otherwise find no agent in it.
     if ! tmux list-panes -t "$ec_win" -F '#{@trails_pane}' 2>/dev/null | grep -qxE 'view|agent'; then
       ec_agent=$(tmux display-message -pt "$ec_wid" '#{@agent}' 2>/dev/null)
-      IFS='|' read -r ec_dir ec_label <<EOF
-$(tmux display-message -pt "$ec_win" '#{@trails_dir}|#{@trails_label}' 2>/dev/null)
+      IFS="$US" read -r ec_dir ec_label <<EOF
+$(tmux display-message -pt "$ec_win" "#{@trails_dir}${US}#{@trails_label}" 2>/dev/null)
 EOF
       ec_pane=$(tmux split-window -d -t "$ec_win" -c "${ec_dir:-$PWD}" -P -F '#{pane_id}' "$(attach_cmd "$ec_key")") || return 1
       tmux set-option -p -t "$ec_pane" @trails_pane agent \
@@ -2196,8 +2337,8 @@ EOF
     printf '%s\n' "$ec_win"
     return 0
   }
-  IFS='|' read -r ec_win ec_dir ec_label ec_agent <<EOF
-$(tmux display-message -pt "$ec_wid" '#{window_name}|#{@trails_dir}|#{@trails_label}|#{@agent}' 2>/dev/null)
+  IFS="$US" read -r ec_win ec_dir ec_label ec_agent <<EOF
+$(tmux display-message -pt "$ec_wid" "#{window_name}${US}#{@trails_dir}${US}#{@trails_label}${US}#{@agent}" 2>/dev/null)
 EOF
   [ -n "$ec_win" ] || return 1
   if tmux has-session -t "=$ec_ws" 2>/dev/null; then
@@ -2210,7 +2351,12 @@ EOF
   else
     set -- new-session -d -s "$ec_ws" -n "$ec_win" -c "${ec_dir:-$PWD}" -P -F '#{window_id}' "$(attach_cmd "$ec_key")"
   fi
-  ec_win=$(tmux "$@") || return 1
+  # Two trails started at once into a workspace with no session both see none: the second
+  # new-session is turned away, and its window goes into the session the first just made.
+  ec_win=$(tmux "$@" 2>/dev/null) || {
+    [ "$1" = new-session ] && tmux has-session -t "=$ec_ws" 2>/dev/null &&
+      ec_win=$(tmux new-window -d -t "=$ec_ws:" -n "$ec_win" -c "${ec_dir:-$PWD}" -P -F '#{window_id}' "$(attach_cmd "$ec_key")")
+  } || return 1
   [ -n "$ec_win" ] || return 1
   tmux set-option -t "$ec_win" @trails_workspace "$ec_ws" \
     \; set-option -w -t "$ec_win" @trails_window "$ec_key" \
@@ -2341,6 +2487,9 @@ attach_to() {
 # window: a 0.6 session gets its policy applied on the way, so one started before any of
 # that existed picks it up next time.
 attach_key() {
+  # Anything but a trail's key must not be taken for a 0.6 one: that would restyle whatever
+  # session it names.
+  key_ok "$1" || exit 1
   ak_wid=${2:-$(agent_wid "$1")}
   [ -n "$ak_wid" ] || {
     echo "trails: $(rec_label "$1") is gone" >&2
@@ -2433,14 +2582,21 @@ new_id() {
   esac
 }
 
-rec_path() { printf '%s/%s' "$STATE_DIR" "$1"; }
+# Never outside the records' directory, whatever the key: one with .. or a leading / names no
+# record.
+rec_path() {
+  case $1 in
+    /* | *..*) printf '%s/.no-such-record' "$STATE_DIR" ;;
+    *) printf '%s/%s' "$STATE_DIR" "$1" ;;
+  esac
+}
 rec_get() { sed -n "s/^$2=//p" "$(rec_path "$1")" 2>/dev/null | head -n 1; }
 rec_forget() { [ -n "$1" ] && rm -f "$(rec_path "$1")"; }
 
 # Every record's key, one per line: the 0.6 files at the top, and 1.0's one directory down.
 rec_keys() {
   [ -d "$STATE_DIR" ] || return 0
-  find "$STATE_DIR" -mindepth 1 -maxdepth 2 -type f ! -name '*.tmp' 2>/dev/null |
+  find "$STATE_DIR" -mindepth 1 -maxdepth 2 -type f ! -name '*.tmp' ! -name '*.tmp.*' 2>/dev/null |
     sed "s|^$STATE_DIR/||"
 }
 
@@ -2452,8 +2608,9 @@ rec_label() { printf '%s' "${1#"$PREFIX"}"; }
 rec_write() {
   mkdir -p "$(dirname "$(rec_path "$1")")" || return 0
   printf 'agent=%s\ndir=%s\nid=%s\nyolo=%s\ntask=\nworkspace=%s\nlabel=%s\nname=%s\n' \
-    "$2" "$3" "$4" "$5" "${6:-}" "${7:-}" "${8:-}" >"$(rec_path "$1").tmp" &&
-    mv -f "$(rec_path "$1").tmp" "$(rec_path "$1")"
+    "$2" "$3" "$4" "$5" "${6:-}" "${7:-}" "${8:-}" >"$(rec_path "$1").tmp.$$" &&
+    mv -f "$(rec_path "$1").tmp.$$" "$(rec_path "$1")"
+  rm -f "$(rec_path "$1").tmp.$$"
 }
 
 # The badge a record's trail would wear (trail_badge), from what the record kept — a 0.6
@@ -2477,8 +2634,18 @@ rec_badge() {
 rec_note_task() {
   [ -n "$2" ] && [ -f "$(rec_path "$1")" ] || return 0
   [ "$(rec_get "$1" task)" = "$2" ] && return 0
-  t=$2 awk '/^task=/ { print "task=" ENVIRON["t"]; next } 1' "$(rec_path "$1")" >"$(rec_path "$1").tmp" &&
-    mv -f "$(rec_path "$1").tmp" "$(rec_path "$1")"
+  rec_rewrite "$1" '/^task=/ { print "task=" ENVIRON["RR_V"]; next } 1' "$2"
+}
+
+# Record $1 put through awk program $2, with $3 as ENVIRON["RR_V"], only while the record is
+# there: `trails ls` rewrites records every few seconds (the menu bar), and a trail whose
+# wrapper forgot its record in the meantime must not come back as lost. Each writer has a
+# temp file of its own, so two never trade halves.
+rec_rewrite() {
+  rr=$(rec_path "$1")
+  [ -f "$rr" ] || return 0
+  RR_V=$3 awk "$2" "$rr" >"$rr.tmp.$$" 2>/dev/null && [ -f "$rr" ] && mv -f "$rr.tmp.$$" "$rr"
+  rm -f "$rr.tmp.$$"
 }
 
 # The conversation a session's claude has open *now*, by claude's own account: a file per
@@ -2623,15 +2790,14 @@ rec_note_id() {
   now=$(find_conv "$finder" "$1" "$2" "$6") || return 0
   [ -n "$now" ] && [ "$now" != "$was" ] || return 0
   if [ -f "$(rec_path "$1")" ]; then
-    awk -v i="$now" '/^id=/ { print "id=" i; next } 1' "$(rec_path "$1")" >"$(rec_path "$1").tmp" &&
-      mv -f "$(rec_path "$1").tmp" "$(rec_path "$1")" || return 0
+    rec_rewrite "$1" '/^id=/ { print "id=" ENVIRON["RR_V"]; next } 1' "$now" || return 0
   else
     mode=
     case $id_label in *"(YOLO)"*) mode=yolo ;; *) ;; esac
     # A trail's first record, written once its agent has a conversation: the rest of what a
     # record keeps is on the window.
-    w=$(tmux display-message -pt "$2" '#{@trails_ws}|#{@trails_label}|#{@trails_name}' 2>/dev/null)
-    IFS='|' read -r w_ws w_label w_name <<EOF
+    w=$(tmux display-message -pt "$2" "#{@trails_ws}${US}#{@trails_label}${US}#{@trails_name}" 2>/dev/null)
+    IFS="$US" read -r w_ws w_label w_name <<EOF
 $w
 EOF
     rec_write "$1" "$id_agent" "$5" "$now" "$mode" "$w_ws" "$w_label" "$w_name"
@@ -2747,13 +2913,13 @@ codex_conv_of() {
 # ALIVE is the one list-windows for a whole rec_dead pass; a lone question asks itself.
 rec_is_dead() {
   [ -f "$(rec_path "$1")" ] || return 1
-  rid_alive=${ALIVE:-$(tmux list-windows -a -F '#{?@trails_session,#{@trails_session},#{session_name}}|#{@trails_id}' 2>/dev/null)}
-  ! printf '%s\n' "$rid_alive" | grep -qxF "$1|$(rec_get "$1" id)"
+  rid_alive=${ALIVE:-$(tmux list-windows -a -F "#{?@trails_session,#{@trails_session},#{session_name}}${US}#{@trails_id}" 2>/dev/null)}
+  ! printf '%s\n' "$rid_alive" | grep -qxF "$1$US$(rec_get "$1" id)"
 }
 
 # Every record whose trail is not running: what died with tmux. Keys only.
 rec_dead() {
-  ALIVE=$(tmux list-windows -a -F '#{?@trails_session,#{@trails_session},#{session_name}}|#{@trails_id}' 2>/dev/null)
+  ALIVE=$(tmux list-windows -a -F "#{?@trails_session,#{@trails_session},#{session_name}}${US}#{@trails_id}" 2>/dev/null)
   rec_keys | while read -r key; do
     rec_is_dead "$key" && printf '%s\n' "$key"
   done
@@ -2789,7 +2955,15 @@ restore_one() {
   (
     LAUNCH_DETACHED=1
     launch "$agent" "$mode" "$id" "$1"
-  ) && return 0
+  )
+  ro_rc=$?
+  [ "$ro_rc" -eq 0 ] && return 0
+  # Turned away by tmux (status 3) with the trail running under its key: another restore
+  # brought it back a moment ago. Starting it fresh would be a second agent in its place.
+  if [ "$ro_rc" -eq 3 ] && [ -n "$(agent_wid "$1")" ]; then
+    echo "trails: $(rec_label "$1") is back already" >&2
+    return 0
+  fi
   # A trail that comes back under its old key overwrites its record on the way in, and a
   # launch that dies on arrival forgets what it wrote — so the record is put back between
   # the attempts, since the second reads its name and workspace from it.
@@ -2827,8 +3001,14 @@ restore_all() {
   # the next one.
   for key in $keys; do
     dir=$(rec_get "$key" dir)
+    # trails end works from anywhere; ctrl-x on a lost row only from its own directory, which
+    # is the one that's gone.
+    if [ -z "$dir" ] || [ -z "$(rec_get "$key" agent)" ]; then
+      echo "trails: skipping $(rec_label "$key") — its record is unreadable (trails end $key forgets it)" >&2
+      continue
+    fi
     if [ ! -d "$dir" ]; then
-      echo "trails: skipping $(rec_label "$key") — $dir is gone (ctrl-x its lost row, or rm $(rec_path "$key"))" >&2
+      echo "trails: skipping $(rec_label "$key") — $dir is gone (trails end $key forgets it)" >&2
       continue
     fi
     new=$(cd "$dir" && restore_one "$key") || continue
@@ -3033,12 +3213,25 @@ tool() {
     edit) mark=editor ;;
     *) mark=shell ;;
   esac
+  # An editor that isn't there would die with its pane, and say so where no one can read it.
+  if [ "$ck" = edit ]; then
+    tl_ed=${EDITOR:-nvim}
+    command -v "${tl_ed%% *}" >/dev/null 2>&1 || {
+      echo "trails: \$EDITOR is ${tl_ed%% *}, which isn't installed" >&2
+      exit 1
+    }
+  fi
   here=${2:-$PWD}
   ws='' cur_wid='' cur_kind='' cur_win='' cur_pane=''
   if [ -n "$TMUX" ] && [ -z "${2:-}" ]; then
-    # shellcheck disable=SC2086 # the -c and its client are two words on purpose
-    IFS='|' read -r cur_wid w_dir w_ws cur_kind cur_win cur_pane p_path <<EOF
-$(tmux display-message -p ${CLIENT:+-c "$CLIENT"} '#{window_id}|#{@trails_dir}|#{@trails_ws}|#{?@trails_tool,#{@trails_tool},#{@trails_companion}}|#{?@trails_window,#{@trails_window},#{@trails_cell}}|#{pane_id}|#{pane_current_path}' 2>/dev/null)
+    # The pane it was run in, from a shell; else the terminal that pressed the key (run-shell
+    # bindings pass it): -t, since -c answers for whichever client was last active.
+    tl_at=${TMUX_PANE:-$CLIENT}
+    # shellcheck disable=SC2086 # the -t and its target are two words on purpose
+    # Asked first, read after: the read's IFS would otherwise split -t from its target.
+    tl_out=$(tmux display-message -p ${tl_at:+-t "$tl_at"} "#{window_id}${US}#{@trails_dir}${US}#{@trails_ws}${US}#{?@trails_tool,#{@trails_tool},#{@trails_companion}}${US}#{?@trails_window,#{@trails_window},#{@trails_cell}}${US}#{pane_id}${US}#{pane_current_path}" 2>/dev/null)
+    IFS="$US" read -r cur_wid w_dir w_ws cur_kind cur_win cur_pane p_path <<EOF
+$tl_out
 EOF
     here=${w_dir:-${p_path:-$PWD}}
     ws=$w_ws
@@ -3110,8 +3303,8 @@ editor_cmd() {
 
 # The window of tool kind $1 for directory $3 in workspace $2, if any.
 tool_find() {
-  tmux list-windows -t "=$2" -F '#{window_id}|#{?@trails_tool,#{@trails_tool},#{@trails_companion}}|#{@trails_dir}' 2>/dev/null |
-    while IFS='|' read -r w k d; do
+  tmux list-windows -t "=$2" -F "#{window_id}${US}#{?@trails_tool,#{@trails_tool},#{@trails_companion}}${US}#{@trails_dir}" 2>/dev/null |
+    while IFS="$US" read -r w k d; do
       [ "$k" = edit ] && k=editor
       [ "$k" = "$1" ] && same_dir "$d" "$3" && printf '%s\n' "$w" && break
     done
@@ -3145,7 +3338,8 @@ tool_make() {
   else
     set -- new-session -d -s "$cm_ws" -n "$cm_name" -c "$cm_dir" -P -F '#{window_id}'
   fi
-  w=$(tmux "$@" "$(editor_cmd)")
+  # Through the door: the editor alone may be what starts the server.
+  w=$(tmux_door "$@" "$(editor_cmd)")
   [ -n "$w" ] || return 1
   tmux set-option -t "$cm_ws" @trails_workspace "$cm_ws" \
     \; set-option -w -t "$w" @trails_tool editor \
@@ -3168,8 +3362,8 @@ same_dir() {
 # and the title what the window was named for. Panes beside an agent are the trail's, and
 # have no row of their own.
 tools() {
-  tmux list-windows -a -F "#{window_id}|#{session_name}|#{?@trails_tool,#{@trails_tool},#{@trails_companion}}|#{@trails_dir}|#{@trails_ws}|#{@trails_label}|#{window_name}" 2>/dev/null |
-    while IFS='|' read -r wid sname kind dir ws label wname; do
+  tmux list-windows -a -F "#{window_id}${US}#{session_name}${US}#{?@trails_tool,#{@trails_tool},#{@trails_companion}}${US}#{@trails_dir}${US}#{@trails_ws}${US}#{@trails_label}${US}#{window_name}" 2>/dev/null |
+    while IFS="$US" read -r wid sname kind dir ws label wname; do
       [ -n "$kind" ] && [ "$sname" = "$ws" ] || continue
       if [ -n "${1:-}" ]; then
         [ "$ws" = "$1" ] || continue
@@ -3224,17 +3418,33 @@ load_notes_path() {
 # outside tmux, here.
 note_where() {
   if [ -n "$TMUX" ] && [ -z "${TMUX_PANE:-}" ] && [ -n "$CLIENT" ]; then
-    nw=$(tmux display-message -p -t "$CLIENT" '#{@trails_dir}|#{pane_current_path}' 2>/dev/null)
-    nw_dir=${nw%%|*} nw_path=${nw#*|}
+    nw=$(tmux display-message -p -t "$CLIENT" "#{@trails_dir}${US}#{pane_current_path}" 2>/dev/null)
+    nw_dir=${nw%%"$US"*} nw_path=${nw#*"$US"}
     printf '%s' "${nw_dir:-${nw_path:-$PWD}}"
     return 0
   fi
   printf '%s' "$PWD"
 }
 
+# An error, on stderr as ever, and in a popup also on tmux's message line for the terminal that
+# opened it: a popup closes as its command exits, and prefix N's is one row high, so what it
+# printed would go unread.
+say_err() {
+  echo "$1" >&2
+  [ -n "$TMUX" ] && [ -z "${TMUX_PANE:-}" ] && tmux display-message ${CLIENT:+-c "$CLIENT"} "$1" 2>/dev/null
+  return 0
+}
+
 # The codebase directory $1 is in: the repository's top, or the directory itself outside git.
 codebase_root() {
-  git -C "$1" rev-parse --show-toplevel 2>/dev/null || (cd "$1" 2>/dev/null && pwd -P) || printf '%s\n' "$1"
+  cr_dir=$1
+  # Inside .git there is no work tree to find the top of: the repository is its parent.
+  case $cr_dir in
+    */.git) cr_dir=${cr_dir%/.git} ;;
+    */.git/*) cr_dir=${cr_dir%%/.git/*} ;;
+    *) ;;
+  esac
+  git -C "$cr_dir" rev-parse --show-toplevel 2>/dev/null || (cd "$cr_dir" 2>/dev/null && pwd -P) || printf '%s\n' "$cr_dir"
 }
 
 # The notes file for directory $1: the config's path, from the codebase's root.
@@ -3243,8 +3453,12 @@ notes_file() {
   nf_path=$(load_notes_path)
   case $nf_path in
     *'{codebase}'*)
-      nf_label=$(codebase_label "$nf_root")
-      nf_path=$(printf '%s' "$nf_path" | awk -v l="$nf_label" '{ gsub(/\{codebase\}/, l); print }')
+      # As text: through ENVIRON and index, since -v eats a backslash and gsub reads & as the
+      # match, and a codebase may be named R&D.
+      nf_path=$(printf '%s' "$nf_path" | NF_LABEL=$(codebase_label "$nf_root") awk '
+        { s = $0; out = ""; t = "{codebase}"
+          while ((i = index(s, t)) > 0) { out = out substr(s, 1, i - 1) ENVIRON["NF_LABEL"]; s = substr(s, i + length(t)) }
+          print out s }')
       ;;
     *) ;;
   esac
@@ -3264,24 +3478,81 @@ notes_file() {
 note_add() {
   na_text=$(printf '%s\n' "$2" | awk '{ sub(/[ \t]+$/, "") } { l[NR] = $0 } END { while (NR > 0 && l[NR] == "") NR--; s = 1; while (s <= NR && l[s] == "") s++; for (i = s; i <= NR; i++) print l[i] }')
   [ -n "$na_text" ] || return 1
-  mkdir -p "$(dirname "$1")" || return 1
-  if [ ! -s "$1" ]; then
-    printf '# %s: notes\n\n' "$3" >"$1" || return 1
-  fi
-  # A file that doesn't end in a newline would weld the item onto its last line.
-  [ -z "$(tail -c 1 "$1")" ] || printf '\n' >>"$1"
-  printf '%s\n' "$na_text" | awk 'NR == 1 { print "- [ ] " $0; next } { print ($0 == "" ? "" : "  " $0) }' >>"$1"
+  # Status 2, and why, when the file can't be written: its folder can't be made, it is a
+  # folder, or it is read-only.
+  {
+    [ ! -d "$1" ] && mkdir -p "$(dirname "$1")" &&
+      { [ -s "$1" ] || printf '# %s: notes\n\n' "$3" >"$1"; } &&
+      # A file that doesn't end in a newline would weld the item onto its last line.
+      { [ -z "$(tail -c 1 "$1")" ] || printf '\n' >>"$1"; } &&
+      printf '%s\n' "$na_text" | awk 'NR == 1 { print "- [ ] " $0; next } { print ($0 == "" ? "" : "  " $0) }' >>"$1"
+  } 2>/dev/null || {
+    say_err "trails: can't write the notes at $(tilde_path "$1")"
+    return 2
+  }
 }
 
 # The notes in $EDITOR, made first so the editor opens on a file, not a new buffer.
 notes_open() {
+  [ -d "${1:-$PWD}" ] || {
+    say_err "trails: no such directory: ${1:-$PWD}"
+    exit 1
+  }
   no_file=$(notes_file "${1:-$PWD}")
   if [ ! -e "$no_file" ]; then
-    mkdir -p "$(dirname "$no_file")" || exit 1
-    printf '# %s: notes\n\n' "$(codebase_label "$(codebase_root "${1:-$PWD}")")" >"$no_file" || exit 1
+    { mkdir -p "$(dirname "$no_file")" &&
+      printf '# %s: notes\n\n' "$(codebase_label "$(codebase_root "${1:-$PWD}")")" >"$no_file"; } 2>/dev/null || {
+      say_err "trails: can't make the notes at $(tilde_path "$no_file")"
+      exit 1
+    }
   fi
+  no_ed=${EDITOR:-nvim}
+  command -v "${no_ed%% *}" >/dev/null 2>&1 || {
+    say_err "trails: \$EDITOR is ${no_ed%% *}, which isn't installed — the notes are in $(tilde_path "$no_file")"
+    exit 1
+  }
   # shellcheck disable=SC2086 # $EDITOR may carry its own arguments
-  exec ${EDITOR:-nvim} "$no_file"
+  exec $no_ed "$no_file"
+}
+
+# Whether this fzf takes one of the newer options the lists use, asked of fzf itself (it exits
+# 2 on an option it doesn't know) once per run: a distribution's older fzf still runs every
+# list, with the hint in a header instead of beside the prompt, a preview that is a snapshot,
+# and plain wrapping.
+fzf_ok() {
+  eval "fo_v=\${FZF_OK_$1:-}"
+  if [ -z "$fo_v" ]; then
+    case $1 in
+      ghost) fo_o=--ghost=x ;;
+      wrapword) fo_o=--preview-window=wrap-word ;;
+      listen) fo_o="--listen=${TMPDIR:-/tmp}/trails-probe-$$.sock" ;;
+      printquery) fo_o=--bind=enter:accept-or-print-query ;;
+      *) fo_o=--info-command=true ;;
+    esac
+    fo_v=no
+    # Without the test fzf's variables: a probe is no list a test drove.
+    FZF_DUMP='' FZF_PICKS='' FZF_PICK='' FZF_KEYS='' fzf "$fo_o" --filter=x </dev/null >/dev/null 2>&1 || [ $? -ne 2 ] && fo_v=yes
+    eval "FZF_OK_$1=$fo_v"
+  fi
+  [ "$fo_v" = yes ]
+}
+
+# A list's keys, as one fzf option: beside the prompt where fzf can put them there, else a
+# header line.
+hint_opt() {
+  if fzf_ok infocmd; then
+    printf "%s" "--info-command=echo '$1'"
+  else
+    printf "%s" "--header=$1"
+  fi
+}
+
+# fzf draws every list trails offers and the note line; without it, say so and how to get it,
+# rather than have the shell say "fzf: command not found" and trails exit as if all were well.
+need_fzf() {
+  command -v fzf >/dev/null 2>&1 && return 0
+  say_err "trails: needs fzf for its lists — brew install fzf (or apt install fzf)"
+  exit 1
 }
 
 # A one-line note, typed on fzf's input line: its editing, and Esc, with nothing to pick from. The
@@ -3289,9 +3560,13 @@ notes_open() {
 # which a pasted line outruns.
 # Enter prints what was typed (accept-or-print-query). Status 1 on Esc or ctrl-c.
 note_ask() {
+  need_fzf
+  na_ghost=
+  fzf_ok ghost && na_ghost='--ghost=enter: save · esc: discard · enter on an empty note: open the notes'
+  na_enter=print-query
+  fzf_ok printquery && na_enter=accept-or-print-query
   na_out=$(fzf --print-query --disabled --reverse --height=~4 --no-separator --no-info \
-    --ghost='enter: save · esc: discard · enter on an empty note: open the notes' \
-    --bind 'enter:accept-or-print-query' --prompt="$1 ▸ " </dev/null) || [ $? -eq 1 ] || return 1
+    ${na_ghost:+"$na_ghost"} --bind "enter:$na_enter" --prompt="$1 ▸ " </dev/null) || [ $? -eq 1 ] || return 1
   printf '%s\n' "$na_out" | head -n 1
 }
 
@@ -3306,7 +3581,7 @@ note_cmd() {
   nc_label=$(codebase_label "$(codebase_root "$nc_dir")")
   if [ $# -gt 0 ]; then
     note_add "$nc_file" "$*" "$nc_label" || {
-      echo "trails: nothing to note" >&2
+      [ $? -eq 2 ] || say_err "trails: nothing to note"
       exit 1
     }
     echo "trails: noted in $(tilde_path "$nc_file")"
@@ -3375,13 +3650,19 @@ popup_bg() {
 
 keys() {
   tbg=$(popup_bg)
+  # trails' path quoted for the shell that runs it, then its backslashes doubled for tmux's
+  # own double quotes: a path with a space or a ' still runs.
+  kq=$(shq "$SELF" | sed 's/\\/\\\\/g')
+  # A popup closes the moment its command exits, so a refusal printed on the way out would go
+  # unread: on a failure the picker's and the workspaces' popups wait for Enter.
+  khold='|| { echo; echo press enter to close; read -r _; }'
   cat <<EOF
 # trails: paste what you want into tmux.conf
-bind P display-popup -E -w 60% -h 70% -s bg=$tbg -S bg=$tbg,fg=brightblack '$SELF'
-bind W display-popup -E -w 60% -h 50% -s bg=$tbg -S bg=$tbg,fg=brightblack '$SELF ws'
-bind e run-shell "TRAILS_CLIENT=#{client_name} '$SELF' edit"
-bind \` run-shell "TRAILS_CLIENT=#{client_name} '$SELF' shell"
-bind N display-popup -E -w 70% -h 3 -s bg=$tbg -S bg=$tbg,fg=brightblack '$SELF note'
+bind P display-popup -E -w 60% -h 70% -s bg=$tbg -S bg=$tbg,fg=brightblack "$kq $khold"
+bind W display-popup -E -w 60% -h 50% -s bg=$tbg -S bg=$tbg,fg=brightblack "$kq ws $khold"
+bind e run-shell "TRAILS_CLIENT=#{client_name} $kq edit"
+bind \` run-shell "TRAILS_CLIENT=#{client_name} $kq shell"
+bind N display-popup -E -w 70% -h 3 -s bg=$tbg -S bg=$tbg,fg=brightblack "$kq note"
 EOF
 }
 
@@ -3394,6 +3675,9 @@ end_trail() {
     echo "trails: end takes a trail's key, as trails ls prints it (lattiq/augur-2)" >&2
     exit 1
   }
+  # Only a trail: never a workspace's session or any other by its name, and never a path out
+  # of the records' directory.
+  key_ok "$1" || exit 1
   et_wid=$(agent_wid "$1")
   [ -n "$et_wid" ] || {
     if rec_is_dead "$1"; then
@@ -3525,7 +3809,18 @@ in_map() {
 # drawn across the whole screen is redrawn the preview's width ($FZF_PREVIEW_COLUMNS) rather
 # than wrapping into a second rule. Narrower, it keeps its width: the agent drew it so.
 peek() {
-  tmux capture-pane -pet "$1" 2>/dev/null | awk -v w="${FZF_PREVIEW_COLUMNS:-0}" '
+  # Only a running trail: a window id (the picker's rows), or a trail's session by its exact
+  # name (the map's). tmux reads "-", the target of a row that is no trail, as the last window,
+  # and a name that is gone as the first session it prefixes, both some other trail's screen.
+  case $1 in
+    @*) pk=$1 ;;
+    */* | "$PREFIX"*)
+      tmux has-session -t "=$1" 2>/dev/null || return 0
+      pk="=$1:"
+      ;;
+    *) return 0 ;;
+  esac
+  tmux capture-pane -pet "$pk" 2>/dev/null | awk -v w="${FZF_PREVIEW_COLUMNS:-0}" '
     BEGIN { rule = ""; for (i = 0; i < w; i++) rule = rule "─" }
     { line = $0; plain = $0; gsub(/\033\[[0-9;:]*[A-Za-z]/, "", plain) }
     plain ~ /^[[:space:]]*$/ { held = held line "\n"; next }
@@ -3611,6 +3906,16 @@ map_menu() {
 }
 
 map() {
+  # The argument first, so a typo is named as one whatever is running; a count of more than
+  # three digits is no grid.
+  case ${1:-} in
+    '' | new) ;;
+    *[!0-9]* | 0 | 0* | ????*)
+      echo "trails: map takes a number of agents (1 or more) or 'new', not '$1'" >&2
+      exit 1
+      ;;
+    *) ;;
+  esac
   command -v tmux >/dev/null 2>&1 || {
     echo "trails: map needs tmux" >&2
     exit 1
@@ -3647,6 +3952,7 @@ map() {
   # so the grid stays in wants-you order.
   case ${1:-} in
     '' | new)
+      need_fzf
       choice=$(printf '%s\n' "$rows" | fzf --multi --reverse --no-info --ansi \
         --prompt='Map: ' --delimiter='\t' --with-nth='2..' --height=80% \
         --header='tab: pick an agent   enter: open the map' \
@@ -3701,8 +4007,8 @@ map() {
   # and ask about CLIENT, the one that asked: tmux's own guess can be a trail's nested session
   # client, a fraction of a window wide, which read as a narrow terminal and stacked the two.
   if [ -n "$TMUX" ]; then
-    # shellcheck disable=SC2086 # the -c and its client are two words on purpose
-    size=$(tmux display-message -p ${CLIENT:+-c "$CLIENT"} '#{client_width} #{client_height}' 2>/dev/null)
+    # shellcheck disable=SC2086 # the -t and its client are two words on purpose: -t, since -c answers for whichever client was last active
+    size=$(tmux display-message -p ${CLIENT:+-t "$CLIENT"} '#{client_width} #{client_height}' 2>/dev/null)
   else
     size="$(tput cols 2>/dev/null) $(tput lines 2>/dev/null)"
   fi
@@ -3770,7 +4076,16 @@ map() {
   # took this process with it before anything was rebuilt: no map, and a client sent home.
   # Not "trails_map…": a -t without "=" (is_map's) prefix-matches, and would find the build.
   build=trails_newmap
-  tmux kill-session -t "=$build" 2>/dev/null # left by a build that died halfway
+  # One left by a build that died halfway goes; one by that name that isn't a map's is yours.
+  if tmux has-session -t "=$build" 2>/dev/null; then
+    if [ "$(tmux display-message -pt "=$build:" '#{@trails_map}' 2>/dev/null)" = 1 ]; then
+      tmux kill-session -t "=$build" 2>/dev/null
+    else
+      echo "trails: a tmux session named '$build' is already here and is not ours" >&2
+      echo "        rename it (tmux rename-session -t $build <name>) and retry" >&2
+      exit 1
+    fi
+  fi
   first=$(printf '%s\n' "$names" | head -n1)
 
   tmux new-session -d -s "$build" -x "$w" -y "$h" "$(attach_cmd "$first")" || exit 1
@@ -3956,9 +4271,24 @@ swiftbar_link() {
 # which would read as the #2 badge of an unnamed trail. Free means no trail and no record
 # hold it (trail_name_taken), so a lost trail keeps its name until it is restored or forgotten.
 check_name() {
+  # An unnamed trail's session is <workspace>/<codebase>, then -2, -3: a name like the second
+  # reads as one of them, and the codebase's own name, while an unnamed trail holds it, would
+  # be numbered as if it were one.
+  cn_label=$(codebase_label "$PWD")
   case $1 in
     '') echo "trails: a name can't be empty" >&2 ;;
+    -*) echo "trails: '$1' won't do as a name — it can't start with -" >&2 ;;
     *[!A-Za-z0-9_-]*) echo "trails: '$1' won't do as a name — letters, digits, - and _ only" >&2 ;;
+    "$cn_label"-[0-9]*) echo "trails: '$1' reads as an unnamed trail of $cn_label — name it something else" >&2 ;;
+    "$cn_label")
+      if tmux list-sessions -F '#{session_name}' 2>/dev/null | grep -qx -e "[^/]*/$1"; then
+        echo "trails: '$1' is an unnamed trail of $cn_label's already — name it something else" >&2
+      elif trail_name_taken "$1"; then
+        echo "trails: '$1' is taken — trails ls -a shows what by" >&2
+      else
+        return 0
+      fi
+      ;;
     *[!0-9]*)
       if trail_name_taken "$1"; then
         echo "trails: '$1' is taken — trails ls -a shows what by" >&2
@@ -3998,9 +4328,18 @@ new_trail() {
     exit 1
   }
   check_name "$nt_name" || exit 1
-  [ -n "$nt_agent" ] || nt_agent=$(printf '%s\n' "$AGENTS" | awk -F'|' 'NR == 1 { print $1 }')
+  # The default is the first agent that is installed, as the picker offers them.
+  [ -n "$nt_agent" ] || nt_agent=$(available_agents | head -n 1)
+  [ -n "$nt_agent" ] || {
+    echo "trails: no agent to start — none in the config is on PATH (trails config lists them)" >&2
+    exit 1
+  }
   [ -n "$(agent_row "$nt_agent")" ] || {
     echo "trails: unknown agent '$nt_agent' — trails config lists them" >&2
+    exit 1
+  }
+  available_agents | grep -qxF -e "$nt_agent" || {
+    echo "trails: $nt_agent isn't installed — its program isn't on PATH" >&2
     exit 1
   }
   if [ -z "$nt_mode" ] && [ "$(load_mode)" = yolo ] && [ -n "$(yolo_flag "$nt_agent")" ]; then
@@ -4011,6 +4350,11 @@ new_trail() {
 }
 
 refuse_bad_cwd() {
+  # A directory deleted from under the shell: an agent started there would have nowhere to be.
+  pwd -P >/dev/null 2>&1 && [ -d "$PWD" ] || {
+    echo "trails: this directory is gone — cd somewhere that exists" >&2
+    exit 1
+  }
   [ "$(pwd -P)" = / ] || return 0
   echo "trails: refusing to open an agent in / — cd into a project directory" >&2
   exit 1
@@ -4051,7 +4395,8 @@ usage: trails [command]
   note [TEXT]       TEXT as a note on this codebase; without it, type the line: enter
                     saves, esc drops it, enter on an empty line opens the notes
   notes [DIR]       this codebase's notes in $EDITOR (the config's "notes" says where)
-${1}a note
+  keys              print tmux.conf lines that bind the picker, the editor, the shell and
+                    a note
   swiftbar          link the menu-bar plugin into SwiftBar (macOS); --remove unlinks
   config            the agents file: written from the built-ins the first
                     time, then opened in $EDITOR (~/.config/trails/config.json)
@@ -4087,6 +4432,33 @@ Env:
   TRAILS_RECENT_MAX   how many of them (default 5)
 EOF
 }
+
+# A config that is there but isn't a JSON object reads, quietly, as no workspaces, the default
+# notes path and the default mode, each loader seeing nothing. So it is checked once, first,
+# and named for what it is: not JSON (with jq's reason), empty, or not an object. help,
+# config, keys and the internals go on, as does ls, so a typo can't blank a menu bar; the rest
+# stop rather than act on a config they can't read.
+config_check() {
+  [ -f "$CONFIG" ] || return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  if [ ! -s "$CONFIG" ]; then
+    cc="is empty"
+  else
+    cc=$(jq -e 'type == "object"' "$CONFIG" 2>&1 >/dev/null)
+    case $? in
+      0) return 0 ;;
+      1) cc="is not a JSON object" ;;
+      *) cc="is not valid JSON (${cc#jq: error*: })" ;;
+    esac
+  fi
+  echo "trails: $(tilde_path "$CONFIG") $cc — fix it (trails config), or move it aside for the built-ins" >&2
+  return 1
+}
+case $1 in
+  help | -h | --help | config | keys | swiftbar | --forget | --layout | --peek) ;;
+  ls) config_check || true ;;
+  *) config_check || exit 1 ;;
+esac
 
 # The agents, read once per run. Not for what never starts or names an agent — help, config,
 # the wrapper's --forget and the editor pane's --layout, which have to work even when the
@@ -4269,6 +4641,10 @@ fi
 [ "${TRAILS_PICKER:-}" != here ] || TRAILS_PICKER=
 export TRAILS_PICKER TRAILS_WS
 
+# Every screen from here on is an fzf list.
+need_fzf
+fzf_ok infocmd || : # asked once here, not in every hint's subshell
+
 # A codebase screen in a directory no workspace claims asks once where it belongs
 # (ask_workspace), unless an earlier screen already settled it. The picker is the one place
 # that asks: `trails new` and restore say what they did and carry on.
@@ -4383,7 +4759,9 @@ hidden=
 case ${TRAILS_PICKER:-} in
   ws) set -- "$@" --height=~80% ;;
   agents) set -- "$@" --height=~80% --expect=ctrl-e,esc --bind="tab:execute-silent($0 --toggle-yolo {2})+reload($0 --print-menu)" ;;
-  *) set -- "$@" --preview="$0 --peek {2}" --preview-window="down,$pv,border-top,follow,wrap-word$hidden" \
+  *) pw_wrap=wrap
+    fzf_ok wrapword && pw_wrap=wrap-word
+    set -- "$@" --preview="$0 --peek {2}" --preview-window="down,$pv,border-top,follow,$pw_wrap$hidden" \
     --bind='ctrl-/:toggle-preview' --expect=ctrl-e,esc \
     --bind="tab:execute-silent($0 --toggle-yolo {2})+reload($0 --print-menu)" ;;
 esac
@@ -4404,12 +4782,12 @@ want=$(printf '%s\n' "$MENU" | awk -F"$TAB" '
 case ${TRAILS_PICKER:-} in
   old | workspace-old)
     set -- "$@" --prompt='Resume a trail: ' \
-      --info-command="echo '# enter: resume · tab: toggle YOLO · ctrl-e: editor · ctrl-/: preview · esc: back'"
+      "$(hint_opt "# enter: resume · tab: toggle YOLO · ctrl-e: editor · ctrl-/: preview · esc: back")"
     ;;
   ws)
     # ctrl-n names a new workspace: the name is the query, as a trail's is below.
     set -- "$@" --prompt='Pick a workspace: ' --print-query \
-      --info-command="echo '# enter: open · ctrl-n: new workspace'" \
+      "$(hint_opt "# enter: open · ctrl-n: new workspace")" \
       --bind="ctrl-n:execute-silent(touch '$TRAILS_TMP/naming')+change-prompt(Name the workspace: )+disable-search+clear-query"
     ;;
   *)
@@ -4430,21 +4808,22 @@ case ${TRAILS_PICKER:-} in
       new_keys=' · tab: toggle YOLO · ctrl-n: name it'
       set -- "$@" --bind="ctrl-n:execute-silent(touch '$TRAILS_TMP/naming')+change-prompt(Name this trail: )+disable-search+clear-query"
     fi
-    # ctrl-x ends a running trail and forgets a lost one, and the hint names only what this
-    # list has: "end", "forget", both, or — with neither — no ctrl-x at all.
+    # ctrl-x ends a running trail, forgets a lost one and closes an editor or shell window, and
+    # the hint names only what this list has — or, with none of them, no ctrl-x at all.
     x=
     printf '%s\n' "$MENU" | grep -q '^attach' && x=end
-    printf '%s\n' "$MENU" | grep -q '^restore' && x=${x:+$x or }forget
+    printf '%s\n' "$MENU" | grep -q '^restore' && x=${x:+$x, }forget
+    printf '%s\n' "$MENU" | grep -q '^tool' && x=${x:+$x, }close
     # Esc goes up from both main screens, but not out of an editor's one codebase.
     up=' · esc: up'
     [ -n "${TRAILS_PICKER:-}" ] || ! from_editor || up=
     if [ "${TRAILS_PICKER:-}" = agents ]; then
-      set -- "$@" --info-command="echo '# enter: start$new_keys · ctrl-e: editor · esc: back'"
+      set -- "$@" "$(hint_opt "# enter: start$new_keys · ctrl-e: editor · esc: back")"
     elif [ -n "$x" ]; then
-      set -- "$@" --info-command="echo '# enter: open$new_keys · ctrl-e: editor · ctrl-/: preview · ctrl-x: $x$up'" \
+      set -- "$@" "$(hint_opt "# enter: open$new_keys · ctrl-e: editor · ctrl-/: preview · ctrl-x: $x$up")" \
         --bind="ctrl-x:execute-silent($0 --kill {2})+reload($0 --print-menu)"
     else
-      set -- "$@" --info-command="echo '# enter: open$new_keys · ctrl-e: editor · ctrl-/: preview$up'"
+      set -- "$@" "$(hint_opt "# enter: open$new_keys · ctrl-e: editor · ctrl-/: preview$up")"
     fi
     ;;
 esac
@@ -4456,7 +4835,7 @@ ticker=
 case ${TRAILS_PICKER:-} in
   ws | agents) ;;
   *)
-    if command -v curl >/dev/null 2>&1; then
+    if command -v curl >/dev/null 2>&1 && fzf_ok listen; then
       set -- "$@" --listen="$TRAILS_TMP/fzf.sock"
       ticker=$(preview_ticker "$TRAILS_TMP/fzf.sock")
     fi
@@ -4525,8 +4904,16 @@ fi
 # codebase from a directory picked under ~, and then that codebase's screen.
 if [ -n "$named" ] && [ "${TRAILS_PICKER:-}" = ws ]; then
   check_ws_name "$query" || exit 1
+  if [ "$query" = default ] || printf '%s\n' "$WORKSPACES" | cut -d'|' -f1 | grep -qxF -e "$query"; then
+    echo "trails: there's a workspace $query already — pick it, or name a new one" >&2
+    exit 1
+  fi
   d=$(pick_dir "$HOME" "First codebase of $query: ")
-  [ -n "$d" ] || exit 0
+  case $? in
+    0) ;;
+    1) TRAILS_PICKER=ws exec "$SELF" ;;
+    *) exit 0 ;;
+  esac
   ws_add "$query" "$d" >&2 || exit 1
   cd "$d" || exit 1
   TRAILS_PICKER=here TRAILS_WS='' exec "$SELF"
@@ -4545,10 +4932,19 @@ fi
 
 # A "new" row on a workspace's screen carries its codebase (agent:dir), and a closed row its
 # conversation's (agent:id:dir): start there.
+# Neither an agent's name nor a conversation's ID has a ":", and a directory may: the directory
+# is what follows the first one or two, not the last.
 case $target in
   *:/*)
-    cd "${target##*:}" || exit 1
-    target=${target%:/*}
+    case $choice in
+      resume* | open*)
+        t_dir=${target#*:}
+        t_dir=${t_dir#*:}
+        ;;
+      *) t_dir=${target#*:} ;;
+    esac
+    cd "$t_dir" || exit 1
+    target=${target%":$t_dir"}
     ;;
   *) ;;
 esac

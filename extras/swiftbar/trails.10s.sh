@@ -326,6 +326,7 @@ while IFS=$'\t' read -ra f; do
   state=${f[0]:-} name=${f[1]:-} agent=${f[2]:-} yolo=${f[3]:-}
   task='' peer=''
   ((${#f[@]} >= 9)) && task=${f[${#f[@]} - 1]}
+  [ "$task" = - ] && task=  # trails ls writes - for a trail with no title
   ((${#f[@]} >= 10)) && [ "${f[8]}" != - ] && peer=${f[8]}
   [ -n "$name" ] || continue
   # trails names a running agent's state needs-you, your-turn or working; this file's logic
