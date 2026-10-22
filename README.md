@@ -146,6 +146,9 @@ trails keys         # tmux.conf lines that put all of this on a key
 With no workspaces configured, everything runs in one workspace called
 `default`, and trails behaves much as it did before 1.0.
 
+The everyday loop, and every other way trails is used, are in
+[docs/scenarios.md](docs/scenarios.md).
+
 ## Usage
 
 | Command | Does |
