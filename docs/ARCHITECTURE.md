@@ -590,7 +590,9 @@ a popup is `popup-style` itself, so on 3.8 it keeps the grey; 3.8 added
 `bg=terminal` for the terminal's own, and a tmux before it rejects the word.
 `prefix P`, `W`, `e`, `` ` `` and `N` are free in tmux 3.8's default table (`n` is
 next-window); `P` is "pick a trail", the backtick for the shell is the editors'
-own toggle-terminal key, and `N` is a note.
+own toggle-terminal key, and `N` is a note. `(` and `)` take tmux's cycling
+through every session for the workspaces alone, and `M` takes clearing the marked
+pane (which `prefix m` on it still does) for the map.
 
 `run-shell "trails keys | tmux source-file -"` in tmux.conf loads them all each time
 tmux reads it, so they follow an upgrade; the lines it prints that say so are tmux
@@ -686,6 +688,16 @@ press a key there.
 Inside the map, a shell you split off (`C-b |`) can run `trails`. The agent
 still gets its own window in its workspace, and that pane becomes a viewer of
 it.
+
+## The map a key away
+
+`prefix M` runs `trails map here` (`map_here`) through `run-shell`. With the map up
+(`is_map`) and the terminal elsewhere, it switches there; otherwise it opens
+`trails map new` in a popup on that terminal, since a run-shell job has none of its
+own. The pick is `--multi=4`, the first four rows, the ones that most want you,
+ticked on load. `trails keys`' `status-left` lists the map after the workspaces with
+a second `#{S:}` loop over the session marked `@trails_map`, so a name never sorts
+it in among them.
 
 ## The README demos
 

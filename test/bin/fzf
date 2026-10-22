@@ -18,10 +18,12 @@ if [ -n "$keys" ] && [ -f "$keys" ]; then
   keys=$(head -n 1 "$f")
   sed -i.bak 1d "$f" && rm -f "$f.bak"
 fi
-query=; expect=; esc=
+query=; expect=; esc=; multi=1
 for a in "$@"; do
   case $a in
     --print-query) query=1 ;;
+    --multi=*) multi=${a#--multi=} ;;
+    --multi) multi=999 ;;
     --expect=*)
       expect=1
       case ",${a#--expect=}," in
@@ -60,6 +62,17 @@ if [ "$FZF_PICK" = '!query' ]; then
   [ -n "$query" ] && printf '%s\n' "${FZF_QUERY:-}"
   exit 0
 fi
+# FZF_PICK=!all:REGEX picks every row that matches, up to --multi's limit, as Tab on each would.
+case $FZF_PICK in
+  '!all:'*)
+    printf '%s\n' "$rows" | while IFS= read -r row; do
+      plain=$(printf '%s' "$row" | sed 's/\x1b\[[0-9;]*m//g')
+      printf '%s' "$plain" | grep -Eq "${FZF_PICK#!all:}" && printf '%s\n' "$row"
+    done | head -n "$multi"
+    exit 0
+    ;;
+  *) ;;
+esac
 if [ "$FZF_PICK" = '!esc' ]; then
   [ -n "$esc" ] || exit 130
   [ -n "$query" ] && printf '%s\n' "${FZF_QUERY:-}"

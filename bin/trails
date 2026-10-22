@@ -3652,11 +3652,15 @@ note_cmd() {
 
 # ─── Keys ────────────────────────────────────────────────────────────────────
 # trails binds nothing (principle 2 of the design). `trails keys` prints lines for a
-# tmux.conf, to paste or ignore: the picker and the workspace picker in a popup, which
-# leaves no window behind, the editor and the shell, and a note in a popup. P, W, e, `
-# and N are free in tmux 3.8's default prefix table (p is previous-window, T pane title, E
-# even layout, n next-window, so none of those); P for "pick a trail", ` for the shell because
-# that is the editors' own toggle-terminal key, N for a note.
+# tmux.conf, to paste or ignore, or to load whole with the one run-shell line it opens with:
+# the picker and the workspace picker in a popup, which leaves no window behind, the editor
+# and the shell, a note in a popup, the previous and next workspace, the map, and the
+# workspaces and the map at the status line's left. P, W, e, ` and N are free in tmux 3.8's
+# default prefix table (p is previous-window, T pane title, E even layout, n next-window, so
+# none of those); P for "pick a trail", ` for the shell because that is the editors' own
+# toggle-terminal key, N for a note. ( and ) take tmux's cycling through every session, each
+# trail's own among them, for the workspaces alone; M takes clearing the marked pane, which
+# prefix m on it still does, for the map.
 #
 # By this script's own absolute path, not a bare `trails`: run-shell and display-popup run
 # with the server's PATH, which a server started by launchd or over ssh may not share with
@@ -3699,12 +3703,15 @@ keys() {
   # A popup closes the moment its command exits, so a refusal printed on the way out would go
   # unread: on a failure the picker's and the workspaces' popups wait for Enter.
   khold='|| { echo; echo press enter to close; read -r _; }'
-  # The running workspaces at the status line's left, the one you are on in reverse video, apart
-  # from the window you are on, which tmux underlines: tmux draws it (#{S/n:} over the sessions marked
-  # @trails_workspace) and a click switches (range=session, which tmux's own
-  # MouseDown1Status acts on). A session grouped with a workspace's, <workspace>~N, counts
-  # as that workspace.
+  # The running workspaces at the status line's left, then the map while one is up, the one you
+  # are on in reverse video, apart from the window you are on, which tmux underlines. tmux draws
+  # it (#{S/n:} over the sessions marked @trails_workspace) and a click switches (range=session,
+  # which tmux's own MouseDown1Status acts on). A session grouped with a workspace's,
+  # <workspace>~N, counts as that workspace.
   kws='#{S/n:#{?@trails_workspace,#[range=session|#{session_id}]#{?#{||:#{==:#{session_name},#{client_session}},#{m:#{session_name}~*,#{client_session}}},#[reverse] #{session_name} #[noreverse], #{session_name} }#[norange],}}'
+  # Then the map, while one is up (its session carries @trails_map): after the workspaces,
+  # by a loop of its own, so a name never sorts it in among them.
+  kws="$kws"'#{S:#{?@trails_map,#[range=session|#{session_id}]#{?#{==:#{session_name},#{client_session}},#[reverse] ▦ map #[noreverse], ▦ map }#[norange],}}'
   cat <<EOF
 # trails: one line in tmux.conf loads all of these, and follows every upgrade:
 #   run-shell "$kq keys | tmux source-file -"
@@ -3716,6 +3723,7 @@ bind \` run-shell "TRAILS_CLIENT=#{client_name} $kq shell"
 bind N display-popup -E -w 70% -h 3 -s bg=$tbg -S bg=$tbg,fg=brightblack "$kq note"
 bind ( run-shell "TRAILS_CLIENT=#{client_name} $kq ws prev"
 bind ) run-shell "TRAILS_CLIENT=#{client_name} $kq ws next"
+bind M run-shell "TRAILS_CLIENT=#{client_name} $kq map here"
 set -g status-left-length 60
 set -g status-left "${kws}│ "
 EOF
@@ -3960,13 +3968,34 @@ map_menu() {
   done | sort | cut -f2-
 }
 
+# ─── The map, a key away ─────────────────────────────────────────────────────
+# prefix M (`trails map here`): to the map, which the status line lists beside the
+# workspaces as ▦ map; or, with no map up, or on the map already, its pick in a popup on the
+# terminal that pressed it (a run-shell job has no terminal of its own) — up to four trails
+# from every workspace, the four that most want you ticked. The pick builds the map as
+# `trails map new` does, and moves that terminal to it.
+map_here() {
+  [ -n "$TMUX" ] || {
+    echo "trails: map here is prefix M's, inside tmux — trails map works outside it" >&2
+    exit 1
+  }
+  mh_on=$(tmux display-message -p ${CLIENT:+-t "$CLIENT"} '#{session_name}' 2>/dev/null)
+  if is_map && [ "$mh_on" != "$MAP" ]; then
+    switch_to "=$MAP"
+  fi
+  mh_bg=$(popup_bg)
+  exec tmux display-popup ${CLIENT:+-c "$CLIENT"} -E -w 70% -h 60% \
+    -s "bg=$mh_bg" -S "bg=$mh_bg,fg=brightblack" \
+    "env TRAILS_CLIENT=$(shq "$CLIENT") $(shq "$SELF") map new"
+}
+
 map() {
   # The argument first, so a typo is named as one whatever is running; a count of more than
   # three digits is no grid.
   case ${1:-} in
     '' | new) ;;
     *[!0-9]* | 0 | 0* | ????*)
-      echo "trails: map takes a number of agents (1 or more) or 'new', not '$1'" >&2
+      echo "trails: map takes a number of agents (1 or more), 'new' or 'here', not '$1'" >&2
       exit 1
       ;;
     *) ;;
@@ -4008,10 +4037,23 @@ map() {
   case ${1:-} in
     '' | new)
       need_fzf
-      choice=$(printf '%s\n' "$rows" | fzf --multi --reverse --no-info --ansi \
-        --prompt='Map: ' --delimiter='\t' --with-nth='2..' --height=80% \
-        --header='tab: pick an agent   enter: open the map' \
-        --preview="$0 --peek {1}" --preview-window='down,65%,border-top,follow') || exit 0
+      # Four at most, the four that most want you ticked: a 2x2 grid is as many as read well.
+      # The whole terminal or popup, the preview every row the list leaves (the prompt, the
+      # header, a row each, one spare), as the picker's: a share of it left blank rows.
+      mrows=$(stty size </dev/tty 2>/dev/null | cut -d' ' -f1)
+      case $mrows in
+        '' | *[!0-9]*) mrows=0 ;;
+        *) ;;
+      esac
+      mpv=$((mrows - 3 - $(printf '%s\n' "$rows" | wc -l)))
+      [ "$mpv" -ge 10 ] || mpv=50%
+      mpw=wrap
+      fzf_ok wrapword && mpw=wrap-word
+      choice=$(printf '%s\n' "$rows" | fzf --multi=4 --reverse --no-info --ansi \
+        --prompt='Map: ' --delimiter='\t' --with-nth='2..' \
+        --header='tab: pick a trail (4 at most)   enter: open the map' \
+        --bind 'load:first+select+down+select+down+select+down+select+first' \
+        --preview="$0 --peek {1}" --preview-window="down,$mpv,border-top,follow,$mpw") || exit 0
       names=$(printf '%s\n' "$choice" | cut -f1)
       ;;
     *[!0-9]*)
@@ -4430,8 +4472,11 @@ usage: trails [command]
                     as NAME); -y for YOLO
   ls [-a | DIR]     this directory's trails, running or not; DIR's, or -a for
                     every directory — a table, or TSV when piped
-  map [N|new]       several agents in one window — pick them, or take the N that
-                    most want you; `new` rebuilds instead of re-attaching
+  map here          prefix M: to the map; with none up, or on it, pick up to four
+                    trails from every workspace for it
+  map [N|new]       several agents in one window — pick up to four, the four that most
+                    want you ticked, or take the N that most want you; `new` rebuilds
+                    instead of re-attaching
   restore           bring back every trail that died with tmux (the lost ones), each
                     into its workspace
   ws [NAME]         pick a workspace, or go to NAME: switch (inside tmux) or attach to
@@ -4548,7 +4593,10 @@ case $1 in
   # where you are standing is not its business. You are most likely to want a map
   # from wherever you happened to walk back to.
   map)
-    map "$2"
+    case ${2:-} in
+      here) map_here ;;
+      *) map "$2" ;;
+    esac
     exit 0
     ;;
   config)

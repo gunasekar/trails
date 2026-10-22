@@ -252,6 +252,7 @@ bind ` run-shell "TRAILS_CLIENT=#{client_name} 'trails' shell"
 bind N display-popup -E -w 70% -h 3 -s bg=terminal -S bg=terminal,fg=brightblack "'trails' note"
 bind ( run-shell "TRAILS_CLIENT=#{client_name} 'trails' ws prev"
 bind ) run-shell "TRAILS_CLIENT=#{client_name} 'trails' ws next"
+bind M run-shell "TRAILS_CLIENT=#{client_name} 'trails' map here"
 set -g status-left-length 60
 set -g status-left "#{S/n:#{?@trails_workspace,…}}│ "
 ```
@@ -269,13 +270,15 @@ place of tmux's own cycling through every session, each trail's among them.
 `trails keys` prints the full `status-left`; it replaces one you have.
 
 `trails keys` prints trails' full path where these show `trails`, and the full
-format where `status-left` shows `…`. The two
-`run-shell` lines pass the terminal that pressed the key, so with two terminals
-on one workspace the right one moves. A popup closes as soon as trails exits, so
-when trails refuses something there, the picker's and the workspaces' popups
-wait for Enter to let you read why, and the note's shows it on tmux's message
-line. All five keys are unbound in
-tmux's defaults. Change any of them.
+format where `status-left` shows `…`. The `run-shell` lines pass the terminal
+that pressed the key, so with two terminals on one workspace the right one moves.
+A popup closes as soon as trails exits, so when trails refuses something there,
+the picker's and the workspaces' popups wait for Enter to let you read why, and
+the note's shows it on tmux's message line. `P`, `W`, `e`, `` ` `` and `N` are
+unbound in tmux's defaults. `(` and `)` take tmux's cycling through every session
+for the workspaces alone, and `M` takes clearing the marked pane, which `prefix m`
+on it still does, for the map (`prefix M` in [trails map](#trails-map)). Change
+any of them.
 
 A session exists while something runs in it: the first trail creates the
 workspace session, and the last one out takes it down. A session named like a
@@ -562,7 +565,7 @@ skips reading conversation history.
 window, across workspaces. Each pane is a live view of a real trail, labelled with
 its directory, its agent and what it's working on; type into any of them, and
 detach (`C-b d`) to leave them all running. `trails map` re-attaches to the map
-already up, or lets you pick a set.
+already up, or lets you pick up to four, the four that most want you ticked.
 
 Three or more are tiled. Two go side by side when the terminal is at least 160
 columns wide, since each agent wants about 80 to draw itself, and one above the
@@ -579,6 +582,17 @@ tmux, so its own keys rearrange a map you are looking at: `C-b Space` cycles the
 layouts, `C-b M-1` to `M-5` pick one, `C-b z` zooms a pane to the whole window and
 back, `C-b C-←` and friends resize, and `C-b ←↑↓→` move between panes. `main-pane-width`
 in your tmux.conf sets the big pane's share for the `main-` layouts.
+
+**The map a key away.** `prefix M` (from `trails keys`) goes to the map, which
+the status line lists after the workspaces while one is up, a click away like them:
+
+```text
+ lattiq  personal  ▦ map │ 1:gunasekar·claude  2:gunasekar·claude-2  3:trails·claude*
+```
+
+With no map up, or on the map already, it asks which trails, from every
+workspace, with the four that most want you ticked; four at most, as a 2×2 grid.
+`trails map new` asks the same way.
 
 ### Menu bar (macOS)
 
