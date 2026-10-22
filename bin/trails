@@ -1365,7 +1365,7 @@ agent_rows() {
   done
 }
 
-# The picker: one subcommand, six screens, chosen by TRAILS_PICKER (which the reload
+# The picker: one subcommand, six screens (ADR 17), chosen by TRAILS_PICKER (which the reload
 # subprocesses inherit) and, for the workspace ones, TRAILS_WS:
 #
 #   ''             this codebase: "＋ new trail…", which leads to its agents; then its running

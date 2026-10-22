@@ -1,7 +1,8 @@
 # Picker consolidation: design
 
-Status: proposed · 2026-10-21, updated 2026-10-22. Nothing here is built yet. The open questions at
-the end need an answer before any of it is, and what is decided becomes an ADR.
+Status: implemented · 2026-10-22. Proposed 2026-10-21, decided D1 to D7, then
+built in three phases. [ADR 17](../decisions/0017-one-picker-levels-not-screens.md)
+records the decisions that outlive this document.
 
 trails has grown several pickers, each added for one way in. Which one you get,
 what its rows are and what a key does there depend on where you ran it. This
@@ -339,13 +340,13 @@ flowchart LR
     P3 --> P4["4. ADR, README, help,<br/>ARCHITECTURE"]
 ```
 
-1. **The codebase tree (I6).** D5, D6 and D7. Fixes the `personal`
+1. **The codebase tree (I6).** Built: D5, D6 and D7. Fixes the `personal`
    list.
 2. **`＋ new trail…` first (I2).** Built. On a codebase's screen it replaces the agent
    rows. Decided (D2), so it can go first if preferred.
 3. **Esc goes up (I5).** Built: D4, with ctrl-c quitting from any screen.
-4. **Record it.** An ADR, and the README, `trails help` and `ARCHITECTURE.md`
-   updated to the one model.
+4. **Record it.** Done: [ADR 17](../decisions/0017-one-picker-levels-not-screens.md),
+   with the README, `trails help` and `ARCHITECTURE.md` updated at each phase.
 
 I3, I4 and I7 stay as they are by D1 and D3: Enter on a running workspace
 attaches, ctrl-n makes a workspace, and `prefix W` is the workspaces screen.

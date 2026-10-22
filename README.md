@@ -244,7 +244,10 @@ workspace that trails didn't make is refused, never added to.
 
 ### The picker
 
-One command, three screens, chosen by where it runs.
+One picker at four levels: the workspaces, a workspace, a codebase, and the
+agents to start. Where it runs decides the level it opens on. Enter goes down a
+level, Esc goes up one, and ctrl-c quits
+([ADR 17](docs/decisions/0017-one-picker-levels-not-screens.md)).
 
 **This codebase** (a shell in a repo, or an editor's terminal): **＋ new trail…**
 first, which lists the agents to start here, then its running and lost trails,

@@ -21,7 +21,7 @@ In scope:
 
 - **Starting** any agent CLI the config names, as a window in its workspace's
   session, in the directory you're in, in the agent's own mode or its YOLO flag.
-- **Finding:** the picker's three screens, `trails ls` for this directory,
+- **Finding:** the picker's levels (workspaces, workspace, codebase, agent), `trails ls` for this directory,
   `trails ls -a` for every one, and whether each agent is working or waiting on
   you.
 - **Resuming:** a record per trail that outlives tmux, `trails restore`, and
@@ -435,9 +435,11 @@ adding turns the other never sees.
 
 ## The picker
 
-One command, five screens, chosen by `TRAILS_PICKER` (which the reload
-subprocesses inherit) and, for a workspace's, `TRAILS_WS`. A bare `trails` picks
-the screen from where it runs: an editor's terminal always gets its codebase's;
+One picker at four levels, workspaces, workspace, codebase and agent
+([ADR 17](decisions/0017-one-picker-levels-not-screens.md)), each a screen chosen
+by `TRAILS_PICKER` (which the reload subprocesses inherit) and, for a
+workspace's, `TRAILS_WS`. A bare `trails` picks the level it opens on from where
+it runs: an editor's terminal always gets its codebase's;
 inside tmux a client whose session is a workspace gets that workspace's, which a
 popup over it inherits; `~` and `/` get the workspaces; anything else is a
 codebase.
