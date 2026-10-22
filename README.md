@@ -61,7 +61,7 @@ Every one of them lands on the same trails.
 
 ```console
 ~/code/checkout $ trails
-checkout (acme) ▸ Pick a trail: █   # enter: open · ctrl-e: editor · ctrl-/: preview · ctrl-x: end or forget
+checkout (acme) ▸ Pick a trail: █   # enter: open · ctrl-e: editor · ctrl-/: preview · ctrl-x: end or forget · esc: up
   ＋ new trail…
 ▌ ● needs you  claude · yolo  Add idempotency keys to payment retries
   ● your turn  claude    #2   Fix the flaky cart-total test
@@ -259,7 +259,7 @@ so the editor sees that one trail.
 its trails across its codebases, with a codebase column, and one way to start a new one:
 
 ```console
-acme ▸ Pick a trail: █   # enter: open · ctrl-e: editor · ctrl-/: preview · ctrl-x: end
+acme ▸ Pick a trail: █   # enter: open · ctrl-e: editor · ctrl-/: preview · ctrl-x: end · esc: up
 ▌ ● needs you  checkout  claude · yolo  Add idempotency keys to payment retries
   ● your turn  ledger    codex          Migrate orders to Postgres 17
   ○ lost       checkout  claude         Spike: replay Stripe webhooks
@@ -346,6 +346,8 @@ stateDiagram-v2
 | `ctrl-e` | the editor for the row's codebase (`trails edit`) |
 | `ctrl-/` | show or hide the preview: the trail's screen as it is now. Open by default when the terminal fits two columns |
 | `ctrl-x` | end a running trail, close an editor or shell window, or forget a lost one |
+| `esc` | up a level: an old list or the agents back to where they came from, a codebase's screen to its workspace's, a workspace's to the workspaces, and the workspaces out. An editor's terminal quits from its codebase's screen |
+| `ctrl-c` | quit, from any screen |
 
 `trails` refuses to open an agent in `/`. `$HOME` is fine. A directory no
 workspace claims asks which workspace its trail goes in, each time:

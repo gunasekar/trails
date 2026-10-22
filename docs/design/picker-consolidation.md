@@ -343,7 +343,7 @@ flowchart LR
    list.
 2. **`＋ new trail…` first (I2).** Built. On a codebase's screen it replaces the agent
    rows. Decided (D2), so it can go first if preferred.
-3. **Esc goes up (I5).** D4.
+3. **Esc goes up (I5).** Built: D4, with ctrl-c quitting from any screen.
 4. **Record it.** An ADR, and the README, `trails help` and `ARCHITECTURE.md`
    updated to the one model.
 

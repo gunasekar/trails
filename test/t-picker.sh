@@ -21,7 +21,7 @@ assert_eq "$(printf '%s\n' "$rows" | head -n 1 | cut -f3)" '＋ new trail…' "t
 
 # It leads to one "new trail" row per agent, the default agent first, and Esc there comes back.
 rm -f "$T/agents"
-printf '%s\n' '^agents' >"$T/pa"
+printf '%s\n' '^agents' '!esc' >"$T/pa"
 FZF_PICKS=$T/pa FZF_DUMP=$T/agents trails_bg
 wait_for 5 sh -c "grep -q '^--- 3' '$T/agents'" || fail "esc on the agents never came back: $(tr '\n' '|' <"$T/agents")"
 assert_eq "$(sed 's/\x1b\[[0-9;]*m//g' "$T/agents" | awk '/^--- /{n=$2;next} n==2' | cut -f1,2 | tr '\t\n' '  ')" "new stub new other " "the agents"

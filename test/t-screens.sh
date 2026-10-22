@@ -80,7 +80,7 @@ assert_eq "$(printf '%s\n' "$rows" | cut -f1 | tr '\n' ' ')" "browse attach " "t
 # which screen, where an empty one would work it out from the session again.
 wait_shell "$shp" || fail "the shell never came back"
 rm -f "$T/d4a"
-printf '%s\n' 'new trail…' 'ledger$' '' '' >"$T/p4a"
+printf '%s\n' 'new trail…' 'ledger$' '!esc' '' >"$T/p4a"
 type_in "$shp" "FZF_PICKS=$T/p4a FZF_DUMP=$T/d4a $TRAILS"
 wait_for 5 sh -c "grep -q '^--- 4' '$T/d4a'" || fail "esc never came back: $(plain "$T/d4a" | tr '\n' '|')"
 assert_eq "$(dumped "$T/d4a" 2 | cut -f1 | tr '\n' ' ')" \
@@ -126,10 +126,35 @@ DRIVER_DIR=$T/work/lattiq/extra/deep driver "$TRAILS" new deep
 wait_for 5 screen_has lattiq/deep 'agent id=' || fail "no trail in extra/deep"
 wait_shell "$shp" || fail "the shell never came back"
 rm -f "$T/d4d"
-printf '%s\n' 'new trail…' '' '' >"$T/p4d"
+printf '%s\n' 'new trail…' '!esc' '' >"$T/p4d"
 type_in "$shp" "FZF_PICKS=$T/p4d FZF_DUMP=$T/d4d $TRAILS"
 wait_for 5 sh -c "grep -q '^--- 3' '$T/d4d'" || fail "the tree never came back: $(plain "$T/d4d" | tr '\n' '|')"
 assert_match "$(dumped "$T/d4d" 2 | grep "^$T/work/lattiq/extra/deep$(printf '\t')" | cut -f2)" '^    extra/deep +● 1 trail$' "extra/deep, under the workspace directory"
+
+# Esc goes up a level: a codebase's screen to its workspace's, that to the workspaces, and
+# there it quits. ctrl-c quits from any of them.
+rm -f "$T/d7"
+printf '%s\n' '!esc' '!esc' '!esc' >"$T/p7"
+DRIVER_DIR=$T/work/lattiq/ledger FZF_PICKS=$T/p7 FZF_DUMP=$T/d7 driver "$TRAILS"
+wait_for 5 sh -c "grep -q '^--- 3' '$T/d7'" || fail "esc never climbed: $(plain "$T/d7" | tr '\n' '|')"
+sleep 1
+assert_eq "$(grep -c '^--- ' "$T/d7")" 3 "and quit at the top"
+assert_eq "$(dumped "$T/d7" 1 | head -n 1 | cut -f1)" agents "ledger's screen"
+assert_eq "$(dumped "$T/d7" 2 | head -n 1 | cut -f1)" browse "lattiq's"
+assert_eq "$(dumped "$T/d7" 3 | cut -f1 | sort -u)" workspace "the workspaces"
+rm -f "$T/d7b"
+printf '%s\n' '^agents' '' >"$T/p7b"
+DRIVER_DIR=$T/work/lattiq/ledger FZF_PICKS=$T/p7b FZF_DUMP=$T/d7b driver "$TRAILS"
+wait_for 5 sh -c "grep -q '^--- 2' '$T/d7b'" || fail "no agents screen"
+sleep 1
+assert_eq "$(grep -c '^--- ' "$T/d7b")" 2 "ctrl-c on the agents quits"
+
+# An editor's terminal sees one codebase: Esc on its screen quits.
+rm -f "$T/d7e"
+DRIVER_DIR=$T/work/lattiq/ledger FZF_PICK='!esc' FZF_DUMP=$T/d7e driver NVIM=1 "$TRAILS"
+wait_for 5 test -s "$T/d7e" || fail "no picker from the editor"
+sleep 1
+assert_eq "$(grep -c '^--- ' "$T/d7e")" 1 "esc in an editor quits"
 
 # ctrl-n on the workspace picker names a new workspace, takes its first codebase from the
 # directories under ~, and goes on to that codebase's screen.

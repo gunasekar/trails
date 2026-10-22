@@ -1716,15 +1716,24 @@ ws_codebase_count() {
 }
 
 # "New trail in:" over codebase_tree (workspace $1): prints the directory picked, walking
-# from a workspace directory or the root when the row says to; nothing, and status 1, on Esc.
+# from a workspace directory or the root when the row says to. Nothing, and status 1, on Esc;
+# status 2 on ctrl-c, which quits.
 pick_codebase() {
   while :; do
     choice=$(codebase_tree "$1" | fzf --reverse --ansi --delimiter="$TAB" --with-nth=2 --height=~80% \
       --info='inline:   ' --color='info:dim' --info-command="echo '# enter: pick · esc: back'" \
-      --prompt="$1 ▸ New trail in: ") || return 1
-    t=$(printf '%s' "$choice" | cut -f1)
+      --expect=esc --prompt="$1 ▸ New trail in: ") || return 2
+    [ "$(printf '%s\n' "$choice" | head -n 1)" != esc ] || return 1
+    t=$(printf '%s\n' "$choice" | sed -n 2p | cut -f1)
     case $t in
-      browse:*) d=$(walk_dir "${t#browse:}") || continue ;;
+      browse:*)
+        d=$(walk_dir "${t#browse:}")
+        case $? in
+          0) ;;
+          1) continue ;;
+          *) return 2 ;;
+        esac
+        ;;
       *) d=$t ;;
     esac
     printf '%s\n' "$d"
@@ -1733,8 +1742,8 @@ pick_codebase() {
 }
 
 # Walk the file system from $1, a folder at a time: Enter opens a folder, ".." goes up, and
-# the first row starts the trail in the folder you are in. Prints it; nothing, and status 1,
-# on Esc.
+# the first row starts the trail in the folder you are in. Prints it. Nothing, and status 1, on
+# Esc; status 2 on ctrl-c.
 walk_dir() {
   wd=$1
   while :; do
@@ -1747,7 +1756,9 @@ walk_dir() {
       done
     } | fzf --reverse --ansi --delimiter="$TAB" --with-nth=3 --height=~80% \
       --info='inline:   ' --color='info:dim' --info-command="echo '# enter: open · esc: back'" \
-      --prompt="$(tilde_path "$wd") ▸ ") || return 1
+      --expect=esc --prompt="$(tilde_path "$wd") ▸ ") || return 2
+    [ "$(printf '%s\n' "$pick" | head -n 1)" != esc ] || return 1
+    pick=$(printf '%s\n' "$pick" | sed -n 2p)
     case $pick in
       use*)
         printf '%s\n' "$wd"
@@ -1779,7 +1790,8 @@ pick_dir() {
 # goes in (D7). Every row is a workspace: "default" first, which adds the directory nowhere,
 # so Enter keeps it there; then the workspace browsed from (TRAILS_BACK), then the rest, each
 # adding the directory to it as a codebase, as `trails ws add` would. Sets TRAILS_WS, so the
-# screens that follow stop asking. Esc goes back to the workspace browsed from, or quits.
+# screens that follow stop asking. Esc goes back to the workspace browsed from, or quits, and
+# ctrl-c quits.
 ask_workspace() {
   here=$(tilde_path "$PWD")
   names=$({
@@ -1793,11 +1805,12 @@ ask_workspace() {
       printf '%s\t%-*s  %sadd it here%s\n' "$w" "$wid" "$w" "$DIM" "$RST"
     done
   } | fzf --reverse --no-info --ansi --delimiter='\t' --with-nth=2 --height=~80% \
-    --prompt="$here is in no workspace: ") || {
+    --expect=esc --prompt="$here is in no workspace: ") || exit 0
+  if [ "$(printf '%s\n' "$choice" | head -n 1)" = esc ]; then
     [ -z "${TRAILS_BACK:-}" ] || TRAILS_PICKER=workspace TRAILS_WS=$TRAILS_BACK exec "$SELF"
     exit 0
-  }
-  w=$(printf '%s' "$choice" | cut -f1)
+  fi
+  w=$(printf '%s\n' "$choice" | sed -n 2p | cut -f1)
   if [ "$w" != default ]; then
     ws_add "$w" "$PWD" >&2 || exit 1
     WORKSPACES=$(load_workspaces)
@@ -3834,6 +3847,9 @@ trails", which lists the ones that ended (esc comes back):
   ctrl-e            the editor for the row's codebase (trails edit)
   ctrl-/            show or hide the preview: the trail's screen as it is now
   ctrl-x            end a running trail, or forget a lost one
+  esc               up a level: to the codebase's workspace, then the workspaces, then out
+                    (out at once in an editor's terminal)
+  ctrl-c            quit, from any screen
 
 States — ● running, ○ not:
   ● needs you       asking you something
@@ -4121,9 +4137,9 @@ hidden=
 [ "$cols" -ge 120 ] || hidden=,hidden
 case ${TRAILS_PICKER:-} in
   ws) ;;
-  agents) set -- "$@" --expect=ctrl-e --bind="tab:execute-silent($0 --toggle-yolo {2})+reload($0 --print-menu)" ;;
+  agents) set -- "$@" --expect=ctrl-e,esc --bind="tab:execute-silent($0 --toggle-yolo {2})+reload($0 --print-menu)" ;;
   *) set -- "$@" --preview="$0 --peek {2}" --preview-window="right,50%,border-left$hidden" \
-    --bind='ctrl-/:toggle-preview' --expect=ctrl-e \
+    --bind='ctrl-/:toggle-preview' --expect=ctrl-e,esc \
     --bind="tab:execute-silent($0 --toggle-yolo {2})+reload($0 --print-menu)" ;;
 esac
 
@@ -4174,32 +4190,25 @@ case ${TRAILS_PICKER:-} in
     x=
     printf '%s\n' "$MENU" | grep -q '^attach' && x=end
     printf '%s\n' "$MENU" | grep -q '^restore' && x=${x:+$x or }forget
+    # Esc goes up from both main screens, but not out of an editor's one codebase.
+    up=' · esc: up'
+    [ -n "${TRAILS_PICKER:-}" ] || ! from_editor || up=
     if [ "${TRAILS_PICKER:-}" = agents ]; then
       set -- "$@" --info-command="echo '# enter: start$new_keys · ctrl-e: editor · esc: back'"
     elif [ -n "$x" ]; then
-      set -- "$@" --info-command="echo '# enter: open$new_keys · ctrl-e: editor · ctrl-/: preview · ctrl-x: $x'" \
+      set -- "$@" --info-command="echo '# enter: open$new_keys · ctrl-e: editor · ctrl-/: preview · ctrl-x: $x$up'" \
         --bind="ctrl-x:execute-silent($0 --kill {2})+reload($0 --print-menu)"
     else
-      set -- "$@" --info-command="echo '# enter: open$new_keys · ctrl-e: editor · ctrl-/: preview'"
+      set -- "$@" --info-command="echo '# enter: open$new_keys · ctrl-e: editor · ctrl-/: preview$up'"
     fi
     ;;
 esac
 [ -n "$want" ] && set -- "$@" --bind="load:pos($want)+unbind(load)"
 
-# Esc leaves a main list, and takes an old list back to its main one, and the agents back to
-# the screen they were reached from: the workspace's, or the codebase's.
-choice=$(printf '%s\n' "$MENU" | fzf "$@") || {
-  rm -rf "$TRAILS_TMP"
-  case ${TRAILS_PICKER:-} in
-    old) TRAILS_PICKER=here exec "$SELF" ;;
-    workspace-old) TRAILS_PICKER=workspace exec "$SELF" ;;
-    agents)
-      [ -z "${TRAILS_BACK:-}" ] || TRAILS_PICKER=workspace TRAILS_WS=$TRAILS_BACK exec "$SELF"
-      TRAILS_PICKER=here exec "$SELF"
-      ;;
-    *) exit 0 ;;
-  esac
-}
+# ctrl-c quits, from any screen. Esc goes up a level (D4 in docs/design/picker-consolidation.md):
+# fzf reports it as a key (--expect), handled below, where an abort could not tell the two apart.
+# The workspaces screen, the top, has no Esc key of its own: there it quits.
+choice=$(printf '%s\n' "$MENU" | fzf "$@") || exit 0
 
 # The main lists print the query first (--print-query), the old lists don't; the trail
 # screens print the key that ended fzf next (--expect: ctrl-e, or empty for enter).
@@ -4231,6 +4240,25 @@ target=$(printf '%s' "$choice" | cut -f2)
 
 rm -rf "$TRAILS_TMP"
 trap - EXIT INT TERM
+
+# Esc: up a level. An old list goes back to its main one, the agents to the screen they were
+# reached from, a workspace's screen to the workspaces, and a codebase's to its workspace —
+# except in an editor's terminal, which sees one codebase and quits.
+if [ "$key" = esc ]; then
+  case ${TRAILS_PICKER:-} in
+    old) TRAILS_PICKER=here exec "$SELF" ;;
+    workspace-old) TRAILS_PICKER=workspace exec "$SELF" ;;
+    agents)
+      [ -z "${TRAILS_BACK:-}" ] || TRAILS_PICKER=workspace TRAILS_WS=$TRAILS_BACK exec "$SELF"
+      TRAILS_PICKER=here exec "$SELF"
+      ;;
+    workspace) TRAILS_PICKER=ws TRAILS_WS='' exec "$SELF" ;;
+    *)
+      ! from_editor || exit 0
+      TRAILS_PICKER=workspace TRAILS_WS=$(workspace_of "$PWD" 2>/dev/null || printf '%s' "${TRAILS_WS:-default}") exec "$SELF"
+      ;;
+  esac
+fi
 
 # ctrl-n on the workspace picker: a new workspace, named by the query, given its first
 # codebase from a directory picked under ~, and then that codebase's screen.
@@ -4297,7 +4325,11 @@ case $choice in
   # "＋ new trail…": pick a directory, then an agent to start there. Esc on either comes back.
   browse*)
     d=$(pick_codebase "$TRAILS_WS")
-    [ -n "$d" ] || TRAILS_PICKER=workspace exec "$SELF"
+    case $? in
+      0) ;;
+      1) TRAILS_PICKER=workspace exec "$SELF" ;;
+      *) exit 0 ;;
+    esac
     cd "$d" || exit 1
     TRAILS_BACK=$TRAILS_WS TRAILS_PICKER=agents TRAILS_WS='' exec "$SELF"
     ;;

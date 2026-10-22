@@ -449,6 +449,12 @@ codebase.
 | a workspace | `workspace` | `＋ new trail…` (the codebase tree, then the agents screen), its running and lost trails and windows across its codebases with a codebase column, `↩ resume old trails` |
 | its ended conversations | `workspace-old` | |
 | a codebase's agents | `agents` | a `new` row per agent, for the codebase `＋ new trail…` was picked on or for; Esc goes back to the workspace it was reached from (`TRAILS_BACK`), else the codebase |
+
+Esc goes up a level on every screen (D4 in `docs/design/picker-consolidation.md`):
+the screens name it in `--expect`, so fzf reports it as a key, and the dispatch
+execs the screen above — a codebase's to its workspace's, a workspace's to the
+workspaces. The workspaces screen has no Esc key, so there it aborts. An abort
+(ctrl-c) quits from anywhere, and an editor's terminal quits on Esc too.
 | the workspaces | `ws` | one row each with what runs in it, the last attached marked and under the cursor |
 
 `print_menu` builds TSV rows of `verb`, `target`, `what's drawn`. fzf draws only
@@ -658,7 +664,8 @@ would:
   opens), and with ctrl-n among `$FZF_KEYS` runs the bound command so `$FZF_QUERY`
   becomes the name typed. `$FZF_PICKS` and `$FZF_KEYS` may name files whose lines
   are taken one per fzf, so a test can drive a screen that leads to another;
-  `$FZF_KEY` is what `--expect` reports. No match is Esc.
+  `$FZF_KEY` is what `--expect` reports. No match is an abort, ctrl-c, and
+  `FZF_PICK=!esc` is Esc, reported as the key where `--expect` names it.
 - **`ed`** plays the editor: it says where it opened and waits for `exit`.
 
 A test that needs trails attached, or fzf on a terminal, runs it in a *driver*: a session

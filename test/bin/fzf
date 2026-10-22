@@ -1,7 +1,9 @@
 #!/bin/sh
 # A stand-in for fzf, so a test can drive the picker without a keyboard. It reads the rows
 # on stdin and prints the first whose drawn text matches $FZF_PICK (an extended regex,
-# matched with the colour codes stripped). No match, or no FZF_PICK, is Esc: exit 130.
+# matched with the colour codes stripped). No match, or no FZF_PICK, is an abort, as ctrl-c
+# is: exit 130. FZF_PICK=!esc is Esc: the key, where --expect names esc as the picker's
+# screens do, and an abort where it does not, as fzf's own Esc is.
 #
 # With --print-query among the arguments it prints $FZF_QUERY first, as fzf does, which
 # is how the picker's ctrl-n carries a trail's name. $FZF_KEYS names the keys a test
@@ -15,11 +17,17 @@ if [ -n "$keys" ] && [ -f "$keys" ]; then
   keys=$(head -n 1 "$f")
   sed -i.bak 1d "$f" && rm -f "$f.bak"
 fi
-query=; expect=
+query=; expect=; esc=
 for a in "$@"; do
   case $a in
     --print-query) query=1 ;;
-    --expect=*) expect=1 ;;
+    --expect=*)
+      expect=1
+      case ",${a#--expect=}," in
+        *,esc,*) esc=1 ;;
+        *) ;;
+      esac
+      ;;
     --bind=ctrl-n:execute-silent\(*)
       case ",$keys," in
         *,ctrl-n,*)
@@ -47,6 +55,12 @@ if [ -n "${FZF_PICKS:-}" ] && [ -s "$FZF_PICKS" ]; then
   sed -i.bak 1d "$FZF_PICKS" && rm -f "$FZF_PICKS.bak"
 fi
 [ -n "${FZF_PICK:-}" ] || exit 130
+if [ "$FZF_PICK" = '!esc' ]; then
+  [ -n "$esc" ] || exit 130
+  [ -n "$query" ] && printf '%s\n' "${FZF_QUERY:-}"
+  printf 'esc\n'
+  exit 0
+fi
 pick=$(printf '%s\n' "$rows" | while IFS= read -r row; do
   plain=$(printf '%s' "$row" | sed 's/\x1b\[[0-9;]*m//g')
   if printf '%s' "$plain" | grep -Eq "$FZF_PICK"; then
