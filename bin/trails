@@ -3706,7 +3706,9 @@ keys() {
   # as that workspace.
   kws='#{S/n:#{?@trails_workspace,#[range=session|#{session_id}]#{?#{||:#{==:#{session_name},#{client_session}},#{m:#{session_name}~*,#{client_session}}},#[reverse] #{session_name} #[noreverse], #{session_name} }#[norange],}}'
   cat <<EOF
-# trails: paste what you want into tmux.conf
+# trails: one line in tmux.conf loads all of these, and follows every upgrade:
+#   run-shell "$kq keys | tmux source-file -"
+# or paste what you want of them instead.
 bind P display-popup -E -w 60% -h 70% -s bg=$tbg -S bg=$tbg,fg=brightblack "$kq $khold"
 bind W display-popup -E -w 60% -h 50% -s bg=$tbg -S bg=$tbg,fg=brightblack "$kq ws $khold"
 bind e run-shell "TRAILS_CLIENT=#{client_name} $kq edit"

@@ -69,6 +69,12 @@ assert_match "$("$TRAILS" keys)" "^bind P display-popup .* \"'$TRAILS' [|][|] .*
 tmux -L keyscheck -f /dev/null new-session -d 'sleep 10'
 assert_eq "$(tmux -L keyscheck source-file "$T/keys.conf" 2>&1)" "" "tmux takes every line"
 tmux -L keyscheck kill-server 2>/dev/null
+# The one line it offers, as tmux.conf: a server started on it has the keys and the bar.
+printf '%s\n' "run-shell \"'$TRAILS' keys | tmux source-file -\"" >"$T/one.conf"
+tmux -L keysone -f "$T/one.conf" new-session -d 'sleep 10'
+wait_for 5 sh -c "tmux -L keysone list-keys -T prefix N >/dev/null 2>&1" || fail "the one line loaded no keys"
+assert_match "$(tmux -L keysone show -gv status-left)" "trails_workspace" "and the status line"
+tmux -L keysone kill-server 2>/dev/null
 assert_match "$("$TRAILS" keys)" "^bind e run-shell \"TRAILS_CLIENT=#{client_name} '$TRAILS' edit\"$" "the editor binding names the pressing client"
 case $(tmux -V) in
   "tmux 3."[0-7]*) assert_match "$("$TRAILS" keys)" 'bind P .* -s bg=default ' "default is the terminal's before 3.8" ;;

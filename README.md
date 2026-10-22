@@ -226,14 +226,25 @@ Plain tmux moves you around: the next and previous window keys, `prefix s` or
 `choose-tree`, `switch-client`. `tmux a -t acme` is the workspace and
 `tmux a -t acme/checkout` is one trail. trails sets nothing on any of it beyond
 `@trails_*` options, never touches your tmux.conf, and binds no keys: `trails keys`
-prints lines to paste if you want some. The popups take the terminal's own
-background: tmux 3.8 shades them grey by default, which a list in dim text does
-not survive. `bg=terminal` is tmux 3.8's word for it; before 3.8 the word is
-`bg=default`, and `trails keys` prints the one your tmux takes, so paste again
-after upgrading past 3.8.
+prints the lines that would, for you to take or leave. One line in tmux.conf loads
+them all from the installed trails each time tmux reads it, so they follow every
+upgrade with nothing to paste:
+
+```tmux
+run-shell "trails keys | tmux source-file -"
+```
+
+A line after it that sets the same key or option wins, which is how to change
+one. Or paste only the lines you want, below, and paste again when they change.
+The popups take the terminal's own background: tmux 3.8 shades them grey by
+default, which a list in dim text does not survive. `bg=terminal` is tmux 3.8's
+word for it; before 3.8 the word is `bg=default`, and `trails keys` prints the one
+your tmux takes.
 
 ```text
-# trails: paste what you want into tmux.conf
+# trails: one line in tmux.conf loads all of these, and follows every upgrade:
+#   run-shell "'trails' keys | tmux source-file -"
+# or paste what you want of them instead.
 bind P display-popup -E -w 60% -h 70% -s bg=terminal -S bg=terminal,fg=brightblack "'trails' || { echo; echo press enter to close; read -r _; }"
 bind W display-popup -E -w 60% -h 50% -s bg=terminal -S bg=terminal,fg=brightblack "'trails' ws || { echo; echo press enter to close; read -r _; }"
 bind e run-shell "TRAILS_CLIENT=#{client_name} 'trails' edit"

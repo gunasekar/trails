@@ -592,6 +592,10 @@ a popup is `popup-style` itself, so on 3.8 it keeps the grey; 3.8 added
 next-window); `P` is "pick a trail", the backtick for the shell is the editors'
 own toggle-terminal key, and `N` is a note.
 
+`run-shell "trails keys | tmux source-file -"` in tmux.conf loads them all each time
+tmux reads it, so they follow an upgrade; the lines it prints that say so are tmux
+comments, which the sourcing skips.
+
 `trails keys` also sets `status-left` to the running workspaces: tmux's own
 `#{S/n:…}` loop over the sessions marked `@trails_workspace`, each in a
 `range=session|ID` that tmux's stock `MouseDown1Status` binding switches to on a
