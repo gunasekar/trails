@@ -108,6 +108,9 @@ TRAILS_NAME=
 #                  starts in. Tab flips a row from it, so with "yolo" Tab is how you start one
 #                  in default mode. Closed sessions come back in the mode they last ran in
 #                  either way, and an agent with no yolo flag always runs in default mode.
+#   notes          where a codebase's notes go (see "Notes"): relative to the codebase's root,
+#                  or ~ or absolute, with {codebase} for its label. ".scratch/trails/notes.md"
+#                  without it.
 #
 # Without a file, the built-in agents below apply; `trails config` writes them out as a
 # starting point. Only agents whose command is on PATH are offered, so listing an agent you
@@ -3181,12 +3184,161 @@ tools() {
     done
 }
 
+# ─── Notes ───────────────────────────────────────────────────────────────────
+# A codebase's notes: what else to do there, caught while an agent works, so the thought
+# outlives the trail you had it in. A Markdown checklist in a file of its own, one per
+# codebase, that any editor opens:
+#
+#   - [ ] Esc on the agents list should remember the cursor
+#   - [x] Fix prefix P inside a trail
+#
+# The config's "notes" says where: a relative path is taken from the codebase's root (the
+# repository's top, or the directory itself outside git), ~ and an absolute path as written,
+# and {codebase} is the codebase's label, so one folder can hold every codebase's notes.
+# trails writes the file and nothing else: whether it is committed or ignored is the repo's
+# business.
+#
+#   trails note TEXT    add TEXT as an item
+#   trails note         a line typed for one (prefix N, from `trails keys`): Enter saves it,
+#                       Esc drops it, and Enter on an empty line opens the notes
+#   trails notes        the notes in $EDITOR
+NOTES_DEFAULT=.scratch/trails/notes.md
+
+# The config's notes path, or the default. Anything but a non-empty string is a typo, and
+# reads as the default with a warning, as a bad mode does.
+load_notes_path() {
+  np=
+  [ -f "$CONFIG" ] && np=$(jq -r 'if (.notes | type) == "string" then .notes elif .notes == null then "" else "!" end' "$CONFIG" 2>/dev/null)
+  case $np in
+    '') printf '%s' "$NOTES_DEFAULT" ;;
+    '!')
+      echo "trails: notes in $CONFIG is not a path; using $NOTES_DEFAULT" >&2
+      printf '%s' "$NOTES_DEFAULT"
+      ;;
+    *) printf '%s' "$np" ;;
+  esac
+}
+
+# The directory a note is about: in a shell, here; from a popup, the window of the terminal
+# that opened it — a trail's window says its codebase, any other the directory of its pane;
+# outside tmux, here.
+note_where() {
+  if [ -n "$TMUX" ] && [ -z "${TMUX_PANE:-}" ] && [ -n "$CLIENT" ]; then
+    nw=$(tmux display-message -p -t "$CLIENT" '#{@trails_dir}|#{pane_current_path}' 2>/dev/null)
+    nw_dir=${nw%%|*} nw_path=${nw#*|}
+    printf '%s' "${nw_dir:-${nw_path:-$PWD}}"
+    return 0
+  fi
+  printf '%s' "$PWD"
+}
+
+# The codebase directory $1 is in: the repository's top, or the directory itself outside git.
+codebase_root() {
+  git -C "$1" rev-parse --show-toplevel 2>/dev/null || (cd "$1" 2>/dev/null && pwd -P) || printf '%s\n' "$1"
+}
+
+# The notes file for directory $1: the config's path, from the codebase's root.
+notes_file() {
+  nf_root=$(codebase_root "$1")
+  nf_path=$(load_notes_path)
+  case $nf_path in
+    *'{codebase}'*)
+      nf_label=$(codebase_label "$nf_root")
+      nf_path=$(printf '%s' "$nf_path" | awk -v l="$nf_label" '{ gsub(/\{codebase\}/, l); print }')
+      ;;
+    *) ;;
+  esac
+  # shellcheck disable=SC2088 # a literal ~ from the config, expanded here
+  case $nf_path in
+    '~') nf_path=$HOME ;;
+    '~/'*) nf_path=$HOME/${nf_path#\~/} ;;
+    /*) ;;
+    *) nf_path=$nf_root/$nf_path ;;
+  esac
+  printf '%s' "$nf_path"
+}
+
+# Add a note to file $1: $2 is its text. Its first line is the item, and any more are indented
+# under it, so Markdown keeps them together. The file and its folder are made the first time,
+# under a heading naming the codebase, $3.
+note_add() {
+  na_text=$(printf '%s\n' "$2" | awk '{ sub(/[ \t]+$/, "") } { l[NR] = $0 } END { while (NR > 0 && l[NR] == "") NR--; s = 1; while (s <= NR && l[s] == "") s++; for (i = s; i <= NR; i++) print l[i] }')
+  [ -n "$na_text" ] || return 1
+  mkdir -p "$(dirname "$1")" || return 1
+  if [ ! -s "$1" ]; then
+    printf '# %s: notes\n\n' "$3" >"$1" || return 1
+  fi
+  # A file that doesn't end in a newline would weld the item onto its last line.
+  [ -z "$(tail -c 1 "$1")" ] || printf '\n' >>"$1"
+  printf '%s\n' "$na_text" | awk 'NR == 1 { print "- [ ] " $0; next } { print ($0 == "" ? "" : "  " $0) }' >>"$1"
+}
+
+# The notes in $EDITOR, made first so the editor opens on a file, not a new buffer.
+notes_open() {
+  no_file=$(notes_file "${1:-$PWD}")
+  if [ ! -e "$no_file" ]; then
+    mkdir -p "$(dirname "$no_file")" || exit 1
+    printf '# %s: notes\n\n' "$(codebase_label "$(codebase_root "${1:-$PWD}")")" >"$no_file" || exit 1
+  fi
+  # shellcheck disable=SC2086 # $EDITOR may carry its own arguments
+  exec ${EDITOR:-nvim} "$no_file"
+}
+
+# A one-line note, typed on fzf's input line: its editing, and Esc, with nothing to pick from. The
+# keys are ghost text, gone once you type: an --info-command would run a shell per keystroke,
+# which a pasted line outruns.
+# Enter prints what was typed (accept-or-print-query). Status 1 on Esc or ctrl-c.
+note_ask() {
+  na_out=$(fzf --print-query --disabled --reverse --height=~4 --no-separator --no-info \
+    --ghost='enter: save · esc: discard · enter on an empty note: open the notes' \
+    --bind 'enter:accept-or-print-query' --prompt="$1 ▸ " </dev/null) || [ $? -eq 1 ] || return 1
+  printf '%s\n' "$na_out" | head -n 1
+}
+
+# $1 single-quoted for a shell command line, its own single quotes and all.
+shq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+
+# `trails note [TEXT]`: TEXT as a note on this codebase; without it, a line typed for one,
+# and on an empty one, the notes.
+note_cmd() {
+  nc_dir=$(note_where)
+  nc_file=$(notes_file "$nc_dir")
+  nc_label=$(codebase_label "$(codebase_root "$nc_dir")")
+  if [ $# -gt 0 ]; then
+    note_add "$nc_file" "$*" "$nc_label" || {
+      echo "trails: nothing to note" >&2
+      exit 1
+    }
+    echo "trails: noted in $(tilde_path "$nc_file")"
+    return 0
+  fi
+  [ -t 0 ] || {
+    echo "trails: note takes the text, or a terminal to type it in" >&2
+    exit 1
+  }
+  nc_text=$(note_ask "Note for $nc_label") || return 0
+  if [ -z "$(printf '%s' "$nc_text" | tr -d ' \t')" ]; then
+    # In prefix N's popup, a line high, the notes get a popup of their own, opened on the same
+    # terminal once this one has closed: a client shows one popup at a time.
+    if [ -n "$TMUX" ] && [ -z "${TMUX_PANE:-}" ]; then
+      nc_bg=$(popup_bg)
+      tmux run-shell -b "sleep 0.2; tmux -S $(shq "${TMUX%%,*}") display-popup ${CLIENT:+-c $(shq "$CLIENT")} -E -w 80% -h 80% -s bg=$nc_bg -S bg=$nc_bg,fg=brightblack $(shq "$(shq "$SELF") notes $(shq "$nc_dir")")"
+      return 0
+    fi
+    notes_open "$nc_dir"
+  fi
+  note_add "$nc_file" "$nc_text" "$nc_label" || exit 1
+  [ -z "$TMUX" ] || tmux display-message ${CLIENT:+-c "$CLIENT"} "trails: noted in $(tilde_path "$nc_file")" 2>/dev/null
+  return 0
+}
+
 # ─── Keys ────────────────────────────────────────────────────────────────────
 # trails binds nothing (principle 2 of the design). `trails keys` prints lines for a
 # tmux.conf, to paste or ignore: the picker and the workspace picker in a popup, which
-# leaves no window behind, and the editor and the shell. P, W, e and ` are free in tmux 3.8's
-# default prefix table (p is previous-window, T pane title, E even layout, so none of those);
-# P for "pick a trail", ` for the shell because that is the editors' own toggle-terminal key.
+# leaves no window behind, the editor and the shell, and a note in a popup. P, W, e, `
+# and N are free in tmux 3.8's default prefix table (p is previous-window, T pane title, E
+# even layout, n next-window, so none of those); P for "pick a trail", ` for the shell because
+# that is the editors' own toggle-terminal key, N for a note.
 #
 # By this script's own absolute path, not a bare `trails`: run-shell and display-popup run
 # with the server's PATH, which a server started by launchd or over ssh may not share with
@@ -3206,7 +3358,7 @@ tools() {
 # rejects the word (a bad style, and no popup), while its popup-style was plain default,
 # so bg=default was the terminal's there. Hence the version check: this prints for the
 # tmux it runs under, and a tmux upgrade past 3.8 wants the lines pasted again.
-keys() {
+popup_bg() {
   tbg=default
   case $(tmux -V 2>/dev/null) in
     "tmux next"* | "tmux master"*) tbg=terminal ;;
@@ -3218,12 +3370,18 @@ keys() {
       ;;
     *) ;;
   esac
+  printf '%s' "$tbg"
+}
+
+keys() {
+  tbg=$(popup_bg)
   cat <<EOF
 # trails: paste what you want into tmux.conf
 bind P display-popup -E -w 80% -h 70% -s bg=$tbg -S bg=$tbg,fg=brightblack '$SELF'
 bind W display-popup -E -w 60% -h 50% -s bg=$tbg -S bg=$tbg,fg=brightblack '$SELF ws'
 bind e run-shell "TRAILS_CLIENT=#{client_name} '$SELF' edit"
 bind \` run-shell "TRAILS_CLIENT=#{client_name} '$SELF' shell"
+bind N display-popup -E -w 70% -h 3 -s bg=$tbg -S bg=$tbg,fg=brightblack '$SELF note'
 EOF
 }
 
@@ -3862,7 +4020,10 @@ usage: trails [command]
   open KEY          go to a trail by its key, as trails ls prints it, from anywhere: its
                     workspace on its window, or its session from an editor's terminal
   end KEY           end a trail by its key, as trails ls prints it, from anywhere
-  keys              print tmux.conf lines that bind the picker, the editor and the shell
+  note [TEXT]       TEXT as a note on this codebase; without it, type the line: enter
+                    saves, esc drops it, enter on an empty line opens the notes
+  notes [DIR]       this codebase's notes in $EDITOR (the config's "notes" says where)
+${1}a note
   swiftbar          link the menu-bar plugin into SwiftBar (macOS); --remove unlinks
   config            the agents file: written from the built-ins the first
                     time, then opened in $EDITOR (~/.config/trails/config.json)
@@ -3904,7 +4065,7 @@ EOF
 # config is broken. ls carries on
 # without them (only its closed rows need them), so a typo in the file can't blank a menu bar.
 case $1 in
-  help | -h | --help | config | swiftbar | keys | open | end | --forget | --layout | --peek) AGENTS= ;;
+  help | -h | --help | config | swiftbar | keys | open | end | note | notes | --forget | --layout | --peek) AGENTS= ;;
   ls | ws) AGENTS=$(load_agents) || AGENTS= ;;
   *) AGENTS=$(load_agents) || exit 1 ;;
 esac
@@ -3945,6 +4106,20 @@ case $1 in
   edit | shell)
     tool "$1" "${2:-}"
     exit 0
+    ;;
+  # A note on this codebase, or its notes (see "Notes"): from a popup, the codebase of the
+  # window it was opened over.
+  note)
+    shift
+    note_cmd "$@"
+    exit 0
+    ;;
+  notes)
+    nd=${2:-}
+    [ -n "$nd" ] || {
+      nd=$(note_where)
+    }
+    notes_open "$nd"
     ;;
   keys)
     keys

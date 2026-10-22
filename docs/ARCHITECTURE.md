@@ -556,9 +556,27 @@ and the picker's dim text is unreadable on it. The colour's name is chosen by
 `tmux -V`: in a style `bg=default` means the base style's background, which for
 a popup is `popup-style` itself, so on 3.8 it keeps the grey; 3.8 added
 `bg=terminal` for the terminal's own, and a tmux before it rejects the word.
-`prefix P`, `W`, `e` and `` ` `` are free in tmux 3.8's default table; `P` is
-"pick a trail", and the backtick for the shell is the editors' own
-toggle-terminal key.
+`prefix P`, `W`, `e`, `` ` `` and `N` are free in tmux 3.8's default table (`n` is
+next-window); `P` is "pick a trail", the backtick for the shell is the editors'
+own toggle-terminal key, and `N` is a note.
+
+## Notes
+
+A codebase's notes are a Markdown checklist in a file of its own (`note_cmd`,
+`notes_open`). Where: the config's `notes` (`load_notes_path`), relative to the
+codebase's root (`codebase_root`, the repository's top or the directory itself),
+or `~`/absolute, with `{codebase}` for `codebase_label`. Which codebase
+(`note_where`): from a popup, which has no `TMUX_PANE`, the window of the
+terminal that opened it, by `CLIENT`, a trail's window giving its ``
+and its key to sign the note with; from a shell, `$PWD`.
+
+`note_add` writes the note as `- [ ] TEXT`, any further lines indented under
+it, making the file under a `# LABEL: notes` heading the first
+time. trails writes nothing else in the repo, `.gitignore` included.
+
+Without `TEXT`, `note_ask` takes one line on fzf's input line: `--disabled` over
+nothing to pick, and `enter:accept-or-print-query`, so Enter prints what was
+typed. Esc drops it, and an empty line opens the notes (`notes_open`).
 
 ## The menu-bar plugin
 

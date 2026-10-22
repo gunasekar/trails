@@ -1,6 +1,8 @@
 #!/bin/sh
-# A stand-in editor for the companion tests: says where it opened, then waits for "exit".
+# A stand-in editor for the companion tests: says where it opened, and on what when given a
+# file, then waits for "exit".
 printf 'ed in %s\n' "$PWD"
+[ "${1:-.}" = . ] || printf 'ed on %s\n' "$1"
 while read -r line; do
   [ "$line" = exit ] && exit 0
 done

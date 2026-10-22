@@ -157,6 +157,7 @@ With no workspaces configured, everything runs in one workspace called
 | `trails ls [-a \| DIR]` | this directory's trails: running, lost when tmux died, or finished in the last 10 days. `DIR` lists that directory instead, `-a` every directory |
 | `trails open KEY` | go to a trail from anywhere, by the key `trails ls` prints (`acme/checkout-2`): its workspace on its window, or the trail alone from an editor's terminal |
 | `trails end KEY` | end a trail from anywhere, by the key `trails ls` prints (`acme/checkout-2`) |
+| `trails note [TEXT]` / `notes` | add a note on this codebase, typed on a line without `TEXT`; open its notes in `$EDITOR`. See [Notes](#notes) |
 | `trails restore` | bring back every trail lost when tmux died, each on its own conversation, into its workspace, detached |
 | `trails map [N]` | several running agents side by side in one window: re-attach to the map already up, pick a set, or take the `N` that most want you (`map new` forces a fresh pick) |
 | `trails keys` | print tmux.conf lines that put the picker in a popup and bind the editor and the shell; trails binds nothing itself |
@@ -232,10 +233,11 @@ bind P display-popup -E -w 80% -h 70% -s bg=terminal -S bg=terminal,fg=brightbla
 bind W display-popup -E -w 60% -h 50% -s bg=terminal -S bg=terminal,fg=brightblack 'trails ws'
 bind e run-shell "TRAILS_CLIENT=#{client_name} trails edit"
 bind ` run-shell "TRAILS_CLIENT=#{client_name} trails shell"
+bind N display-popup -E -w 70% -h 3 -s bg=terminal -S bg=terminal,fg=brightblack 'trails note'
 ```
 
 The two `run-shell` lines pass the terminal that pressed the key, so with two
-terminals on one workspace the right one moves. All four keys are unbound in
+terminals on one workspace the right one moves. All five keys are unbound in
 tmux's defaults. Change any of them.
 
 A session exists while something runs in it: the first trail creates the
@@ -433,6 +435,41 @@ with the editor or a shell beside it, they stay, as the codebase's editor window
 (`checkout·nvim`, or `checkout·shell` with only a shell). Nothing here is
 restored after tmux dies: an editor or a shell is reopened with one command.
 
+### Notes
+
+A thought about what else to do in a codebase, caught while an agent works on
+something else, so it outlives the trail you had it in. Each codebase has a
+notes file, a Markdown checklist that any editor opens:
+
+```markdown
+# checkout: notes
+
+- [ ] Retry budget should be per merchant
+- [x] Fix the flaky cart-total test
+```
+
+`prefix N` (from `trails keys`) opens a one-line popup, its keys shown until you
+type:
+
+```text
+Note for checkout ▸ enter: save · esc: discard · enter on an empty note: open the notes
+```
+
+A note longer than the popup scrolls sideways as you type, and is kept whole.
+
+Enter adds the note as an item. Esc drops it.
+Enter on an empty line opens the notes in `$EDITOR`, to read them, tick them off
+or add detail under an item.
+
+`trails note "TEXT"` adds one from a shell, and `trails notes` opens them. From
+the popup the codebase is the window's it opened over, from a shell the
+directory you are in, and the notes are at the codebase's root: the
+repository's top, or the directory itself outside git.
+
+They go in `.scratch/trails/notes.md` there, or where the config's `notes`
+says. trails writes the file and nothing else: commit it, or ignore `.scratch/`,
+as the repo wants.
+
 ### trails ls
 
 Plain `trails ls` lists the directory you're in, the same trails as the picker.
@@ -575,6 +612,7 @@ file in `$EDITOR`. Changing agents never needs a change to trails.
 | `default_agent` | *(optional)* listed first in the picker |
 | `mode` | *(optional)* `default` (the agent's own, prompting mode) or `yolo`: the mode a *new trail* row starts in. Tab flips a row from it, so with `yolo` Tab is how you start one in default mode. Closed trails come back in the mode they last ran in unless Tab flips them, and an agent with no `yolo` flag always runs in default mode. |
 | `map` | *(optional)* how `trails map` lays out its panes: `two` (`side`, `stacked`, or `auto`, the default, which goes side by side from 160 columns) and `layout` for three or more (a tmux layout name, `tiled` by default). See [trails map](#trails-map). |
+| `notes` | *(optional)* where a codebase's notes go: a path from the codebase's root, or `~`/absolute, with `{codebase}` for its name (`"~/notes/{codebase}.md"`). `.scratch/trails/notes.md` by default. See [Notes](#notes). |
 
 Only agents whose command is on `PATH` are offered. Recent conversations are
 read from claude's and opencode's own history, and are filed under the first

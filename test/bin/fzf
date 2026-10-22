@@ -3,7 +3,8 @@
 # on stdin and prints the first whose drawn text matches $FZF_PICK (an extended regex,
 # matched with the colour codes stripped). No match, or no FZF_PICK, is an abort, as ctrl-c
 # is: exit 130. FZF_PICK=!esc is Esc: the key, where --expect names esc as the picker's
-# screens do, and an abort where it does not, as fzf's own Esc is.
+# screens do, and an abort where it does not, as fzf's own Esc is. FZF_PICK=!query is Enter on
+# what was typed, $FZF_QUERY, with nothing picked: what accept-or-print-query does.
 #
 # With --print-query among the arguments it prints $FZF_QUERY first, as fzf does, which
 # is how the picker's ctrl-n carries a trail's name. $FZF_KEYS names the keys a test
@@ -55,6 +56,10 @@ if [ -n "${FZF_PICKS:-}" ] && [ -s "$FZF_PICKS" ]; then
   sed -i.bak 1d "$FZF_PICKS" && rm -f "$FZF_PICKS.bak"
 fi
 [ -n "${FZF_PICK:-}" ] || exit 130
+if [ "$FZF_PICK" = '!query' ]; then
+  [ -n "$query" ] && printf '%s\n' "${FZF_QUERY:-}"
+  exit 0
+fi
 if [ "$FZF_PICK" = '!esc' ]; then
   [ -n "$esc" ] || exit 130
   [ -n "$query" ] && printf '%s\n' "${FZF_QUERY:-}"
