@@ -155,7 +155,7 @@ The everyday loop, and every other way trails is used, are in
 |---|---|
 | `trails` | the picker for where you are: this codebase's trails and the agents you can start; a workspace's trails, from a shell in its tmux session; or the workspaces, from `~` |
 | `trails ws [NAME]` | pick a workspace, or go to `NAME`: switch to its session inside tmux, attach outside, landing on the trail that most wants you; its picker when nothing runs there |
-| `trails ws list` / `ws of [DIR]` / `ws add NAME [DIR]` | the workspaces in the config; the one `DIR` (here) belongs to; put `DIR` (here) in workspace `NAME`, creating it if new |
+| `trails ws list` / `ws of [DIR]` / `ws add NAME [DIR]` / `ws next`, `prev` | the workspaces in the config; the one `DIR` (here) belongs to; put `DIR` (here) in workspace `NAME`, creating it if new; the terminal to the next or previous running workspace |
 | `trails new NAME [AGENT]` | start a trail named `NAME`, with `-y` for YOLO: its session is `<workspace>/NAME`, and claude takes `NAME` as its own name, so other Claude sessions can message it by that name |
 | `trails edit` / `shell` | the editor beside the agent, or a shell along the bottom, as panes of the trail's window in the workspace (the editor alone in a window of its own when nothing runs there): made once, then selected. The window you are on says which codebase, or `DIR` after the command |
 | `trails ls [-a \| DIR]` | this directory's trails: running, lost when tmux died, or finished in the last 10 days. `DIR` lists that directory instead, `-a` every directory |
@@ -239,9 +239,26 @@ bind W display-popup -E -w 60% -h 50% -s bg=terminal -S bg=terminal,fg=brightbla
 bind e run-shell "TRAILS_CLIENT=#{client_name} 'trails' edit"
 bind ` run-shell "TRAILS_CLIENT=#{client_name} 'trails' shell"
 bind N display-popup -E -w 70% -h 3 -s bg=terminal -S bg=terminal,fg=brightblack "'trails' note"
+bind ( run-shell "TRAILS_CLIENT=#{client_name} 'trails' ws prev"
+bind ) run-shell "TRAILS_CLIENT=#{client_name} 'trails' ws next"
+set -g status-left-length 60
+set -g status-left "#{S/n:#{?@trails_workspace,…}}│ "
 ```
 
-`trails keys` prints trails' full path where these show `trails`. The two
+The last two lines put the running workspaces at the left of the status line, the
+one you are on in reverse video, apart from the window you are on, which tmux
+underlines:
+
+```text
+ lattiq  personal │ 1:gunasekar·claude  2:gunasekar·claude-2  3:trails·claude*
+```
+
+Click one to go there, or `prefix (` and `)` for the one before and after, in
+place of tmux's own cycling through every session, each trail's among them.
+`trails keys` prints the full `status-left`; it replaces one you have.
+
+`trails keys` prints trails' full path where these show `trails`, and the full
+format where `status-left` shows `…`. The two
 `run-shell` lines pass the terminal that pressed the key, so with two terminals
 on one workspace the right one moves. A popup closes as soon as trails exits, so
 when trails refuses something there, the picker's and the workspaces' popups

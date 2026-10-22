@@ -592,6 +592,14 @@ a popup is `popup-style` itself, so on 3.8 it keeps the grey; 3.8 added
 next-window); `P` is "pick a trail", the backtick for the shell is the editors'
 own toggle-terminal key, and `N` is a note.
 
+`trails keys` also sets `status-left` to the running workspaces: tmux's own
+`#{S/n:…}` loop over the sessions marked `@trails_workspace`, each in a
+`range=session|ID` that tmux's stock `MouseDown1Status` binding switches to on a
+click, the one the terminal is on in reverse video (its `client_session`, or a
+`<workspace>~N` grouped with it). Nothing of trails runs for it. `prefix (` and
+`)` run `trails ws prev` / `next` (`ws_step`): the same list, by name, round the
+end, through `switch_to`, so a grouped terminal stays grouped.
+
 ## Notes
 
 A codebase's notes are a Markdown checklist in a file of its own (`note_cmd`,

@@ -388,7 +388,7 @@ check_ws_name() {
       echo "trails: '$1' can't name a workspace: trails-<name> is a trail from trails 0.6" >&2
       return 1
       ;;
-    list | of | add)
+    list | of | add | next | prev)
       echo "trails: '$1' can't name a workspace: it is trails ws $1" >&2
       return 1
       ;;
@@ -1947,6 +1947,35 @@ ask_workspace() {
   fi
   TRAILS_WS=$w
   export TRAILS_WS
+}
+
+# `trails ws next` / `prev`: the terminal to the workspace after, or before, the one it is on,
+# in the order the status line lists them (by name, as tmux's #{S/n:} sorts), round the end.
+# Running workspaces only: one with nothing running has no session to go to. Bound to
+# prefix ( and ) by `trails keys`, in place of tmux's cycling through every session, each
+# trail's own among them.
+ws_step() {
+  [ -n "$TMUX" ] || {
+    echo "trails: ws $1 moves a terminal that is in tmux — run it from one, or bind it (trails keys)" >&2
+    exit 1
+  }
+  wst_all=$(tmux list-sessions -F "#{session_name}$TAB#{@trails_workspace}" 2>/dev/null |
+    awk -F"$TAB" '$1 == $2' | cut -f1 | LC_ALL=C sort)
+  [ -n "$wst_all" ] || {
+    echo "trails: no workspace is running" >&2
+    exit 1
+  }
+  wst_cur=$(client_ws)
+  wst_to=$(printf '%s\n' "$wst_all" | awk -v c="$wst_cur" -v d="$1" '
+    { n++; w[n] = $0; if ($0 == c) at = n }
+    END {
+      if (!at) i = (d == "next") ? 1 : n
+      else if (d == "next") i = at % n + 1
+      else i = (at + n - 2) % n + 1
+      print w[i]
+    }')
+  [ "$wst_to" != "$wst_cur" ] || return 0
+  switch_to "=$wst_to"
 }
 
 # Go to workspace $1: switch the client you are in, or attach, to its session, landing on
@@ -3670,6 +3699,12 @@ keys() {
   # A popup closes the moment its command exits, so a refusal printed on the way out would go
   # unread: on a failure the picker's and the workspaces' popups wait for Enter.
   khold='|| { echo; echo press enter to close; read -r _; }'
+  # The running workspaces at the status line's left, the one you are on in reverse video, apart
+  # from the window you are on, which tmux underlines: tmux draws it (#{S/n:} over the sessions marked
+  # @trails_workspace) and a click switches (range=session, which tmux's own
+  # MouseDown1Status acts on). A session grouped with a workspace's, <workspace>~N, counts
+  # as that workspace.
+  kws='#{S/n:#{?@trails_workspace,#[range=session|#{session_id}]#{?#{||:#{==:#{session_name},#{client_session}},#{m:#{session_name}~*,#{client_session}}},#[reverse] #{session_name} #[noreverse], #{session_name} }#[norange],}}'
   cat <<EOF
 # trails: paste what you want into tmux.conf
 bind P display-popup -E -w 60% -h 70% -s bg=$tbg -S bg=$tbg,fg=brightblack "$kq $khold"
@@ -3677,6 +3712,10 @@ bind W display-popup -E -w 60% -h 50% -s bg=$tbg -S bg=$tbg,fg=brightblack "$kq 
 bind e run-shell "TRAILS_CLIENT=#{client_name} $kq edit"
 bind \` run-shell "TRAILS_CLIENT=#{client_name} $kq shell"
 bind N display-popup -E -w 70% -h 3 -s bg=$tbg -S bg=$tbg,fg=brightblack "$kq note"
+bind ( run-shell "TRAILS_CLIENT=#{client_name} $kq ws prev"
+bind ) run-shell "TRAILS_CLIENT=#{client_name} $kq ws next"
+set -g status-left-length 60
+set -g status-left "${kws}│ "
 EOF
 }
 
@@ -4398,6 +4437,8 @@ usage: trails [command]
   ws list           the workspaces in the config, and the codebases each holds
   ws of [DIR]       the workspace DIR (here) belongs to
   ws add NAME [DIR] put DIR (here) in workspace NAME, creating it if new
+  ws next | prev    the terminal to the next or previous running workspace, as the
+                    status line lists them (prefix ( and ), from trails keys)
   edit | shell      the editor ($EDITOR) beside the agent, or a shell along the bottom,
                     as panes of the trail's window in the workspace (the editor alone
                     in a window of its own when nothing runs there): made once, then
@@ -4409,8 +4450,8 @@ usage: trails [command]
   note [TEXT]       TEXT as a note on this codebase; without it, type the line: enter
                     saves, esc drops it, enter on an empty line opens the notes
   notes [DIR]       this codebase's notes in $EDITOR (the config's "notes" says where)
-  keys              print tmux.conf lines that bind the picker, the editor, the shell and
-                    a note
+  keys              print tmux.conf lines that bind the picker, the editor, the shell,
+                    a note and the workspaces, and list the workspaces in the status line
   swiftbar          link the menu-bar plugin into SwiftBar (macOS); --remove unlinks
   config            the agents file: written from the built-ins the first
                     time, then opened in $EDITOR (~/.config/trails/config.json)
@@ -4572,6 +4613,10 @@ case $1 in
       of | add | list)
         [ "$1" = list ] && shift
         ws_cmd "$@"
+        exit $?
+        ;;
+      next | prev)
+        ws_step "$1"
         exit $?
         ;;
       -*)

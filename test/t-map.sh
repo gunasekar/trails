@@ -65,7 +65,7 @@ assert_match "$(cd "$T" && "$TRAILS" open nope 2>&1)" 'no trail nope' "a key tha
 before=$(tmux list-keys | wc -l)
 assert_match "$("$TRAILS" keys)" "^bind P display-popup .* \"'$TRAILS' [|][|] .*press enter to close.*\"$" "the picker binding, by absolute path, waiting on a failure"
 # Every line is one tmux takes, on a server of its own.
-"$TRAILS" keys | grep '^bind' >"$T/keys.conf"
+"$TRAILS" keys | grep -v '^#' >"$T/keys.conf"
 tmux -L keyscheck -f /dev/null new-session -d 'sleep 10'
 assert_eq "$(tmux -L keyscheck source-file "$T/keys.conf" 2>&1)" "" "tmux takes every line"
 tmux -L keyscheck kill-server 2>/dev/null
