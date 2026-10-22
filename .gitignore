@@ -1,2 +1,34 @@
+# OS files
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+
+# Editors
+.idea/
+.vscode/
+.zed/
+*.sw?
+*~
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+.envrc
+*.key
+*.pem
+
+# Temporary files and logs
+.tmp/
+*.tmp
+*.bak
+*.log
+
+# Claude Code's per-machine settings
+.claude/settings.local.json
+
+# trails' own notes on this codebase (trails note)
 .scratch/
