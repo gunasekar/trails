@@ -341,7 +341,7 @@ flowchart LR
 
 1. **The codebase tree (I6).** D5, D6 and D7. Fixes the `personal`
    list.
-2. **`＋ new trail…` first (I2).** On a codebase's screen it replaces the agent
+2. **`＋ new trail…` first (I2).** Built. On a codebase's screen it replaces the agent
    rows. Decided (D2), so it can go first if preferred.
 3. **Esc goes up (I5).** D4.
 4. **Record it.** An ADR, and the README, `trails help` and `ARCHITECTURE.md`

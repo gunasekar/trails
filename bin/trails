@@ -27,7 +27,8 @@
 #                           `trails` there: the agent gets its own session as usual and
 #                           that pane becomes its session.
 #
-# In the picker: this directory's trails — ● running, ○ not — then the agents you can start.
+# In the picker: "＋ new trail…", which lists the agents you can start, then this directory's
+# trails — ● running, ○ not.
 # Enter opens the highlighted row (attach, restore, resume, start), tab toggles YOLO on an
 # agent or a closed session, ctrl-x ends a running session or forgets a lost one.
 #
@@ -1367,15 +1368,15 @@ agent_rows() {
 # The picker: one subcommand, six screens, chosen by TRAILS_PICKER (which the reload
 # subprocesses inherit) and, for the workspace ones, TRAILS_WS:
 #
-#   ''             this codebase: its running and lost trails — what you usually came for —
-#                  then one "<agent> · new trail" row per agent, then "↩ resume old trails"
-#                  when there are ended conversations to resume
+#   ''             this codebase: "＋ new trail…", which leads to its agents; then its running
+#                  and lost trails, then "↩ resume old trails" when there are ended
+#                  conversations to resume
 #   old            those ended conversations (closed, elsewhere), reached from that last row
-#   workspace      a workspace: its trails across its codebases, with a codebase column; then
-#                  "＋ new trail…", which picks a codebase and leads to its agents; "↩ resume
-#                  old trails"
+#   workspace      a workspace: "＋ new trail…", which picks a codebase and leads to its
+#                  agents; then its trails across its codebases, with a codebase column;
+#                  then "↩ resume old trails"
 #   workspace-old  its ended conversations
-#   agents         one "<agent> · new trail" row per agent, for the codebase picked there
+#   agents         one "<agent> · new trail" row per agent, for the codebase picked
 #   ws             the workspaces, with what runs in each (ws_menu)
 #
 # Re-run by fzf after every Tab and ctrl-x, hence a subcommand.
@@ -1536,16 +1537,17 @@ print_menu() {
     *) ;;
   esac
 
-  printf '%s\n' "$drawn" | awk -F"$TAB" -v OFS="$TAB" '$1 == "M" { print $2, $3, $4 }'
+  # The way to a new trail, first on both screens (D2 in docs/design/picker-consolidation.md):
+  # a workspace's goes through its codebase tree (codebase_tree), a codebase's straight to
+  # the agents screen.
   if [ -n "$in_ws" ]; then
-    # The way to a new trail: the workspace's codebase tree (codebase_tree),
-    # then its agents.
     more=$(ws_codebase_count "$in_ws")
     printf 'browse\t-\t＋ new trail…  %s(%s)%s\n' "$DIM" \
       "$([ "$more" -eq 1 ] && echo "1 codebase" || echo "$more codebases")" "$RST"
   else
-    agent_rows
+    printf 'agents\t-\t＋ new trail…\n'
   fi
+  printf '%s\n' "$drawn" | awk -F"$TAB" -v OFS="$TAB" '$1 == "M" { print $2, $3, $4 }'
   # The way into the old list, with what's in it.
   old=$(printf '%s\n' "$drawn" | awk -F"$TAB" '$1 == "O" { n++ } END { print n + 0 }')
   [ "$old" -gt 0 ] && printf 'more\t-\t↩ resume old trails  %s(%s)%s\n' "$DIM" \
@@ -3821,14 +3823,14 @@ usage: trails [command]
                     time, then opened in $EDITOR (~/.config/trails/config.json)
   help              this
 
-In the picker — running and lost trails, then one "new" row per agent here (in a
-workspace, "＋ new trail…": a codebase, then its agents), then "↩ resume old trails",
-which lists the ones that ended (esc comes back):
+In the picker — "＋ new trail…", which lists the agents to start here (in a workspace,
+a codebase first, then its agents), then running and lost trails, then "↩ resume old
+trails", which lists the ones that ended (esc comes back):
   enter             open it: attach, restore, resume, or start the agent
   tab               toggle YOLO (run everything unconfirmed) on an agent to start or a
                     closed trail; "mode": "yolo" in the config starts new rows armed
-  ctrl-n            name the new trail under the cursor: type the name, then enter
-                    (on the workspace picker: a new workspace)
+  ctrl-n            in the agents list, name the trail you are about to start: type the
+                    name, then enter (on the workspace picker: a new workspace)
   ctrl-e            the editor for the row's codebase (trails edit)
   ctrl-/            show or hide the preview: the trail's screen as it is now
   ctrl-x            end a running trail, or forget a lost one
@@ -4160,10 +4162,10 @@ case ${TRAILS_PICKER:-} in
     # ctrl-n turns the query into the name for the new trail under the cursor: the prompt says
     # so, and search goes off so typing the name doesn't filter that row away. The marker file
     # is how the dispatch below tells a name from a filter, since --print-query prints both.
-    # Not on a workspace's screen, which has no agent rows: its new trails start from "＋ new
-    # trail…", on the agents screen.
+    # Only on the agents screen, the one with agent rows: the others start a trail from "＋ new
+    # trail…", which leads there.
     new_keys=
-    if [ "${TRAILS_PICKER:-}" != workspace ]; then
+    if [ "${TRAILS_PICKER:-}" = agents ]; then
       new_keys=' · tab: toggle YOLO · ctrl-n: name it'
       set -- "$@" --bind="ctrl-n:execute-silent(touch '$TRAILS_TMP/naming')+change-prompt(Name this trail: )+disable-search+clear-query"
     fi
@@ -4185,13 +4187,16 @@ esac
 [ -n "$want" ] && set -- "$@" --bind="load:pos($want)+unbind(load)"
 
 # Esc leaves a main list, and takes an old list back to its main one, and the agents back to
-# the workspace they were reached from.
+# the screen they were reached from: the workspace's, or the codebase's.
 choice=$(printf '%s\n' "$MENU" | fzf "$@") || {
   rm -rf "$TRAILS_TMP"
   case ${TRAILS_PICKER:-} in
     old) TRAILS_PICKER=here exec "$SELF" ;;
     workspace-old) TRAILS_PICKER=workspace exec "$SELF" ;;
-    agents) [ -z "${TRAILS_BACK:-}" ] || TRAILS_PICKER=workspace TRAILS_WS=$TRAILS_BACK exec "$SELF" ;;
+    agents)
+      [ -z "${TRAILS_BACK:-}" ] || TRAILS_PICKER=workspace TRAILS_WS=$TRAILS_BACK exec "$SELF"
+      TRAILS_PICKER=here exec "$SELF"
+      ;;
     *) exit 0 ;;
   esac
 }
@@ -4287,6 +4292,8 @@ case $choice in
     esac
     ;;
   workspace*) ws_switch "$target" ;;
+  # "＋ new trail…" on a codebase's screen: its agents, Esc coming back here.
+  agents*) TRAILS_BACK='' TRAILS_PICKER=agents exec "$SELF" ;;
   # "＋ new trail…": pick a directory, then an agent to start there. Esc on either comes back.
   browse*)
     d=$(pick_codebase "$TRAILS_WS")

@@ -444,11 +444,11 @@ codebase.
 
 | Screen | `TRAILS_PICKER` | Rows |
 |---|---|---|
-| this codebase | *(empty)* | running and lost trails here, editor and shell windows, a `new` row per agent, `↩ resume old trails` |
+| this codebase | *(empty)* | `＋ new trail…` (the agents screen), running and lost trails here, editor and shell windows, `↩ resume old trails` |
 | its ended conversations | `old` | closed and elsewhere, from that last row; Esc goes back |
-| a workspace | `workspace` | its running and lost trails and windows across its codebases with a codebase column, `＋ new trail…`, `↩ resume old trails` |
+| a workspace | `workspace` | `＋ new trail…` (the codebase tree, then the agents screen), its running and lost trails and windows across its codebases with a codebase column, `↩ resume old trails` |
 | its ended conversations | `workspace-old` | |
-| a codebase's agents | `agents` | a `new` row per agent, for the directory `＋ new trail…` picked; Esc goes back to the workspace (`TRAILS_BACK`) |
+| a codebase's agents | `agents` | a `new` row per agent, for the codebase `＋ new trail…` was picked on or for; Esc goes back to the workspace it was reached from (`TRAILS_BACK`), else the codebase |
 | the workspaces | `ws` | one row each with what runs in it, the last attached marked and under the cursor |
 
 `print_menu` builds TSV rows of `verb`, `target`, `what's drawn`. fzf draws only
@@ -477,6 +477,7 @@ counts.
 | `open` | `agent:id:dir` | refuse, naming the process that has it |
 | `tool` | window id | an editor or shell window: switch or attach to it |
 | `browse` | | `pick_codebase`: the workspace's codebase tree (`codebase_tree`), walking the file system from a `browse:DIR` row (`walk_dir`), then the agents screen |
+| `agents` | | a codebase's "＋ new trail…": the agents screen for this directory |
 | `workspace` | name | `ws_switch`: switch or attach to its session on the trail that most wants you, or its screen |
 | `more` | | the ended-conversations screen |
 

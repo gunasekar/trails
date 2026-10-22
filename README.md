@@ -61,15 +61,23 @@ Every one of them lands on the same trails.
 
 ```console
 ~/code/checkout $ trails
-checkout (acme) ▸ Pick a trail: █   # enter: open · tab: toggle YOLO · ctrl-n: name it · ctrl-e: editor · ctrl-/: preview · ctrl-x: end or forget
+checkout (acme) ▸ Pick a trail: █   # enter: open · ctrl-e: editor · ctrl-/: preview · ctrl-x: end or forget
+  ＋ new trail…
 ▌ ● needs you  claude · yolo  Add idempotency keys to payment retries
   ● your turn  claude    #2   Fix the flaky cart-total test
   ● working    codex          Migrate orders to Postgres 17
   ○ lost       claude         Spike: replay Stripe webhooks
-  claude · new trail
+  ↩ resume old trails  (3 ended)
+```
+
+Enter on **＋ new trail…** lists the agents to start here, with Tab for YOLO and
+ctrl-n to name the trail:
+
+```console
+checkout (acme) ▸ Start an agent: █   # enter: start · tab: toggle YOLO · ctrl-n: name it · ctrl-e: editor · esc: back
+▌ claude · new trail
   codex · new trail
   cursor · new trail
-  ↩ resume old trails  (3 ended)
 ```
 
 Enter on **↩ resume old trails** opens the conversations that ended here, and Esc
@@ -238,10 +246,10 @@ workspace that trails didn't make is refused, never added to.
 
 One command, three screens, chosen by where it runs.
 
-**This codebase** (a shell in a repo, or an editor's terminal): its running and
-lost trails first, its editor and shell windows (not in an editor's terminal, which wants
-trails only), then one *new trail* row per agent, then
-**↩ resume old trails**, which opens a second list of the conversations that
+**This codebase** (a shell in a repo, or an editor's terminal): **＋ new trail…**
+first, which lists the agents to start here, then its running and lost trails,
+its editor and shell windows (not in an editor's terminal, which wants trails
+only), then **↩ resume old trails**, which opens a second list of the conversations that
 ended here (Esc goes back). The cursor starts on the trail that most wants you.
 Picking a running trail from a terminal of your own lands in the workspace on
 that trail's window; from an editor's terminal it attaches to the trail's session,
@@ -333,8 +341,8 @@ stateDiagram-v2
 | Key | Does |
 |---|---|
 | `enter` | open the row: attach, restore, resume, start the agent, or go to the editor or shell window |
-| `tab` | toggle YOLO (run everything unconfirmed) on an agent to start or a closed trail, flipping a new trail from the config's `mode` and a closed one from the mode it last ran in |
-| `ctrl-n` | name the new trail under the cursor: type the name, then Enter. On the workspace picker, a new workspace |
+| `tab` | toggle YOLO (run everything unconfirmed) on an agent to start, in the agents list, or a closed trail, flipping a new trail from the config's `mode` and a closed one from the mode it last ran in |
+| `ctrl-n` | in the agents list, name the trail you are about to start: type the name, then Enter. On the workspace picker, a new workspace |
 | `ctrl-e` | the editor for the row's codebase (`trails edit`) |
 | `ctrl-/` | show or hide the preview: the trail's screen as it is now. Open by default when the terminal fits two columns |
 | `ctrl-x` | end a running trail, close an editor or shell window, or forget a lost one |

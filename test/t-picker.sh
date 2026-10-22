@@ -14,25 +14,36 @@ menu() {
   sed 's/\x1b\[[0-9;]*m//g' "$T/menu" | grep -v '^--- '
 }
 
-# Nothing running: one "new trail" row per agent, the default agent first.
+# Nothing running: "＋ new trail…" alone.
 rows=$(menu)
-assert_eq "$(printf '%s\n' "$rows" | cut -f1,2 | tr '\t\n' '  ')" "new stub new other " "new rows only"
-assert_match "$(printf '%s\n' "$rows" | head -n 1 | cut -f3)" 'stub · new trail' "the drawn row"
+assert_eq "$(printf '%s\n' "$rows" | cut -f1 | tr '\n' ' ')" "agents " "only the way to a new trail"
+assert_eq "$(printf '%s\n' "$rows" | head -n 1 | cut -f3)" '＋ new trail…' "the drawn row"
 
-# Enter on "stub · new trail" starts one: the window proj·stub in default, the session default/proj.
-FZF_PICK='stub · new trail' trails_bg
+# It leads to one "new trail" row per agent, the default agent first, and Esc there comes back.
+rm -f "$T/agents"
+printf '%s\n' '^agents' >"$T/pa"
+FZF_PICKS=$T/pa FZF_DUMP=$T/agents trails_bg
+wait_for 5 sh -c "grep -q '^--- 3' '$T/agents'" || fail "esc on the agents never came back: $(tr '\n' '|' <"$T/agents")"
+assert_eq "$(sed 's/\x1b\[[0-9;]*m//g' "$T/agents" | awk '/^--- /{n=$2;next} n==2' | cut -f1,2 | tr '\t\n' '  ')" "new stub new other " "the agents"
+assert_eq "$(awk '/^--- /{n=$2;next} n==3' "$T/agents" | cut -f1 | head -n 1)" agents "back on the codebase's screen"
+
+# Through both screens, "＋ new trail…" then "stub · new trail".
+NEW='^agents	|stub · new trail'
+
+# Enter on "＋ new trail…", then "stub · new trail", starts one: the window proj·stub in default, the session default/proj.
+FZF_PICK="$NEW" trails_bg
 wait_for 5 has_session default/proj || fail "no session default/proj"
 wait_for 5 screen_has default/proj 'agent id=' || fail "agent never started"
 assert_eq "$(tmux list-windows -t default -F '#{window_name}')" "proj·stub" "the window"
 wid=$(tmux display-message -pt default/proj '#{window_id}')
 
-# It is now an attach row, above the new rows, targeting its window.
+# It is now an attach row, under "＋ new trail…", targeting its window.
 rows=$(menu)
-assert_eq "$(printf '%s\n' "$rows" | head -n 1 | cut -f1,2)" "attach	$wid" "attach row first"
-assert_match "$(printf '%s\n' "$rows" | head -n 1 | cut -f3)" '● (your turn|working) +stub' "drawn with its state"
+assert_eq "$(printf '%s\n' "$rows" | sed -n 2p | cut -f1,2)" "attach	$wid" "attach row under the new one"
+assert_match "$(printf '%s\n' "$rows" | sed -n 2p | cut -f3)" '● (your turn|working) +stub' "drawn with its state"
 
 # A second unnamed trail here is the -2 sibling, and wears #2.
-FZF_PICK='stub · new trail' trails_bg
+FZF_PICK="$NEW" trails_bg
 wait_for 5 has_session default/proj-2 || fail "no session default/proj-2"
 wait_for 5 sh -c "[ \"\$(tmux list-windows -t default -F '#{window_name}' | sort | tr '\n' ' ')\" = 'proj·stub proj·stub-2 ' ]" || fail "no sibling window: $(tmux list-windows -t default -F '#{window_name}' | tr '\n' ' ')"
 rows=$(menu)
@@ -44,8 +55,8 @@ FZF_PICK='#2' trails_bg
 wait_for 5 sh -c "tmux list-clients -F '#{session_name} #{window_name}' | grep -q 'default proj·stub-2'" ||
   fail "picking a running trail did not attach to it"
 
-# ctrl-n, a name, Enter on a new row: the trail takes the name.
-FZF_KEYS=ctrl-n FZF_QUERY=billing FZF_PICK='stub · new trail' trails_bg
+# ctrl-n, a name, Enter on an agent's row: the trail takes the name.
+FZF_KEYS=ctrl-n FZF_QUERY=billing FZF_PICK="$NEW" trails_bg
 wait_for 5 has_session default/billing || fail "no session default/billing"
 wait_for 5 screen_has default/billing 'name=billing' || fail "the name never reached the agent"
 
@@ -65,7 +76,7 @@ assert_eq "$(tmux list-sessions -F '#{session_name}' | sort | tr '\n' ' ')" "$be
 # A codebase whose name holds an apostrophe: its key goes into the trail's window's pane
 # command, which is a shell line, and must survive it.
 mkdir -p "$T/it's"
-DRIVER_DIR="$T/it's" FZF_PICK='stub · new trail' FZF_QUERY='' FZF_KEY='' FZF_KEYS='' trails_bg
+DRIVER_DIR="$T/it's" FZF_PICK="$NEW" FZF_QUERY='' FZF_KEY='' FZF_KEYS='' trails_bg
 wait_for 5 has_session "default/it's" || fail "no session for it's: $(tmux capture-pane -pS- -t "driver-$DRIVERS" 2>&1 | grep -v '^$' | tail -4 | tr '\n' '|')"
 wait_for 5 screen_has "default/it's" 'agent id=' || fail "the agent never started in it's"
 qwin() { tmux list-windows -t default -F '#{@trails_window}' | grep -qxF "default/it's"; }

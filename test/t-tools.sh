@@ -114,15 +114,15 @@ wait_for 5 sh -c "tmux list-clients -F '#{session_name}' | grep -qx default/paym
 assert_eq "$(tmux display-message -pt "$apane" '#{@ag} #{@dir}')" "stub proj" "stamped"
 
 # The picker: panes beside an agent are the trail's, so the codebase's screen has no
-# tool window row. ctrl-e on a new row in another codebase, where nothing runs, makes that
-# codebase's editor alone and goes there; its screen lists the editor as a tool window, after
-# the trails and before the new rows, and the workspace screen under the codebase column.
+# tool window row. ctrl-e on "＋ new trail…" in another codebase, where nothing runs, makes
+# that codebase's editor alone and goes there; its screen lists the editor as a tool window,
+# under "＋ new trail…" with the trails, and the workspace screen under the codebase column.
 rm -f "$T/menu"
 FZF_PICK='' FZF_DUMP=$T/menu trails_bg
 wait_for 5 test -s "$T/menu" || fail "no picker"
-assert_eq "$(sed 's/\x1b\[[0-9;]*m//g' "$T/menu" | grep -v '^--- ' | cut -f1 | tr '\n' ' ')" "attach new new " "the trail and the new rows"
+assert_eq "$(sed 's/\x1b\[[0-9;]*m//g' "$T/menu" | grep -v '^--- ' | cut -f1 | tr '\n' ' ')" "agents attach " "the way to a new trail, then the trail"
 mkdir -p "$T/other"
-DRIVER_DIR=$T/other FZF_KEY=ctrl-e FZF_PICK='stub · new trail' driver "$TRAILS"
+DRIVER_DIR=$T/other FZF_KEY=ctrl-e FZF_PICK='^agents' driver "$TRAILS"
 wait_for 5 sh -c "tmux list-windows -t default -F '#{window_name}' | grep -qx 'other·ed'" || fail "ctrl-e made no editor"
 owid=$(tmux list-windows -t default -F '#{window_id} #{window_name}' | awk '$2 == "other·ed" { print $1 }')
 wait_for 5 screen_has "$owid" "ed in $T/other" || fail "the editor is not in that codebase"
@@ -133,7 +133,7 @@ rm -f "$T/omenu"
 DRIVER_DIR=$T/other FZF_PICK='' FZF_DUMP=$T/omenu driver "$TRAILS"
 wait_for 5 test -s "$T/omenu" || fail "no picker in other"
 orows=$(sed 's/\x1b\[[0-9;]*m//g' "$T/omenu" | grep -v '^--- ')
-assert_eq "$(printf '%s\n' "$orows" | cut -f1 | tr '\n' ' ')" "tool new new " "the editor before the new rows"
+assert_eq "$(printf '%s\n' "$orows" | cut -f1 | tr '\n' ' ')" "agents tool " "the editor under the way to a new trail"
 assert_match "$(printf '%s\n' "$orows" | grep "tool	$owid" | cut -f3)" '^editor +ed$' "the editor's row"
 rm -f "$T/wmenu"
 type_in "$mine" "FZF_DUMP=$T/wmenu $TRAILS"
@@ -144,7 +144,7 @@ assert_match "$(sed 's/\x1b\[[0-9;]*m//g' "$T/wmenu" | grep "tool	$owid" | cut -
 rm -f "$T/emenu"
 DRIVER_DIR=$T/other FZF_PICK='' FZF_DUMP=$T/emenu driver NVIM=1 "$TRAILS"
 wait_for 5 test -s "$T/emenu" || fail "no picker from the editor"
-assert_eq "$(sed 's/\x1b\[[0-9;]*m//g' "$T/emenu" | grep -v '^--- ' | cut -f1 | tr '\n' ' ')" "new new " "new rows only"
+assert_eq "$(sed 's/\x1b\[[0-9;]*m//g' "$T/emenu" | grep -v '^--- ' | cut -f1 | tr '\n' ' ')" "agents " "the way to a new trail only"
 
 # Enter on a tool window's row goes to its window.
 DRIVER_DIR=$T/other FZF_PICK="tool	$owid" driver "$TRAILS"

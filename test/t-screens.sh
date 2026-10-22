@@ -74,7 +74,7 @@ wait_for 5 test -s "$T/d4" || fail "the workspace screen never reached fzf"
 rows=$(dumped "$T/d4" 1)
 assert_match "$(printf '%s\n' "$rows" | grep '^attach' | cut -f3)" '● your turn +augur +stub' "the trail, under its codebase"
 assert_match "$(printf '%s\n' "$rows" | grep '^browse' | cut -f3)" '\(3 codebases\)' "every codebase behind the row"
-assert_eq "$(printf '%s\n' "$rows" | cut -f1 | tr '\n' ' ')" "attach browse " "in that order"
+assert_eq "$(printf '%s\n' "$rows" | cut -f1 | tr '\n' ' ')" "browse attach " "the way to a new trail first, then the trails"
 
 # Esc on the agents goes back to the workspace's screen, not the codebase's: the re-entry says
 # which screen, where an empty one would work it out from the session again.
@@ -88,7 +88,7 @@ assert_eq "$(dumped "$T/d4a" 2 | cut -f1 | tr '\n' ' ')" \
   "the tree: the workspace directory, augur with its trail first, then the rest, then browse…"
 assert_match "$(dumped "$T/d4a" 2 | sed -n 2p | cut -f2)" '^    augur +● 1 trail$' "drawn under it, with its trail"
 assert_eq "$(dumped "$T/d4a" 3 | cut -f1 | tr '\n' ' ')" "new new " "ledger's agents"
-assert_eq "$(dumped "$T/d4a" 4 | cut -f1 | tr '\n' ' ')" "attach browse " "back on lattiq's screen"
+assert_eq "$(dumped "$T/d4a" 4 | cut -f1 | tr '\n' ' ')" "browse attach " "back on lattiq's screen"
 
 # "browse…" walks from the root to a folder no workspace claims: the question lists default
 # first, then the workspace browsed from, and default starts the trail there, adding nothing.
@@ -133,7 +133,7 @@ assert_match "$(dumped "$T/d4d" 2 | grep "^$T/work/lattiq/extra/deep$(printf '\t
 
 # ctrl-n on the workspace picker names a new workspace, takes its first codebase from the
 # directories under ~, and goes on to that codebase's screen.
-printf '%s\n' '.' 'work$' 'stub · new trail' >"$T/p5"
+printf '%s\n' '.' 'work$' '^agents' 'stub · new trail' >"$T/p5"
 printf '%s\n' ctrl-n >"$T/k5"
 DRIVER_DIR=$T FZF_KEYS=$T/k5 FZF_QUERY=newws FZF_PICKS=$T/p5 driver "$TRAILS"
 wait_for 5 screen_has newws/work 'agent id=' || fail "no trail in the new workspace"
@@ -142,7 +142,7 @@ assert_eq "$(jq -r '.workspaces.newws.codebases[0]' "$XDG_CONFIG_HOME/trails/con
 
 # A bare `trails` in a directory no workspace claims asks the same question: a workspace's row
 # adds it there, and the codebase's screen follows.
-printf '%s\n' '^personal' 'stub · new trail' >"$T/p6"
+printf '%s\n' '^personal' '^agents' 'stub · new trail' >"$T/p6"
 DRIVER_DIR=$T/stray FZF_PICKS=$T/p6 driver "$TRAILS"
 wait_for 5 screen_has personal/stray 'agent id=' || fail "no trail in stray"
 # shellcheck disable=SC2088
