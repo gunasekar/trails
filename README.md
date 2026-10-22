@@ -169,15 +169,18 @@ as paths or globs, with an optional `root`:
 }
 ```
 
-- A glob picks up a newly cloned repo with no edit. A directory inside a listed
-  repo belongs to the repo, and a git worktree belongs where its main checkout
-  does, wherever it lives.
+- An entry ending in `/*` is a *workspace directory*: every folder in it is a
+  codebase, so a newly cloned repo needs no edit. Any other entry is a codebase
+  of its own, and a path that is also a workspace directory makes that
+  directory a codebase too.
+- A folder inside a listed one belongs to it, at any depth, and a git worktree
+  belongs where its main checkout does, wherever it lives.
 - The most specific entry wins an overlap: an exact path beats a glob.
-- `root` is where "＋ new trail…" in the picker starts browsing; `~`
-  without one.
+- `root` is where `browse…`, under "＋ new trail…" in the picker, starts walking;
+  `~` without one.
 - A name is letters, digits, `-` and `_`: it becomes a tmux session name.
-- `trails ws add NAME` edits the file for you, and the picker offers to when you
-  start a trail in a directory no workspace claims. Edits never move a running
+- `trails ws add NAME` adds a codebase for you, and the picker offers to when
+  you start a trail in a directory no workspace claims. Edits never move a running
   trail.
 
 ### What tmux shows
@@ -253,23 +256,34 @@ acme ▸ Pick a trail: █   # enter: open · ctrl-e: editor · ctrl-/: preview 
   ● your turn  ledger    codex          Migrate orders to Postgres 17
   ○ lost       checkout  claude         Spike: replay Stripe webhooks
   editor       checkout  nvim · acme/checkout
-  ＋ new trail…  (53 codebases under ~/code)
+  ＋ new trail…  (53 codebases)
   ↩ resume old trails  (12 ended)
 ```
 
-**＋ new trail…** lists the workspace's directories. Pick one, then an agent to
-start there, with Tab for YOLO and ctrl-n to name it. Esc on either list comes back:
+**＋ new trail…** lists the workspace's codebases as a tree: each workspace
+directory with its folders under it, those with trails or recent history first,
+then the codebases of their own, then `browse…`. Pick one, then an agent to start
+there, with Tab for YOLO and ctrl-n to name it. Esc on either list comes back:
 
 ```console
-New trail in: █
-▌ ~/code/checkout
-  ~/code/ledger
-  …
+acme ▸ New trail in: █   # enter: pick · esc: back
+▌ ~/code/                   browse inside
+    checkout                ● 2 trails
+    ledger                  ○ 1 ended
+    billing
+    …
+  ~/ops/terraform
+  browse…                   from ~/code
 
 ledger (acme) ▸ Start an agent: █   # enter: start · tab: toggle YOLO · ctrl-n: name it · ctrl-e: editor · esc: back
 ▌ claude · new trail
   codex · new trail
 ```
+
+`browse…` and a workspace directory that isn't a codebase itself walk the file
+system a folder at a time. A folder inside the workspace starts its trail there
+with nothing asked, and is listed in the tree while it has trails or history. A
+folder outside every workspace gets the question below.
 
 **The workspaces** (from `~`, `/`, or `trails ws`): one row each, with what runs
 in it, the one you were in last marked and under the cursor. Enter attaches to
@@ -326,8 +340,18 @@ stateDiagram-v2
 | `ctrl-x` | end a running trail, close an editor or shell window, or forget a lost one |
 
 `trails` refuses to open an agent in `/`. `$HOME` is fine. A directory no
-workspace claims is asked about once: add it to a workspace, or run it here this
-once, in `default`.
+workspace claims asks which workspace its trail goes in, each time:
+
+```console
+~/Downloads/spike is in no workspace: █
+▌ default    not added to a workspace
+  personal   add it here
+  acme       add it here
+```
+
+Enter keeps it in `default`, the workspace for every trail whose directory no
+workspace claims. A workspace's row adds the directory to it as a codebase.
+`trails new` asks nothing and uses `default`.
 
 ### Named trails
 

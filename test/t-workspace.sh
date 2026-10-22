@@ -7,7 +7,7 @@ t_setup
 ws() { "$TRAILS" ws "$@"; }
 ws_of() { "$TRAILS" ws of "$1" 2>/dev/null; }
 
-mkdir -p "$T/workspace/lattiq/augur/cmd" "$T/workspace/lattiq/special" \
+mkdir -p "$T/workspace/lattiq/augur/cmd" "$T/workspace/lattiq/special" "$T/workspace/lattiq/special/docs" \
   "$T/workspace/gunasekar/trails" "$T/.dotfiles/zsh" "$T/other" "$T/infra"
 
 # No workspaces configured: everything is "default".
@@ -32,6 +32,8 @@ assert_eq "$(ws_of "$T/workspace/gunasekar/trails")" personal "another glob"
 assert_eq "$(ws_of "$T/.dotfiles")" personal "an exact path"
 assert_eq "$(ws_of "$T/workspace/lattiq/special")" personal "an exact path beats a glob"
 assert_eq "$(ws_of "$T/workspace/lattiq/augur/cmd")" lattiq "a glob reaches subdirectories"
+assert_eq "$(ws_of "$T/.dotfiles/zsh")" personal "an exact path reaches the folders inside it"
+assert_eq "$(ws_of "$T/workspace/lattiq/special/docs")" personal "the nearest entry claims a folder, not the longer glob"
 assert_eq "$(ws_of "$T/other")" "" "a bad workspace name claims nothing"
 assert_match "$(ws of "$T/other" 2>&1)" 'no workspace claims ~/other.*trails ws add' "and says what to do"
 assert_match "$(ws of "$T/other" 2>&1)" 'skipping workspace "bad.name"' "the bad name is reported"

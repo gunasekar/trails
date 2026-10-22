@@ -254,8 +254,9 @@ A workspace with two workspace directories lists both:
 
 #### The picker
 
-The tree, drawn in fzf. Typing filters across every level, since it matches the
-whole path, so `kite` finds `kitewatch` without opening anything. Within a
+The tree, drawn in fzf. Typing filters on the names as drawn, so `kite` finds
+`kitewatch` without opening anything. fzf searches only what it draws, so a
+workspace directory's name matches its own row, not its children's. Within a
 workspace directory, codebases with trails or recent history come first.
 
 ```console

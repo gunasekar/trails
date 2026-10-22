@@ -325,7 +325,8 @@ workspace_candidates() {
 # The workspace directory $1 belongs to, by the config. The most specific entry wins: an
 # exact path over a glob, and a longer glob over a shorter one — so "~/work/lattiq/*" and
 # "~/work/lattiq/special" both claiming special give it to the second. A glob's * crosses
-# "/", as case's does, so a listed repo's subdirectories match it too. The candidates are
+# "/", as case's does, so a listed repo's subdirectories match it too, and a plain path claims
+# the folders inside it the same way (D6 in docs/design/picker-consolidation.md). The candidates are
 # tried in order, nearest first, and the first that any entry claims decides.
 #
 # "default" with no workspaces configured. Nothing, and status 1, when some are and none
@@ -342,11 +343,15 @@ workspace_of() {
       # shellcheck disable=SC2254 # a case pattern is the point
       case $d in
         $p) ;;
+        "$p"/*) ;;
         *) continue ;;
       esac
+      # An exact path is the most specific; a folder inside a listed path ranks like a glob,
+      # by length, so the nearest entry claims it.
       case $p in
         *[\*\?\[]*) s=${#p} ;;
-        *) s=$((100000 + ${#p})) ;;
+        "$d") s=$((100000 + ${#p})) ;;
+        *) s=${#p} ;;
       esac
       [ "$s" -gt "$score" ] && best=$n score=$s
     done <<EOF
@@ -1533,11 +1538,11 @@ print_menu() {
 
   printf '%s\n' "$drawn" | awk -F"$TAB" -v OFS="$TAB" '$1 == "M" { print $2, $3, $4 }'
   if [ -n "$in_ws" ]; then
-    # The way to a new trail: every directory the workspace lists or holds under its root,
+    # The way to a new trail: the workspace's codebase tree (codebase_tree),
     # then its agents.
-    more=$(browse_dirs "$in_ws" | wc -l | tr -d ' ')
-    printf 'browse\t-\t＋ new trail…  %s(%s under %s)%s\n' "$DIM" \
-      "$([ "$more" -eq 1 ] && echo "1 codebase" || echo "$more codebases")" "$(tilde_path "$(ws_root "$in_ws")")" "$RST"
+    more=$(ws_codebase_count "$in_ws")
+    printf 'browse\t-\t＋ new trail…  %s(%s)%s\n' "$DIM" \
+      "$([ "$more" -eq 1 ] && echo "1 codebase" || echo "$more codebases")" "$RST"
   else
     agent_rows
   fi
@@ -1588,72 +1593,213 @@ ws_menu() {
   done | sort -t "$TAB" -k1,1nr -k2,2nr -k3,3 | cut -f4-
 }
 
-# A workspace's root as the config has it, else $HOME: where browsing for another codebase
-# starts.
+# A workspace's root as the config has it, else $HOME: where "browse…" in its codebase tree
+# starts walking.
 ws_root() {
   r=$(printf '%s\n' "$WORKSPACES" | awk -F'|' -v n="$1" '$1 == n { print $2; exit }')
   printf '%s' "${r:-$HOME}"
 }
 
-# Every directory workspace $1 could hold a trail in: what its codebase entries match (a
-# glob expands here, a path is itself), and the directories under its root. Sorted, once each.
-browse_dirs() {
-  {
-    printf '%s\n' "$WORKSPACES" | awk -F'|' -v n="$1" '$1 == n && $3 != "" { print $3 }' |
-      while IFS= read -r pat; do
-        # shellcheck disable=SC2086 # the glob is the point
-        for d in $pat; do
-          [ -d "$d" ] && printf '%s\n' "$d"
+# The codebases workspace $1 holds, as "kind|dir|parent" lines in config order (D5 in
+# docs/design/picker-consolidation.md). An entry ending in "/*" is a workspace directory
+# (wsdir), whose child folders are its codebases (child, with the workspace directory as
+# parent); a plain path that is also a workspace directory makes that directory a codebase
+# too (self); any other entry is single codebases, a glob expanded. Each directory once,
+# the first entry that names it deciding how.
+ws_codebases() {
+  printf '%s\n' "$WORKSPACES" | awk -F'|' -v n="$1" '$1 == n && $3 != "" { print $3 }' | {
+    pats=$(cat)
+    wsdirs=$(printf '%s\n' "$pats" | sed -n 's|/\*$||p' | grep -v '[][*?]')
+    printf '%s\n' "$pats" | while IFS= read -r pat; do
+      wd=
+      case $pat in
+        */\*) wd=${pat%/\*} ;;
+        *) ;;
+      esac
+      case $wd in
+        *[\*\?\[]*) wd= ;;
+        *) ;;
+      esac
+      if [ -n "$wd" ]; then
+        [ -d "$wd" ] || continue
+        printf 'wsdir|%s|\n' "$wd"
+        for c in "$wd"/*/; do
+          c=${c%/}
+          [ -d "$c" ] && printf 'child|%s|%s\n' "$c" "$wd"
         done
+        continue
+      fi
+      if printf '%s\n' "$wsdirs" | grep -qxF "$pat"; then
+        printf 'self|%s|\n' "$pat"
+        continue
+      fi
+      # shellcheck disable=SC2086 # the glob is the point
+      for d in $pat; do
+        [ -d "$d" ] && printf 'single|%s|\n' "$d"
       done
-    for d in "$(ws_root "$1")"/*/; do
-      d=${d%/}
-      [ -d "$d" ] && printf '%s\n' "$d"
     done
-  } | awk '!seen[$0]++' | sort
+  } | awk -F'|' '$1 == "wsdir" || $1 == "self" { print; next } !seen[$2]++'
 }
 
-# fzf over browse_dirs (or, with $2, over the directories under that path): prints the
-# directory picked, nothing on Esc.
+# What has happened in workspace $1's directories, as "dir<TAB>r" for each running trail and
+# "dir<TAB>e" for each lost one or recent conversation: how the codebase tree ranks and
+# labels them. No classifying, so no settle sleep: the tree only counts.
+ws_activity() {
+  [ -z "$USE_TMUX" ] || {
+    tmux list-windows -a -F "#{session_name}$TAB#{@trails_dir}" 2>/dev/null |
+      awk -F"$TAB" -v OFS="$TAB" -v w="$1/" 'index($1, w) == 1 && $2 != "" { print $2, "r" }'
+    rec_dead | while read -r key; do
+      [ "$(rec_ws "$key")" = "$1" ] && printf '%s\te\n' "$(rec_get "$key" dir)"
+    done
+  }
+  recent_rows '' | cut -f3 | while IFS= read -r d; do
+    [ -n "$d" ] && printf '%s\te\n' "$d"
+  done
+}
+
+# The "New trail in:" rows for workspace $1, as "target<TAB>drawn": each workspace directory
+# with its child folders under it, those with trails or recent history first, then the
+# single codebases, then "browse…". A deeper folder with trails or history is listed under
+# its workspace directory too (D6), so it needs browsing once. A workspace directory that is
+# not a codebase itself, and "browse…", target "browse:DIR": walk from there.
+codebase_tree() {
+  ct_act=$(ws_activity "$1")
+  ws_codebases "$1" | TRAILS_ACT=$ct_act awk -F'|' -v OFS="$TAB" -v home="$HOME" \
+    -v root="$(ws_root "$1")" -v dim="$DIM" -v rst="$RST" '
+    function tl(p) { return p == home ? "~" : (index(p, home "/") == 1 ? "~" substr(p, length(home) + 1) : p) }
+    function note(d) {
+      if (run[d]) return "● " run[d] (run[d] == 1 ? " trail" : " trails")
+      if (gone[d]) return dim "○ " gone[d] " ended" rst
+      return ""
+    }
+    function rank(d) { return run[d] ? 1 : (gone[d] ? 2 : 3) }
+    function row(g, r, key, target, name, d) { n++; G[n] = g; R[n] = r; K[n] = key; T[n] = target; N[n] = name; D[n] = d; if (length(name) > w) w = length(name) }
+    BEGIN {
+      m = split(ENVIRON["TRAILS_ACT"], A, "\n")
+      for (i = 1; i <= m; i++) {
+        if (split(A[i], f, "\t") < 2) continue
+        if (f[2] == "r") run[f[1]]++; else gone[f[1]]++
+        seen_act[f[1]] = 1
+      }
+    }
+    { kind[NR] = $1; dir[NR] = $2; par[NR] = $3; listed[$2] = 1; if ($1 == "self") self[$2] = 1; if ($1 == "wsdir" && !(($2) in gi)) gi[$2] = NR }
+    END {
+      for (i = 1; i <= NR; i++) {
+        d = dir[i]
+        if (kind[i] == "wsdir") row(i, 0, "", d in self ? d : "browse:" d, tl(d) "/", d)
+        else if (kind[i] == "child") { sub(".*/", "", d); row(gi[par[i]], rank(dir[i]), d, dir[i], "    " d, dir[i]) }
+        else if (kind[i] == "single") row(i, 0, "", d, tl(d), d)
+      }
+      # Deeper folders with something going on, under the workspace directory holding them.
+      for (a in seen_act) {
+        if (a in listed) continue
+        for (wd in gi) if (index(a, wd "/") == 1) { rel = substr(a, length(wd) + 2); row(gi[wd], rank(a), rel, a, "    " rel, a); break }
+      }
+      for (i = 1; i <= n; i++) {
+        t = note(D[i])
+        if (t == "" && T[i] ~ /^browse:/) t = dim "browse inside" rst
+        else if (t == "" && R[i] == 0 && (D[i] in self)) t = dim "codebase itself" rst
+        line = sprintf("%-*s  %s", w, N[i], t); sub(/ +$/, "", line)
+        print G[i], R[i], K[i], T[i], line
+      }
+      # Padded by hand: awks that count bytes and awks that count characters disagree on "…".
+      pad = sprintf("%*s", (w > 7 ? w - 7 : 0) + 2, "")
+      print 99999, 0, "", "browse:" root, "browse…" pad dim "from " tl(root) rst
+    }' | sort -t "$TAB" -k1,1n -k2,2n -k3,3 | cut -f4-
+}
+
+# The codebases of workspace $1, counted for its "＋ new trail…" row.
+ws_codebase_count() {
+  ws_codebases "$1" | grep -c '^\(child\|self\|single\)|'
+}
+
+# "New trail in:" over codebase_tree (workspace $1): prints the directory picked, walking
+# from a workspace directory or the root when the row says to; nothing, and status 1, on Esc.
+pick_codebase() {
+  while :; do
+    choice=$(codebase_tree "$1" | fzf --reverse --ansi --delimiter="$TAB" --with-nth=2 --height=~80% \
+      --info='inline:   ' --color='info:dim' --info-command="echo '# enter: pick · esc: back'" \
+      --prompt="$1 ▸ New trail in: ") || return 1
+    t=$(printf '%s' "$choice" | cut -f1)
+    case $t in
+      browse:*) d=$(walk_dir "${t#browse:}") || continue ;;
+      *) d=$t ;;
+    esac
+    printf '%s\n' "$d"
+    return 0
+  done
+}
+
+# Walk the file system from $1, a folder at a time: Enter opens a folder, ".." goes up, and
+# the first row starts the trail in the folder you are in. Prints it; nothing, and status 1,
+# on Esc.
+walk_dir() {
+  wd=$1
+  while :; do
+    pick=$({
+      printf 'use\t%s\t✓ start a trail here  %s%s%s\n' "$wd" "$DIM" "$(tilde_path "$wd")" "$RST"
+      [ "$wd" = / ] || printf 'up\t%s\t..\n' "$(dirname "$wd")"
+      for c in "$wd"/*/ "$wd"/.[!.]*/; do
+        c=${c%/}
+        [ -d "$c" ] && printf 'in\t%s\t%s/\n' "$c" "${c##*/}"
+      done
+    } | fzf --reverse --ansi --delimiter="$TAB" --with-nth=3 --height=~80% \
+      --info='inline:   ' --color='info:dim' --info-command="echo '# enter: open · esc: back'" \
+      --prompt="$(tilde_path "$wd") ▸ ") || return 1
+    case $pick in
+      use*)
+        printf '%s\n' "$wd"
+        return 0
+        ;;
+      *) wd=$(printf '%s' "$pick" | cut -f2) ;;
+    esac
+  done
+}
+
+# A fzf over the directories under $1, for ctrl-n's first codebase of a new workspace: prints
+# the one picked, nothing on Esc.
 pick_dir() {
-  if [ -n "${2:-}" ]; then
-    list=$(for d in "$2"/*/; do
-      d=${d%/}
-      [ -d "$d" ] && printf '%s\n' "$d"
-    done)
-  else
-    list=$(browse_dirs "$1")
-  fi
+  list=$(for d in "$1"/*/; do
+    d=${d%/}
+    [ -d "$d" ] && printf '%s\n' "$d"
+  done)
   [ -n "$list" ] || {
-    echo "trails: no directories to pick from under $(tilde_path "${2:-$(ws_root "$1")}")" >&2
+    echo "trails: no directories to pick from under $(tilde_path "$1")" >&2
     return 1
   }
   printf '%s\n' "$list" | while IFS= read -r d; do
     printf '%s\t%s\n' "$d" "$(tilde_path "$d")"
   done | fzf --reverse --no-info --delimiter='\t' --with-nth=2 --height=~80% \
-    --prompt="${3:-Pick a codebase: }" | cut -f1
+    --prompt="${2:-Pick a codebase: }" | cut -f1
 }
 
-# This directory belongs to no workspace, and some are configured: ask once which it joins
-# (written to the config, as `trails ws add` would) or whether to run here this once, in
-# "default". Sets TRAILS_WS either way, so the screens that follow stop asking.
+# This directory belongs to no workspace, and some are configured: which workspace its trail
+# goes in (D7). Every row is a workspace: "default" first, which adds the directory nowhere,
+# so Enter keeps it there; then the workspace browsed from (TRAILS_BACK), then the rest, each
+# adding the directory to it as a codebase, as `trails ws add` would. Sets TRAILS_WS, so the
+# screens that follow stop asking. Esc goes back to the workspace browsed from, or quits.
 ask_workspace() {
   here=$(tilde_path "$PWD")
+  names=$({
+    [ -z "${TRAILS_BACK:-}" ] || printf '%s\n' "$TRAILS_BACK"
+    printf '%s\n' "$WORKSPACES" | cut -d'|' -f1
+  } | awk '$0 != "default" && !seen[$0]++')
+  wid=$(printf 'default\n%s\n' "$names" | awk '{ if (length($0) > w) w = length($0) } END { print w }')
   choice=$({
-    printf '%s\n' "$WORKSPACES" | cut -d'|' -f1 | awk '!seen[$0]++' | while read -r w; do
-      printf 'add\t%s\tadd %s to %s\n' "$w" "$here" "$w"
+    printf 'default\t%-*s  %snot added to a workspace%s\n' "$wid" default "$DIM" "$RST"
+    printf '%s\n' "$names" | while read -r w; do
+      printf '%s\t%-*s  %sadd it here%s\n' "$w" "$wid" "$w" "$DIM" "$RST"
     done
-    printf 'once\tdefault\trun it here this once  %s(in default)%s\n' "$DIM" "$RST"
-  } | fzf --reverse --no-info --ansi --delimiter='\t' --with-nth=3 --height=~80% \
-    --prompt="$here is in no workspace: ") || exit 0
-  w=$(printf '%s' "$choice" | cut -f2)
-  case $choice in
-    add*)
-      ws_add "$w" "$PWD" >&2 || exit 1
-      WORKSPACES=$(load_workspaces)
-      ;;
-    *) ;;
-  esac
+  } | fzf --reverse --no-info --ansi --delimiter='\t' --with-nth=2 --height=~80% \
+    --prompt="$here is in no workspace: ") || {
+    [ -z "${TRAILS_BACK:-}" ] || TRAILS_PICKER=workspace TRAILS_WS=$TRAILS_BACK exec "$SELF"
+    exit 0
+  }
+  w=$(printf '%s' "$choice" | cut -f1)
+  if [ "$w" != default ]; then
+    ws_add "$w" "$PWD" >&2 || exit 1
+    WORKSPACES=$(load_workspaces)
+  fi
   TRAILS_WS=$w
   export TRAILS_WS
 }
@@ -4085,7 +4231,7 @@ trap - EXIT INT TERM
 # codebase from a directory picked under ~, and then that codebase's screen.
 if [ -n "$named" ] && [ "${TRAILS_PICKER:-}" = ws ]; then
   check_ws_name "$query" || exit 1
-  d=$(pick_dir '' "$HOME" "First codebase of $query: ")
+  d=$(pick_dir "$HOME" "First codebase of $query: ")
   [ -n "$d" ] || exit 0
   ws_add "$query" "$d" >&2 || exit 1
   cd "$d" || exit 1
@@ -4143,7 +4289,7 @@ case $choice in
   workspace*) ws_switch "$target" ;;
   # "＋ new trail…": pick a directory, then an agent to start there. Esc on either comes back.
   browse*)
-    d=$(pick_dir "$TRAILS_WS" '' 'New trail in: ')
+    d=$(pick_codebase "$TRAILS_WS")
     [ -n "$d" ] || TRAILS_PICKER=workspace exec "$SELF"
     cd "$d" || exit 1
     TRAILS_BACK=$TRAILS_WS TRAILS_PICKER=agents TRAILS_WS='' exec "$SELF"

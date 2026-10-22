@@ -476,12 +476,14 @@ counts.
 | `resume` / `resume-yolo` | `agent:id:dir` | launch with the resume flag and that ID in that directory, recorded like any launch; `resume-yolo` when it last ran YOLO (unless Tab flipped it back) or Tab armed it |
 | `open` | `agent:id:dir` | refuse, naming the process that has it |
 | `tool` | window id | an editor or shell window: switch or attach to it |
-| `browse` | | an fzf over the workspace's directories (its entries' matches and the ones under its root), then that codebase's screen |
+| `browse` | | `pick_codebase`: the workspace's codebase tree (`codebase_tree`), walking the file system from a `browse:DIR` row (`walk_dir`), then the agents screen |
 | `workspace` | name | `ws_switch`: switch or attach to its session on the trail that most wants you, or its screen |
 | `more` | | the ended-conversations screen |
 
-A codebase screen in a directory no workspace claims first asks, once, whether to
-add it to a workspace (written to the config) or run here this once in `default`.
+A codebase or agents screen in a directory no workspace claims first asks which
+workspace its trail goes in (`ask_workspace`): `default` first, adding nothing,
+then the workspace browsed from (`TRAILS_BACK`), then the rest, each adding the
+directory to it as a codebase.
 ctrl-n on the workspace picker names a new workspace and takes its first codebase
 from the directories under `~`.
 
