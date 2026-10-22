@@ -128,7 +128,8 @@ your `PATH`.
 
 It needs `tmux` (3.3 or later), `fzf` and `jq`, plus at least one agent CLI on
 `PATH`. macOS ships `jq`; Homebrew installs all three. Reading recent opencode
-conversations uses `sqlite3`, which macOS ships with.
+conversations uses `sqlite3`, which macOS ships with, and keeping the picker's
+preview current uses `curl`, without which it is a snapshot.
 
 ## Quickstart
 
@@ -229,7 +230,7 @@ after upgrading past 3.8.
 
 ```text
 # trails: paste what you want into tmux.conf
-bind P display-popup -E -w 80% -h 70% -s bg=terminal -S bg=terminal,fg=brightblack trails
+bind P display-popup -E -w 60% -h 70% -s bg=terminal -S bg=terminal,fg=brightblack trails
 bind W display-popup -E -w 60% -h 50% -s bg=terminal -S bg=terminal,fg=brightblack 'trails ws'
 bind e run-shell "TRAILS_CLIENT=#{client_name} trails edit"
 bind ` run-shell "TRAILS_CLIENT=#{client_name} trails shell"
@@ -364,7 +365,7 @@ stateDiagram-v2
 | `tab` | toggle YOLO (run everything unconfirmed) on an agent to start, in the agents list, or a closed trail, flipping a new trail from the config's `mode` and a closed one from the mode it last ran in |
 | `ctrl-n` | in the agents list, name the trail you are about to start: type the name, then Enter. On the workspace picker, a new workspace |
 | `ctrl-e` | the editor for the row's codebase (`trails edit`) |
-| `ctrl-/` | show or hide the preview: the trail's screen as it is now. Open by default when the terminal fits two columns |
+| `ctrl-/` | show or hide the preview: the trail's screen, under the list and kept current, refreshed every second, scrolled to its latest output. A trail wider than the preview wraps in it; a narrower one keeps its width, as its agent drew it. Open by default when there are rows for it |
 | `ctrl-x` | end a running trail, close an editor or shell window, or forget a lost one |
 | `esc` | up a level: an old list or the agents back to where they came from, a codebase's screen to its workspace's, a workspace's to the workspaces, and the workspaces out. An editor's terminal quits from its codebase's screen |
 | `ctrl-c` | quit, from any screen |

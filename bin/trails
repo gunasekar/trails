@@ -3377,7 +3377,7 @@ keys() {
   tbg=$(popup_bg)
   cat <<EOF
 # trails: paste what you want into tmux.conf
-bind P display-popup -E -w 80% -h 70% -s bg=$tbg -S bg=$tbg,fg=brightblack '$SELF'
+bind P display-popup -E -w 60% -h 70% -s bg=$tbg -S bg=$tbg,fg=brightblack '$SELF'
 bind W display-popup -E -w 60% -h 50% -s bg=$tbg -S bg=$tbg,fg=brightblack '$SELF ws'
 bind e run-shell "TRAILS_CLIENT=#{client_name} '$SELF' edit"
 bind \` run-shell "TRAILS_CLIENT=#{client_name} '$SELF' shell"
@@ -3518,7 +3518,35 @@ in_map() {
 
 # fzf's preview: the agent's own screen. It is what makes a name pickable — "trails-foundry"
 # is a name, the screen tells you it is sat on a permission prompt. -e keeps the colours.
-peek() { tmux capture-pane -pet "$1" 2>/dev/null; }
+# A trail's screen as it is now, without the blank rows under its last line: the preview
+# follows the bottom, and those would push the text off it. Blank is judged without colour.
+# The screen is as wide as the trail's window, which the terminal that last typed in it sets
+# (window-size latest): wider than the preview, its lines wrap there (wrap-word), and a rule
+# drawn across the whole screen is redrawn the preview's width ($FZF_PREVIEW_COLUMNS) rather
+# than wrapping into a second rule. Narrower, it keeps its width: the agent drew it so.
+peek() {
+  tmux capture-pane -pet "$1" 2>/dev/null | awk -v w="${FZF_PREVIEW_COLUMNS:-0}" '
+    BEGIN { rule = ""; for (i = 0; i < w; i++) rule = rule "─" }
+    { line = $0; plain = $0; gsub(/\033\[[0-9;:]*[A-Za-z]/, "", plain) }
+    plain ~ /^[[:space:]]*$/ { held = held line "\n"; next }
+    w > 0 && plain ~ /^(─)+[[:space:]]*$/ { c = plain; if (gsub(/─/, "", c) > w) line = "\033[2m" rule "\033[0m" }
+    { printf "%s%s\n", held, line; held = "" }'
+}
+
+# Keep a picker's preview current: once a second, ask the fzf listening on socket $1 to run
+# its preview again (refresh-preview), so it follows the agent as it works. Runs in the
+# background until the socket's directory goes (the picker's own, removed as it ends), and
+# prints its pid for the picker to stop it sooner. curl is how fzf's --listen is spoken to;
+# the caller checks for it.
+preview_ticker() {
+  (
+    while [ -d "${1%/*}" ]; do
+      sleep 1
+      [ -S "$1" ] && curl -s --max-time 1 --unix-socket "$1" -X POST http://fzf -d refresh-preview >/dev/null 2>&1
+    done
+  ) </dev/null >/dev/null 2>&1 &
+  printf '%s' "$!"
+}
 
 # What a map pane runs: one tmux client, attached to one trail's session. Written once
 # because both callers (new-session for the first pane, split-window for the rest) need the
@@ -3620,9 +3648,9 @@ map() {
   case ${1:-} in
     '' | new)
       choice=$(printf '%s\n' "$rows" | fzf --multi --reverse --no-info --ansi \
-        --prompt='Map: ' --delimiter='\t' --with-nth='2..' --height=~80% \
+        --prompt='Map: ' --delimiter='\t' --with-nth='2..' --height=80% \
         --header='tab: pick an agent   enter: open the map' \
-        --preview="$0 --peek {1}" --preview-window='right,60%,border-left') || exit 0
+        --preview="$0 --peek {1}" --preview-window='down,65%,border-top,follow') || exit 0
       names=$(printf '%s\n' "$choice" | cut -f1)
       ;;
     *[!0-9]*)
@@ -4317,8 +4345,7 @@ MENU=$(print_menu) || exit 1
   exit 1
 }
 
-# --height=~80%: hug the content, capped at 80%, so three trails don't open a
-# full-screen box. --wrap because a task is a sentence and a narrow pane (Zed's terminal,
+# The height: see the preview below. --wrap because a task is a sentence and a narrow pane (Zed's terminal,
 # nvim's right panel) can run past the edge — wrapping costs a row and shows all of it,
 # where truncating would hide the field that tells two trails of one codebase apart.
 #
@@ -4331,22 +4358,32 @@ MENU=$(print_menu) || exit 1
 # far from where you type; a pane too narrow for it cuts the hint, never the rows.
 #
 # The preview is the highlighted trail's screen as it is now (peek): what it is asking,
-# without opening it. On the right, when the terminal is wide enough for two columns, else
-# hidden until ctrl-/ shows it; a row that is not a running trail previews nothing.
+# without opening it. Under the list, full width, so an agent's lines fit, and scrolled to
+# the bottom (follow), where its latest output and its prompt are: a screen is taller than a
+# preview, and from the top it showed the oldest of it. Shown when the terminal has the rows
+# for it, else hidden until ctrl-/; a row that is not a running trail previews nothing.
+#
+# The screens with a preview take the whole terminal, or the whole popup, and the preview
+# every row the list doesn't need: the prompt, a row per entry, one to spare for an entry
+# that wraps. A share of the height instead left blank rows under a short list, and an 80%
+# box left a fifth of the popup empty. A preview under ten rows is hidden until ctrl-/. The
+# workspaces and the agents, with no preview, hug their rows.
 set -- --reverse --ansi --wrap --no-separator \
   --info='inline:   ' --color='info:dim' \
-  --delimiter='\t' --with-nth='3..' --height=~80%
-cols=$(tput cols 2>/dev/null)
-case $cols in
-  '' | *[!0-9]*) cols=0 ;;
+  --delimiter='\t' --with-nth='3..'
+# From the terminal itself: tput, with its output going to $(...), answers its default 24.
+rows=$(stty size </dev/tty 2>/dev/null | cut -d" " -f1)
+case $rows in
+  '' | *[!0-9]*) rows=0 ;;
   *) ;;
 esac
+pv=$((rows - 2 - $(printf '%s\n' "$MENU" | wc -l)))
 hidden=
-[ "$cols" -ge 120 ] || hidden=,hidden
+[ "$pv" -ge 10 ] || hidden=,hidden pv=50%
 case ${TRAILS_PICKER:-} in
-  ws) ;;
-  agents) set -- "$@" --expect=ctrl-e,esc --bind="tab:execute-silent($0 --toggle-yolo {2})+reload($0 --print-menu)" ;;
-  *) set -- "$@" --preview="$0 --peek {2}" --preview-window="right,50%,border-left$hidden" \
+  ws) set -- "$@" --height=~80% ;;
+  agents) set -- "$@" --height=~80% --expect=ctrl-e,esc --bind="tab:execute-silent($0 --toggle-yolo {2})+reload($0 --print-menu)" ;;
+  *) set -- "$@" --preview="$0 --peek {2}" --preview-window="down,$pv,border-top,follow,wrap-word$hidden" \
     --bind='ctrl-/:toggle-preview' --expect=ctrl-e,esc \
     --bind="tab:execute-silent($0 --toggle-yolo {2})+reload($0 --print-menu)" ;;
 esac
@@ -4413,10 +4450,26 @@ case ${TRAILS_PICKER:-} in
 esac
 [ -n "$want" ] && set -- "$@" --bind="load:pos($want)+unbind(load)"
 
+# A screen with a preview keeps it current while you look: fzf listens on a socket in the
+# picker's own directory, and preview_ticker asks it to refresh the preview once a second.
+ticker=
+case ${TRAILS_PICKER:-} in
+  ws | agents) ;;
+  *)
+    if command -v curl >/dev/null 2>&1; then
+      set -- "$@" --listen="$TRAILS_TMP/fzf.sock"
+      ticker=$(preview_ticker "$TRAILS_TMP/fzf.sock")
+    fi
+    ;;
+esac
+
 # ctrl-c quits, from any screen. Esc goes up a level (D4 in docs/design/picker-consolidation.md):
 # fzf reports it as a key (--expect), handled below, where an abort could not tell the two apart.
 # The workspaces screen, the top, has no Esc key of its own: there it quits.
-choice=$(printf '%s\n' "$MENU" | fzf "$@") || exit 0
+choice=$(printf '%s\n' "$MENU" | fzf "$@")
+picked=$?
+[ -z "$ticker" ] || kill "$ticker" 2>/dev/null
+[ "$picked" -eq 0 ] || exit 0
 
 # The main lists print the query first (--print-query), the old lists don't; the trail
 # screens print the key that ended fzf next (--expect: ctrl-e, or empty for enter).

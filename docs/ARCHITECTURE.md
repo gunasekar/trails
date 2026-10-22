@@ -474,8 +474,17 @@ goes. Tab and
 ctrl-x pass the target to a subcommand of the script (`--toggle-yolo`, `--kill`)
 and reload the menu. They're subcommands rather than inline shell because fzf
 runs its bindings through `$SHELL`, where zsh expands a leading `=` and silently
-ate the kill. The preview is `--peek`, the row's screen through `capture-pane`,
-and ctrl-e comes back through `--expect` so the editor it opens gets fzf's
+ate the kill. The preview is `--peek`, the row's screen through `capture-pane`, trimmed of
+the blank rows under its last line and shown under the list, scrolled to the
+bottom (`follow`), as high as the list leaves room for. The screen is the
+trail window's size, set by the terminal that last typed in it: a wider one
+wraps (`wrap-word`), its full-width rules redrawn at `$FZF_PREVIEW_COLUMNS`, and
+a narrower one stays as drawn. It is kept current by
+`preview_ticker`: fzf listens on a socket in the picker's temp directory
+(`--listen`), and a background loop POSTs `refresh-preview` to it once a second
+with `curl`, ending when the picker kills it or its directory goes. Without
+`curl`, no `--listen` and no loop: a snapshot. ctrl-e comes back through
+`--expect` so the editor it opens gets fzf's
 terminal.
 
 The running block is classified once per picker run and cached in a temp file,
