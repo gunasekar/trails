@@ -8,7 +8,8 @@
 #            sandboxed claude history (CLAUDE_CONFIG_DIR) holding only the demo's two ended
 #            conversations — otherwise `trails ls -a` would list every project on the machine —
 #            and a wrapper drops that setting before running the real claude
-#   projects ~/code/checkout, plus any in DEMO_EXTRA (storefront, notify, api — the map demo's),
+#   projects ~/code/checkout, plus any in DEMO_EXTRA (storefront, notify, api), the acme
+#            workspace's, and any in DEMO_PERSONAL (blog) under ~/src, the personal workspace's,
 #            so paths read as they would for anyone; created here and removed by demo_done,
 #            and refused if any of them, or its claude history, already exists
 #   codex    a stand-in (agent), only ever listed, never started
@@ -25,20 +26,23 @@ project="$HOME/code/checkout"
 history_of() { printf '%s/.claude/projects/%s' "$HOME" "$(printf '%s' "$1" | sed 's/[^A-Za-z0-9]/-/g')"; }
 history=$(history_of "$project")
 demo_projects="checkout ${DEMO_EXTRA:-}"
-for p in $demo_projects; do
-  if [ -e "$HOME/code/$p" ] || [ -e "$(history_of "$HOME/code/$p")" ]; then
-    echo "trails demo: ~/code/$p or its claude history already exists — not touching it" >&2
+demo_dirs=$(for p in $demo_projects; do printf 'code/%s\n' "$p"; done
+  for p in ${DEMO_PERSONAL:-}; do printf 'src/%s\n' "$p"; done)
+for p in $demo_dirs; do
+  if [ -e "$HOME/$p" ] || [ -e "$(history_of "$HOME/$p")" ]; then
+    echo "trails demo: ~/$p or its claude history already exists — not touching it" >&2
     return 1
   fi
 done
-made_code=
+made_code= made_src=
 [ -d "$HOME/code" ] || made_code=1
+[ -d "$HOME/src" ] || made_src=1
 demo=$(mktemp -d /tmp/trails-demo.XXXXXX)
 
 # The repo's own trails first, so the demo shows the version you're about to release.
 export XDG_CONFIG_HOME="$demo/config" XDG_STATE_HOME="$demo/state" XDG_CACHE_HOME="$demo/cache" \
   TMUX_TMPDIR="$demo/tmux" PATH="$demo/bin:$here/../../bin:$PATH"
-unset TMUX XDG_DATA_HOME
+unset TMUX TMUX_PANE XDG_DATA_HOME
 # Recorded from inside another claude (or anything else that sets them), these would tell the
 # demo's claude it is a child of that one. It should start as the top-level session it shows.
 for v in $(env | grep -o -E '^CLAUDE[A-Z_]*='); do unset "${v%=}"; done
@@ -60,14 +64,28 @@ chmod +x "$demo/bin/tmux"
   echo 'set -g focus-events on'  # or Claude Code's welcome screen asks for it
   echo 'set -g status-style "bg=default"'
   echo 'set -g status-left " #S "'
-  echo 'set -g status-right ""'
   echo 'set -g status-left-length 30'
   # The terminal title an agent's view emits, "claude · what it is working on", which the
   # map's pane borders read: tmux seeds pane_title with the hostname, so a title-less agent
   # falls back to its directory, and Claude Code's leading spinner glyph is dropped.
   echo 'set -g set-titles on'
   echo 'set -g set-titles-string "#{?@agent,#{@agent} · #{?#{==:#{pane_title},#{host}},#{b:pane_current_path},#{s|^[^ ]+ ||:pane_title}},#S:#W}"'
-  "$here/../../bin/trails" keys
+  # The keys, each also naming itself at the right of the status line for a few seconds, so
+  # the recording shows what was pressed: `bind e CMD` becomes `bind e { set the badge ; CMD }`.
+  "$here/../../bin/trails" keys | awk '
+    BEGIN {
+      what["P"] = "trails"; what["W"] = "workspaces"; what["e"] = "editor"; what["`"] = "shell"
+      what["N"] = "note"; what["("] = "previous workspace"; what[")"] = "next workspace"; what["M"] = "map"
+      what["G"] = "diff"; what["A"] = "all trails"; what["?"] = "keys"
+    }
+    $1 == "bind" && ($2 in what) {
+      k = $2; cmd = $0; sub(/^bind [^ ]+ /, "", cmd)
+      printf "bind %s { set -g @demo_key \"prefix %s · %s\" ; run-shell -b \"sleep 2.5; tmux set -g @demo_key \x27\x27\" ; %s }\n", (k == "`" ? "\\`" : k), k, what[k], cmd
+      next
+    }
+    { print }'
+  echo 'set -g status-right-length 40'
+  echo 'set -g status-right "#{?@demo_key,#[fg=black#,bg=yellow#,bold] #{@demo_key} #[default] ,}"'
 } >"$demo/tmux.conf"
 # The demos' editor: Neovim with no personal config, as the nvim() below runs it.
 export EDITOR="nvim --clean"
@@ -85,7 +103,7 @@ cat >"$XDG_CONFIG_HOME/trails/config.json" <<JSON
   ],
   "workspaces": {
     "acme":     { "root": "~/code", "codebases": ["~/code/*"] },
-    "personal": ["~/.dotfiles"]
+    "personal": { "root": "~/src", "codebases": ["~/src/*"] }
   }
 }
 JSON
@@ -165,7 +183,7 @@ func TestRetrySucceedsAfterFailures(t *testing.T) {
 GO
 (cd "$project" && git init -q && git add . && git -c user.name=demo -c user.email=demo@example.com commit -qm init)
 
-# The map demo's other projects, each a small Go module with a test, so each agent has
+# The acme workspace's other projects, each a small Go module with a test, so each agent has
 # something real to change and check.
 for p in ${DEMO_EXTRA:-}; do
   d="$HOME/code/$p"
@@ -289,8 +307,16 @@ GO
   (cd "$d" && git init -q && git add . && git -c user.name=demo -c user.email=demo@example.com commit -qm init)
 done
 
+# The personal workspace's projects: a small repo each, for a trail to sit in.
+for p in ${DEMO_PERSONAL:-}; do
+  d="$HOME/src/$p"
+  mkdir -p "$d"
+  printf '# %s\n\nNotes and drafts.\n' "$p" >"$d/README.md"
+  (cd "$d" && git init -q && git add . && git -c user.name=demo -c user.email=demo@example.com commit -qm init)
+done
+
 # Neovim with no personal config (--clean), on the terminal's own black rather than its
-# default scheme's grey, so the panel reads like the editors trails usually sits in. Its
+# default scheme's grey, so it reads like the editors trails usually sits beside. Its
 # :terminal runs through /bin/sh, not the login shell, whose startup files would put the
 # machine's own trails and claude back in front of the sandbox's on PATH.
 nvim() {
@@ -299,7 +325,7 @@ nvim() {
     -c 'hi EndOfBuffer guibg=NONE ctermbg=NONE' -c 'hi SignColumn guibg=NONE ctermbg=NONE' "$@"
 }
 
-# The map demo's off-camera step: hand a running session its task. Claude asks to trust a
+# The tapes' off-camera step: hand a running session its task. Claude asks to trust a
 # folder it hasn't seen, and only then — so this reads the screen and answers only when
 # asked; pressing keys blindly could pull an old prompt out of claude's history and send it.
 demo_task() { # session, task (empty: only answer the trust question, hand out nothing)
@@ -316,16 +342,6 @@ demo_task() { # session, task (empty: only answer the trust question, hand out n
   sleep 1
   tmux send-keys -t "$1" -l "$2"
   tmux send-keys -t "$1" Enter
-}
-
-# Wait (up to a minute) until session $1's screen matches regex $2 — for the map demo, until
-# the agent running in its normal mode is actually asking, so the map ranks it first.
-demo_wait() {
-  for _ in $(seq 120); do
-    tmux capture-pane -pt "$1" 2>/dev/null | grep -q -E "$2" && return 0
-    sleep 0.5
-  done
-  return 1
 }
 
 # The tape's last, hidden step: the tmux server, the project, its claude history, the sandbox.
@@ -345,9 +361,10 @@ demo_done() {
     sleep 0.25
   done
   cd "$HOME" || return
-  for p in $demo_projects; do rm -rf "${HOME:?}/code/$p" "$(history_of "$HOME/code/$p")"; done
+  for p in $demo_dirs; do rm -rf "${HOME:?}/$p" "$(history_of "$HOME/$p")"; done
   rm -rf "$demo"
   [ -n "$made_code" ] && rmdir "$HOME/code" 2>/dev/null
+  [ -n "$made_src" ] && rmdir "$HOME/src" 2>/dev/null
   return 0
 }
 
