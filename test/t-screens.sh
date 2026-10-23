@@ -63,7 +63,7 @@ assert_eq "$(dumped "$T/d3" 2 | cut -f1 | tr '\n' ' ')" "browse " "personal's sc
 assert_match "$(dumped "$T/d3" 2 | cut -f3)" 'new trail…  \(1 codebase\)$' "the count"
 assert_eq "$(dumped "$T/d3" 3 | cut -f1 | tr '\n' ' ')" "$T/.dotfiles browse:$T " "its codebase, then browse…, not every folder under ~"
 assert_eq "$(dumped "$T/d3" 4 | cut -f1,2 | tr '\t\n' '  ')" "new stub new other " "then the agents, and nothing else"
-assert_eq "$(tmux list-windows -t personal -F '#{window_name}')" "_dotfiles·stub" "the trail's window"
+assert_eq "$(tmux list-windows -t personal -F '#{window_name}')" "_dotfiles" "the trail's window"
 
 # From a shell in the workspace session: lattiq's screen, its trails with a codebase column,
 # and "＋ new trail…" — no rows per codebase and agent.
@@ -114,10 +114,10 @@ type_in "$shp" "FZF_PICKS=$T/p4c $TRAILS"
 wait_for 10 has_session lattiq/augur ||
   fail "no second trail in augur; windows: $(tmux list-windows -t lattiq -F '#{window_name}' | tr '\n' ' '); pane: $(tmux capture-pane -pt "$shp" | grep -v '^$' | tail -3 | tr '\n' '|')"
 wait_for 5 screen_has lattiq/augur 'agent (other)' || fail "the other agent never started"
-wins() { tmux list-windows -t lattiq -F '#{window_name}' | grep '·' | sort | tr '\n' ' '; }
-wait_for 5 sh -c "[ \"\$(tmux list-windows -t lattiq -F '#{window_name}' | grep -c '·')\" -ge 3 ]" || true
-assert_eq "$(wins)" "augur·api augur·other ledger·stub " "its window"
-wait_for 5 sh -c "tmux list-clients -F '#{session_name} #{window_name}' | grep -qx 'lattiq augur·other'" ||
+wins() { tmux list-windows -t lattiq -F '#{window_name}' | grep -vx bash | sort | tr '\n' ' '; }
+wait_for 5 sh -c "[ \"\$(tmux list-windows -t lattiq | wc -l)\" -ge 4 ]" || true
+assert_eq "$(wins)" "augur augur·api ledger " "its window"
+wait_for 5 sh -c "tmux list-clients -F '#{session_name} #{window_name}' | grep -qx 'lattiq augur'" ||
   fail "the client was not switched to the new trail"
 
 # A trail in a folder deeper than the tree lists belongs to its workspace directory's workspace

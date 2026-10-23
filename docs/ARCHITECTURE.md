@@ -82,11 +82,21 @@ The words are tmux's own, plus trail. A trail has two windows: the agent's, in
 the trail's session, and the trail's, in the workspace. Where it matters the text
 says which.
 
-The agent's window, and the trail's window after it, is named `<codebase>·<agent>`,
-`<codebase>·<agent>-N` for the Nth unnamed trail in that codebase, or
-`<codebase>·<name>` for a named one. The
+The agent's window, and the trail's window after it, is named `<codebase>`,
+`<codebase>-N` for the Nth unnamed trail in that codebase, or
+`<codebase>·<name>` for a named one: the trail's key without its workspace, and
+not the agent, which the picker shows. The
 codebase label is the directory's basename with `.`, `:` and spaces turned into
 `_`, or `<repo>@<branch>` for a worktree.
+
+trails titles the terminal its sessions are shown in, setting `set-titles` and
+`set-titles-string` on each session it makes, so the titles hold on any tmux.conf
+and every other session's stay the user's. A workspace, and the map, read
+`trails · <host>`. A trail's session reads `<agent> · <task>`, the task being the
+title the agent gives its pane (its directory until it gives one): the trail's
+window in the workspace and the map's panes show the trail through a tmux client of
+that session, so that title is their pane's title too, and the map's borders are
+made from it.
 
 Everything trails knows about a trail is on the agent's window, in the trail's
 session, so nothing is parsed back out of a name:

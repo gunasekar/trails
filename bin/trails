@@ -825,6 +825,19 @@ fi
 # with no glyph and no space (opencode's "OpenCode") always did.
 TASK_FMT='#{=45:#{?#{==:#{pane_title},#{host}},,#{s|^[^A-Za-z0-9 ]+ ||:pane_title}}}'
 
+# The titles trails' sessions give the terminal they are shown in, set on each session as
+# trails makes it (set-titles and set-titles-string are session options), so they hold on
+# any tmux.conf and leave every other session's title to it.
+#
+# A trail's session: "claude · <task>", the agent and what it says it is working on, or its
+# directory before it says anything (tmux seeds pane_title with the host name). The trail
+# is shown in its workspace and in the map through a tmux client of this session, so this
+# is that pane's title too: the map's borders are made from it (map).
+TRAIL_TITLE='#{@agent} · #{?#{==:#{pane_title},#{host}},#{b:pane_current_path},#{s|^[^A-Za-z0-9 ]+ ||:pane_title}}'
+# A workspace and the map: "trails · <host>". Which codebase is the status line's to say;
+# which machine is what tells two terminals on trails apart.
+WS_TITLE='trails · #{host_short}'
+
 # ─── Is this agent working, or does it want you? ─────────────────────────────
 # The question the picker exists to answer, and "wants you" is the only reason you
 # opened it. tmux's session_attached is a fact about your terminal, not the agent —
@@ -2164,9 +2177,10 @@ EOF
   else
     sess=$(next_session "$ws" "$label" "$4")
   fi
-  # The window's name, for the status line and choose-tree: augur·claude, augur·claude-2 for
-  # the second, augur·payments for one you named. The -N is the session's, so the two agree.
-  win="${label}·${name:-$1}"
+  # The window's name, for the status line and choose-tree: augur, augur-2 for the second,
+  # augur·payments for one you named. Not the agent: which one runs is the trail's business,
+  # and the picker says it. The -N is the session's, so the two agree.
+  win=$label${name:+·$name}
   case $sess in
     "$ws/$label"-[0-9]*) win=$win-${sess##*-} ;;
     *) ;;
@@ -2223,7 +2237,9 @@ EOF
     sh -c "$WRAP" trails-wrap "$SELF" "$sess" "${3:+resume}" "$cmd" $args \
     \; set-option -w -t "=$sess:=$win" remain-on-exit on \
     \; set-option -qw -t "=$sess:=$win" remain-on-exit-format '' \
-    \; set-option -t "=$sess:" status off) || {
+    \; set-option -t "=$sess:" status off \
+    \; set-option -t "=$sess:" set-titles on \
+    \; set-option -t "=$sess:" set-titles-string "$TRAIL_TITLE") || {
     if [ -n "$rec_prev" ]; then
       printf '%s\n' "$rec_prev" >"$(rec_path "$sess")"
     else
@@ -2294,9 +2310,10 @@ EOF
 # it: the trail lives in its session, so its window is rebuilt for free. The workspace session
 # is made around it when there is none (D1's refusal applies). Prints the window id.
 #
-# The agent pane is stamped @ag and @dir as a map pane is (the agent, the codebase label), so
-# a pane-border-format that reads them labels both the same way: its own command is `tmux`,
-# which says nothing.
+# The agent pane is stamped @ag and @dir as a map pane is (the agent, the codebase label),
+# and the window's pane-border-format reads @ag, so with borders shown the agent's pane is
+# labelled `claude`, not `tmux`, its own command, which says nothing; the editor and shell
+# beside it, by their commands. Whether borders show is tmux.conf's to say (off by default).
 #
 #   ensure_window WID KEY WS     WID is the agent's window, in the trail's session
 ensure_window() {
@@ -2342,13 +2359,16 @@ EOF
   } || return 1
   [ -n "$ec_win" ] || return 1
   tmux set-option -t "$ec_win" @trails_workspace "$ec_ws" \
+    \; set-option -t "$ec_win" set-titles on \
+    \; set-option -t "$ec_win" set-titles-string "$WS_TITLE" \
     \; set-option -w -t "$ec_win" @trails_window "$ec_key" \
     \; set-option -w -t "$ec_win" @trails_dir "$ec_dir" \
     \; set-option -w -t "$ec_win" @trails_ws "$ec_ws" \
     \; set-option -w -t "$ec_win" @trails_label "$ec_label" \
     \; set-option -p -t "$ec_win" @trails_pane agent \
     \; set-option -p -t "$ec_win" @ag "$ec_agent" \
-    \; set-option -p -t "$ec_win" @dir "$ec_label"
+    \; set-option -p -t "$ec_win" @dir "$ec_label" \
+    \; set-option -w -t "$ec_win" pane-border-format ' #{?@ag,#{@ag},#{pane_current_command}} '
   printf '%s\n' "$ec_win"
 }
 
@@ -2379,7 +2399,7 @@ window_release() {
 # A tool window is named and marked for what it holds, and that changes: the editor exits
 # and leaves the shell; an editor is opened in a window that was only a shell. Re-read after
 # every change to its panes (tool, --layout, window_release), so tool_find and the picker's
-# row say what is there. Nothing to do for a trail's window, which is named for its agent.
+# row say what is there. Nothing to do for a trail's window, which is named for the trail.
 tool_remark() {
   [ -n "$(tmux display-message -pt "$1" '#{@trails_tool}' 2>/dev/null)" ] || return 0
   tr_label=$(tmux display-message -pt "$1" '#{@trails_label}' 2>/dev/null)
@@ -3284,6 +3304,8 @@ tool_make() {
   w=$(tmux_door "$@" "$(editor_cmd)")
   [ -n "$w" ] || return 1
   tmux set-option -t "$cm_ws" @trails_workspace "$cm_ws" \
+    \; set-option -t "$cm_ws" set-titles on \
+    \; set-option -t "$cm_ws" set-titles-string "$WS_TITLE" \
     \; set-option -w -t "$w" @trails_tool editor \
     \; set-option -w -t "$w" @trails_dir "$cm_dir" \
     \; set-option -w -t "$w" @trails_ws "$cm_ws" \
@@ -4068,9 +4090,9 @@ map_pref() {
 }
 
 # The directory a map pane's agent works in — its session_path basename, frozen at launch. Stamped onto the pane as @dir so the border can lead
-# with it (see the pane-border-format below). Not folded into tmux.conf's set-titles-string,
-# which is where "claude · <task>" comes from: that string is also the Ghostty tab title and
-# the normal agent session's title, and the directory is wanted in the map grid only.
+# with it (see the pane-border-format below). Not folded into TRAIL_TITLE, which is where
+# "claude · <task>" comes from: that is also the title of a terminal attached to the trail's
+# session, and the directory is wanted in the map grid only.
 # Static, unlike the task half — a session's directory cannot change — so it is set once at
 # build and never goes stale, where #{pane_title} stays live for the task.
 # No "=" on the -t: display-message silently answers nothing for an =exact target (the
@@ -4080,7 +4102,7 @@ map_pref() {
 map_dir() { basename "$(tmux display-message -pt "$1" '#{session_path}' 2>/dev/null)"; }
 
 # The agent name for a map pane, stamped as @ag so the border can tell a real task from
-# the title-less fallback. Before an agent publishes a task, tmux.conf's set-titles-string
+# the title-less fallback. Before an agent publishes a task, TRAIL_TITLE
 # falls back to "#{@agent} · #{b:pane_current_path}" — i.e. "claude · <dir>" — so the border
 # would read "<dir> · claude · <dir>", the directory twice. The border composes that same
 # fallback string from @ag and @dir and, on a match, drops the task half (see below). Same
@@ -4333,7 +4355,8 @@ map() {
     echo "trails: $first went away as the map opened it" >&2
     exit 1
   }
-  tmux set-option -t "$build" @trails_map 1
+  tmux set-option -t "$build" @trails_map 1 \; set-option -t "$build" set-titles on \
+    \; set-option -t "$build" set-titles-string "$WS_TITLE"
   home=$(tmux display-message -pt "$build" '#{pane_id}')
   tmux set-option -pt "$home" @dir "$(map_dir "$first")"
   tmux set-option -pt "$home" @ag "$(map_agent "$first")"
@@ -4358,7 +4381,7 @@ map() {
   tmux select-layout -t "$build" "$layout" >/dev/null
 
   # The border label, free and always current: the inner client emits its session's title
-  # (tmux.conf's set-titles-string — "claude · what it is working on") to its terminal,
+  # (TRAIL_TITLE — "claude · what it is working on") to its terminal,
   # which *is* this pane, so the map reads it straight off #{pane_title}. No poll and
   # no bookkeeping, and it follows the agent's own title as the task changes. The global
   # format is no use here — every pane in a map runs `tmux`, so #{pane_current_command}
@@ -4368,10 +4391,10 @@ map() {
   # Led with #{@dir}, the per-pane directory stamped above, so the border reads
   # "<dir> · claude · <task>": directory, then agent and task from the agent's own title.
   # @dir resolves at the pane scope, so each border shows its own agent's directory; the
-  # ' · ' matches set-titles-string's separator so the three read as one string.
+  # ' · ' matches TRAIL_TITLE's separator so the three read as one string.
   #
   # The conditional drops the task half when it *is* the directory. Before an agent
-  # publishes a task, set-titles-string falls back to "#{@agent} · #{b:pane_current_path}",
+  # publishes a task, TRAIL_TITLE falls back to "#{@agent} · #{b:pane_current_path}",
   # so pane_title is "claude · <dir>" and the naive form doubled the directory
   # ("<dir> · claude · <dir>"). Composing that fallback from the stamped @ag and @dir and
   # comparing pane_title to it catches exactly that state and shows "<dir> · claude"; any

@@ -233,9 +233,9 @@ trail's session, and any editor on it, never sees them.
 
 ```text
 acme                    ← workspace
-├─ checkout·claude      ← shows acme/checkout; nvim and a shell beside it (trails edit, shell)
-├─ checkout·claude-2    ← shows acme/checkout-2
-├─ ledger·codex         ← shows acme/ledger
+├─ checkout             ← shows acme/checkout; nvim and a shell beside it (trails edit, shell)
+├─ checkout-2           ← shows acme/checkout-2
+├─ ledger               ← shows acme/ledger
 └─ billing·nvim         ← the editor alone, nothing running in billing
 acme/checkout           ← a trail: claude in ~/code/checkout
 acme/checkout-2         ← another, same codebase
@@ -293,7 +293,7 @@ one you are on in reverse video, apart from the window you are on, which tmux
 underlines:
 
 ```text
- lattiq  personal │ 1:gunasekar·claude  2:gunasekar·claude-2  3:trails·claude*
+ lattiq  personal │ 1:gunasekar  2:gunasekar-2  3:trails*
 ```
 
 Click one to go there, or `prefix (` and `)` for the one before and after, in
@@ -698,7 +698,7 @@ in your tmux.conf sets the big pane's share for the `main-` layouts.
 the status line lists after the workspaces while one is up, a click away like them:
 
 ```text
- lattiq  personal  ▦ map │ 1:gunasekar·claude  2:gunasekar·claude-2  3:trails·claude*
+ lattiq  personal  ▦ map │ 1:gunasekar  2:gunasekar-2  3:trails*
 ```
 
 With no map up, or on the map already, it asks which trails, from every

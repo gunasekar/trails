@@ -31,9 +31,9 @@ makes sense with trails uninstalled.
   marked `@trails_workspace`. A session of that name that trails did not make is
   refused, never adopted. No session exists for an empty workspace: the first
   trail creates it, and the last one out takes it down.
-- **A trail is a window in its workspace session**, `augur·claude`,
-  `augur·claude-2` for the second unnamed trail in that codebase, or
-  `augur·payments` for a named one. What trails knows about it lives on the
+- **A trail is a window in its workspace session**, `augur`, `augur-2` for
+  the second unnamed trail in that codebase, or `augur·payments` for a named
+  one. (Until 1.6 the agent was in the name too: `augur·claude`.) What trails knows about it lives on the
   window as `@trails_*` options (agent, conversation, directory, workspace, view,
   label, name, start time), so nothing is parsed out of a name. *Amended 2026-10
   (ADR 16): the agent's window lives in the trail's view, and the window of that

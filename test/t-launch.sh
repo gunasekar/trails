@@ -23,6 +23,19 @@ win=$(tmux list-windows -t default -F '#{window_id}')
 [ "$win" != "$wid" ] || fail "the trail's window is the trail's own window"
 assert_eq "$(tmux display-message -pt "$win" '#{@trails_window} #{@trails_dir} #{@trails_ws} #{@trails_label} #{@trails_pane} #{@ag} #{@dir}')" \
   "default/payments $PROJ default proj agent stub proj" "the trail's window's options"
+# Its border labels the agent's pane by the agent, not by `tmux`, the command it runs.
+assert_eq "$(tmux display-message -pt "$win" '#{T:pane-border-format}')" " stub " "the agent pane's border label"
+
+# The titles are trails' own, whatever tmux.conf says (this one says nothing): a workspace
+# reads "trails · <host>", a trail its agent and the title the agent gives, a leading glyph
+# dropped.
+assert_eq "$(tmux show-options -v -t default set-titles)" on "titles on, in the workspace"
+assert_eq "$(tmux display-message -pt default '#{T:set-titles-string}')" "trails · $(tmux display-message -p '#{host_short}')" "the workspace's title"
+assert_eq "$(tmux show-options -gv set-titles)" off "and nowhere else"
+assert_eq "$(tmux display-message -pt default/payments '#{T:set-titles-string}')" "stub · payments ready" "a trail's"
+type_in default/payments "title ✳ Fixing the flaky test"
+wait_for 5 sh -c "[ \"\$(tmux display-message -pt default/payments '#{T:set-titles-string}')\" = 'stub · Fixing the flaky test' ]" ||
+  fail "a trail's title, with its task: $(tmux display-message -pt default/payments '#{T:set-titles-string}')"
 wait_for 5 sh -c "tmux list-clients -t default/payments -F '#{client_tty}' | grep -qx \"\$(tmux display-message -pt '$win' '#{pane_tty}')\"" ||
   fail "the trail's window's pane is not a client of the session"
 assert_eq "$(tmux show-options -t default/payments -v status)" off "the session has no status line"

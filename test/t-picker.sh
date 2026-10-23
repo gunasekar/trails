@@ -30,11 +30,11 @@ assert_eq "$(awk '/^--- /{n=$2;next} n==3' "$T/agents" | cut -f1 | head -n 1)" a
 # Through both screens, "＋ new trail…" then "stub · new trail".
 NEW='^agents	|stub · new trail'
 
-# Enter on "＋ new trail…", then "stub · new trail", starts one: the window proj·stub in default, the session default/proj.
+# Enter on "＋ new trail…", then "stub · new trail", starts one: the window proj in default, the session default/proj.
 FZF_PICK="$NEW" trails_bg
 wait_for 5 has_session default/proj || fail "no session default/proj"
 wait_for 5 screen_has default/proj 'agent id=' || fail "agent never started"
-assert_eq "$(tmux list-windows -t default -F '#{window_name}')" "proj·stub" "the window"
+assert_eq "$(tmux list-windows -t default -F '#{window_name}')" "proj" "the window"
 wid=$(tmux display-message -pt default/proj '#{window_id}')
 
 # It is now an attach row, under "＋ new trail…", targeting its window.
@@ -45,14 +45,14 @@ assert_match "$(printf '%s\n' "$rows" | sed -n 2p | cut -f3)" '● (your turn|wo
 # A second unnamed trail here is the -2 sibling, and wears #2.
 FZF_PICK="$NEW" trails_bg
 wait_for 5 has_session default/proj-2 || fail "no session default/proj-2"
-wait_for 5 sh -c "[ \"\$(tmux list-windows -t default -F '#{window_name}' | sort | tr '\n' ' ')\" = 'proj·stub proj·stub-2 ' ]" || fail "no sibling window: $(tmux list-windows -t default -F '#{window_name}' | tr '\n' ' ')"
+wait_for 5 sh -c "[ \"\$(tmux list-windows -t default -F '#{window_name}' | sort | tr '\n' ' ')\" = 'proj proj-2 ' ]" || fail "no sibling window: $(tmux list-windows -t default -F '#{window_name}' | tr '\n' ' ')"
 rows=$(menu)
 assert_match "$(printf '%s\n' "$rows" | grep -c '^attach')" '^2$' "two attach rows"
 assert_match "$(printf '%s\n' "$rows" | grep '^attach' | cut -f3 | tr '\n' '|')" '#2' "the #2 badge"
 
 # Enter on an attach row lands in the workspace with that window selected.
 FZF_PICK='#2' trails_bg
-wait_for 5 sh -c "tmux list-clients -F '#{session_name} #{window_name}' | grep -q 'default proj·stub-2'" ||
+wait_for 5 sh -c "tmux list-clients -F '#{session_name} #{window_name}' | grep -q 'default proj-2'" ||
   fail "picking a running trail did not attach to it"
 
 # ctrl-n, a name, Enter on an agent's row: the trail takes the name.
@@ -64,7 +64,7 @@ wait_for 5 screen_has default/billing 'name=billing' || fail "the name never rea
 wid2=$(tmux display-message -pt default/proj-2 '#{window_id}')
 (cd "$PROJ" && "$TRAILS" --kill "$wid2")
 wait_for 3 no_session default/proj-2 || fail "ctrl-x left the session"
-wait_for 5 sh -c "[ \"\$(tmux list-windows -t default -F '#{window_name}' | sort | tr '\n' ' ')\" = 'proj·billing proj·stub ' ]" || fail "the trail's window stayed: $(tmux list-windows -t default -F '#{window_name}' | tr '\n' ' ')"
+wait_for 5 sh -c "[ \"\$(tmux list-windows -t default -F '#{window_name}' | sort | tr '\n' ' ')\" = 'proj proj·billing ' ]" || fail "the trail's window stayed: $(tmux list-windows -t default -F '#{window_name}' | tr '\n' ' ')"
 assert_no_file "$STATE/default/proj-2" "the record went"
 
 # Esc starts nothing. The test's own driver terminals come and go (the one attached to the
