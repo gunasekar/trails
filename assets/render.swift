@@ -1,8 +1,7 @@
-// Draws every trails image from one definition of the mark, so the logo, the README art
-// and the menu-bar icons never drift apart. Run it after changing the mark:
+// Draws every trails image from one definition of the mark, so the logo and the README art
+// never drift apart. Run it after changing the mark:
 //
 //   swift assets/render.swift assets                 the logo and lockups, into assets/
-//   swift assets/render.swift --menubar <dir>        the menu-bar icon set, into <dir>
 //
 // The mark is a lowercase t drawn as one stroke, its crossbar and foot each ending in a dot:
 // the top dot is "wants you" (amber when an agent finished its turn, red when one is asking
@@ -13,7 +12,7 @@ func hex(_ h: Int) -> NSColor {
   NSColor(srgbRed: CGFloat((h >> 16) & 255) / 255, green: CGFloat((h >> 8) & 255) / 255,
           blue: CGFloat(h & 255) / 255, alpha: 1)
 }
-let amber = hex(0xF5A524), green = hex(0x2BD47F), red = hex(0xF0525E), idleDot = hex(0x8A8F98)
+let amber = hex(0xF5A524), green = hex(0x2BD47F)
 let cream = hex(0xECE8E0), ink = hex(0x16191A), night = hex(0x0E1412), paper = hex(0xF2EFE8)
 
 func drawMark(_ g: CGContext, ink: NSColor, top: NSColor, bottom: NSColor) {
@@ -30,7 +29,7 @@ func drawMark(_ g: CGContext, ink: NSColor, top: NSColor, bottom: NSColor) {
 }
 
 // A PNG of `points` x `points`-ish at `scale`, with its DPI set so an app that loads it
-// (SwiftBar) sizes it in points, not pixels.
+// sizes it in points, not pixels.
 func png(_ path: String, width: CGFloat, height: CGFloat, scale: CGFloat, _ body: (CGContext) -> Void) {
   let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(width * scale), pixelsHigh: Int(height * scale),
                              bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
@@ -63,19 +62,7 @@ func lockup(_ path: String, bg: NSColor?, fg: NSColor) {
 }
 
 let args = Array(CommandLine.arguments.dropFirst())
-if args.first == "--menubar", args.count == 2 {
-  // Every state the menu bar can be in, for a light and a dark bar. 18 pt is the menu-bar
-  // icon height; @2x for Retina.
-  let tops: [(String, NSColor)] = [("none", idleDot), ("idle", amber), ("blocked", red)]
-  let bottoms: [(String, NSColor)] = [("rest", idleDot), ("working", green)]
-  for (bar, inkCol) in [("light", ink), ("dark", cream)] {
-    for (tn, tc) in tops { for (bn, bc) in bottoms {
-      png("\(args[1])/trails-\(bar)-\(tn)-\(bn).png", width: 18, height: 18, scale: 2) { g in
-        g.scaleBy(x: 18 / 24, y: 18 / 24); drawMark(g, ink: inkCol, top: tc, bottom: bc)
-      }
-    } }
-  }
-} else if args.count == 1 {
+if args.count == 1 {
   let dir = args[0]
   png("\(dir)/mark.png", width: 128, height: 128, scale: 2) { g in
     g.setFillColor(night.cgColor)
@@ -85,6 +72,6 @@ if args.first == "--menubar", args.count == 2 {
   lockup("\(dir)/logo-dark.png", bg: nil, fg: cream)
   lockup("\(dir)/logo-light.png", bg: nil, fg: ink)
 } else {
-  FileHandle.standardError.write("usage: swift render.swift <dir> | --menubar <dir>\n".data(using: .utf8)!)
+  FileHandle.standardError.write("usage: swift render.swift <dir>\n".data(using: .utf8)!)
   exit(1)
 }

@@ -1,6 +1,7 @@
 # 8. Ship the menu-bar plugin with trails
 
-- Status: accepted
+- Status: superseded in 1.6: the plugin and `trails swiftbar` are removed. `trails ls`'s
+  TSV stays, for any status bar or notifier to read
 - Date: 2026-10
 
 ## Context
