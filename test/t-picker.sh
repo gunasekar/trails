@@ -67,11 +67,13 @@ wait_for 3 no_session default/proj-2 || fail "ctrl-x left the session"
 wait_for 5 sh -c "[ \"\$(tmux list-windows -t default -F '#{window_name}' | sort | tr '\n' ' ')\" = 'proj·billing proj·stub ' ]" || fail "the trail's window stayed: $(tmux list-windows -t default -F '#{window_name}' | tr '\n' ' ')"
 assert_no_file "$STATE/default/proj-2" "the record went"
 
-# Esc starts nothing.
-before=$(tmux list-sessions -F '#{session_name}' | sort | tr '\n' ' ')
+# Esc starts nothing. The test's own driver terminals come and go (the one attached to the
+# trail ctrl-x just ended closes in its own time), so only the rest are compared.
+trail_sessions() { tmux list-sessions -F '#{session_name}' | grep -v '^driver-' | sort | tr '\n' ' '; }
+before=$(trail_sessions)
 FZF_PICK='' trails_bg
 sleep 2
-assert_eq "$(tmux list-sessions -F '#{session_name}' | sort | tr '\n' ' ')" "$before" "Esc leaves sessions alone"
+assert_eq "$(trail_sessions)" "$before" "Esc leaves sessions alone"
 
 # A codebase whose name holds an apostrophe: its key goes into the trail's window's pane
 # command, which is a shell line, and must survive it.

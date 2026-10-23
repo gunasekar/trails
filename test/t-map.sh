@@ -1,6 +1,6 @@
 #!/bin/sh
 # The map: a session of its own whose panes are nested clients of trails' sessions,
-# most-wants-you first; and trails end / trails keys.
+# most-wants-you first; ending a trail beside a shell; and trails keys.
 . "$REPO/test/lib.sh"
 t_setup
 
@@ -38,28 +38,22 @@ driver "$TRAILS" map 2
 wait_for 5 sh -c "[ \"\$(tmux list-panes -t trails_map | wc -l | tr -d ' ')\" = 2 ]" || fail "no map with map.two"
 assert_eq "$(tmux list-panes -t trails_map -F '#{pane_top}' | sort -u | wc -l | tr -d ' ')" 1 "side by side when the config says so"
 
-# trails end, from anywhere: the agent's window, its session and its record go, and the
-# trail's window, with a shell beside the agent, is kept as the codebase's shell window.
+# Ending a trail (ctrl-x, `--kill`): the agent's window, its session and its record go, and
+# the trail's window, with a shell beside the agent, is kept as the codebase's shell window.
 driver "$TRAILS" shell "$PROJ"
 pwin() { tmux list-windows -t default -F '#{window_id} #{@trails_window}' | awk '$2 == "default/payments" { print $1 }'; }
 wait_for 5 sh -c "[ \"\$(tmux list-panes -t \"\$(tmux list-windows -t default -F '#{window_id} #{@trails_window}' | awk '\$2 == \"default/payments\" { print \$1 }')\" | wc -l | tr -d ' ')\" = 2 ]" || fail "no shell beside payments"
 pw=$(pwin)
-# With no locale at all, as a launchd job runs: a tmux client in the C locale rewrites
-# the tab between two fields as `_`, and the trail could not be found to end.
-out=$(cd "$T" && env -u LANG -u LC_ALL -u LC_CTYPE "$TRAILS" end default/payments)
-assert_eq "$out" "ended default/payments" "said so"
+# With no locale at all, as a launchd job runs: a tmux client in the C locale rewrites the
+# separator between two fields as `_`, and restore would find no trail running to skip.
+assert_match "$(cd "$PROJ" && env -u LANG -u LC_ALL -u LC_CTYPE "$TRAILS" ls -a | cat)" \
+  "^running	[^	]*	default/payments	" "no locale: the trail is still found"
+awid=$(tmux list-windows -a -F '#{window_id} #{@trails_session}' | awk '$2 == "default/payments" { print $1 }')
+(cd "$PROJ" && "$TRAILS" --kill "$awid")
 wait_for 3 no_session default/payments || fail "the session survived"
 wait_for 5 sh -c "[ \"\$(tmux display-message -pt '$pw' '#{window_name} #{@trails_tool} #{window_panes}')\" = 'proj·shell shell 1' ]" || fail "the trail's window was not released: $(tmux display-message -pt "$pw" '#{window_name} #{@trails_window} #{@trails_tool} #{window_panes}')"
 assert_eq "$(tmux list-windows -t default -F '#{window_name}' | sort | tr '\n' ' ')" "other·ledger proj·shell " "the windows"
 assert_no_file "$STATE/default/payments" "the record went"
-assert_match "$(cd "$T" && "$TRAILS" end nope 2>&1)" 'no trail nope' "unknown refused"
-
-# trails open KEY, from anywhere: the terminal lands in the workspace on the trail's window.
-driver "$TRAILS" open default/ledger
-driver_attached || fail "open never attached"
-assert_eq "$(client_at "$(tmux list-clients -F '#{client_name} #{client_tty}' | awk -v t="$(tmux display-message -pt "driver-$DRIVERS" '#{pane_tty}')" '$2 == t { print $1 }')")" 'default other·ledger' "open landed on the trail's window"
-assert_match "$(cd "$T" && "$TRAILS" open default/nope 2>&1)" 'gone' "an unknown trail refused"
-assert_match "$(cd "$T" && "$TRAILS" open nope 2>&1)" 'no trail nope' "a key that names no trail refused"
 
 # trails keys prints bindings, and changes nothing.
 before=$(tmux list-keys | wc -l)

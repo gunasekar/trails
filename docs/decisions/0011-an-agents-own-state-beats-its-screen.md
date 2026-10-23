@@ -1,6 +1,7 @@
 # 11. An agent's own state beats its screen
 
-- Status: accepted
+- Status: accepted, amended by ADR 18: hooks answer too, the newer of hook and file
+  winning, and Codex's rollout no longer answers for its state
 - Date: 2026-10
 - Amends ADR 2, which reads every agent's state off its screen
 

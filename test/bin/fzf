@@ -13,6 +13,13 @@
 # $FZF_KEYS may name a file instead: then its first line is this fzf's keys, taken off the
 # top, so one run's several fzfs each get their own.
 keys=${FZF_KEYS:-}
+# $FZF_KEY, the --expect key, may name a file too: one line per fzf, empty for Enter.
+expect_key=${FZF_KEY:-}
+if [ -n "$expect_key" ] && [ -f "$expect_key" ]; then
+  kf=$expect_key
+  expect_key=$(head -n 1 "$kf")
+  sed -i.bak 1d "$kf" && rm -f "$kf.bak"
+fi
 if [ -n "$keys" ] && [ -f "$keys" ]; then
   f=$keys
   keys=$(head -n 1 "$f")
@@ -89,5 +96,5 @@ done)
 [ -n "$pick" ] || exit 130
 # --expect prints the key that ended fzf after the query: $FZF_KEY, or an empty line for Enter.
 [ -n "$query" ] && printf '%s\n' "${FZF_QUERY:-}"
-[ -n "$expect" ] && printf '%s\n' "${FZF_KEY:-}"
+[ -n "$expect" ] && printf '%s\n' "$expect_key"
 printf '%s\n' "$pick"

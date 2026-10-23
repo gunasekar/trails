@@ -32,9 +32,8 @@ In scope:
 - **The editor and a shell** beside a codebase's trails
   ([ADR 15](decisions/0015-companions-are-marked-windows.md)).
 - **The map**, several trails in one window, as a window that owns nothing.
-- **A TSV contract** (`trails ls`) for other tools to build on, and the menu-bar
-  plugin, which ships with trails but is only a reader of it
-  ([ADR 8](decisions/0008-ship-the-menu-bar-plugin.md)).
+- **A TSV contract** (`trails ls`) for other tools to build on: a status bar, a
+  notifier, a script.
 
 Out of scope:
 
@@ -42,12 +41,11 @@ Out of scope:
   you're in tmux and the agent's own interface.
 - **A daemon.** Nothing of trails runs between commands, except the small wrapper
   that forgets a trail's record when its agent exits.
-- **Per-agent integrations.** No hooks or APIs into the agents. Status comes from
-  the screen ([ADR 2](decisions/0002-status-from-the-screen.md)), or from a file
-  the agent already writes for itself
-  ([ADR 11](decisions/0011-an-agents-own-state-beats-its-screen.md)), and adding an
-  agent is a config entry, not code
-  ([ADR 7](decisions/0007-agents-in-a-config-file.md)).
+- **Per-agent integrations.** No APIs into the agents. Status comes from the
+  agent's own hooks, which call `trails state`, and which are the user's to set up
+  ([ADR 18](decisions/0018-status-from-the-agents-hooks.md)); `trails hooks` writes
+  them for the agents it knows, as config, not code. Adding an agent is a config
+  entry ([ADR 7](decisions/0007-agents-in-a-config-file.md)).
 - **The agents' work itself:** git worktrees, branches, diffs, prompts or task
   queues. trails puts you in the trail, and what happens there is the agent's
   business and yours.
@@ -134,11 +132,6 @@ of different shapes (the trail's window and an editor's panel) is sized to the o
 you last typed in, and the other sees it clipped or filled: accepted, as in the
 map.
 
-**Trails from before 1.0** are sessions named `trails-<project>` with `@agent` and
-`@trails_id` as session options. They are listed by prefix, attached to and ended
-as sessions, and their record keeps its old key until a restore moves it. `$PREFIX`
-is the only place the prefix is spelled.
-
 ### Workspaces
 
 `load_workspaces` reads the config once per run into lines of
@@ -184,7 +177,11 @@ it. A client found this way that is itself a pane of the server, the nested
 client in a trail's window or a map pane, is followed outward to the terminal
 showing that pane (`client_outer`): a key pressed there with the double prefix
 names it, and switching it to the workspace would put the workspace inside its
-own window.
+own window. A `TMUX_PANE` with no `TMUX` beside it is another server's, left by an
+`unset TMUX`, and is dropped first: a server trails started would take it into its
+global environment, and every `run-shell` binding and popup there would read it as
+the pane it ran in, so `prefix e` opened the editor beside whatever trail held that
+pane id.
 
 A client on a session grouped with a workspace's (`tmux new-session -t acme`, a
 second terminal on one workspace) is that workspace: `client_ws` reads the mark
@@ -197,9 +194,8 @@ is switched as asked.
 
 `sessions` is one `list-windows -a` for the box. A window is a trail when it
 carries `@agent` and `@trails_session` and lives in that session (the row from the
-session named by its key; the trail's window in the workspace has no `@agent`), or
-when its session has the 0.6
-prefix. Each row is `wid key ws agent-label dir codebase
+session named by its key; the trail's window in the workspace has no `@agent`).
+Each row is `wid key ws agent-label dir codebase
 badge task`, and the pass also keeps every record's task and conversation current
 (below). `classify` adds the state and the peer name in front of and before the
 task. Everything above reads these rows: `live_trails` keeps this directory's or
@@ -214,9 +210,8 @@ separator, never `|` (a directory may hold one) nor a tab (the shell reads a tab
 as whitespace and drops empty fields). A `read` with that IFS is never fed a
 command substitution of its own: its IFS would split the substitution's words.
 
-A key a command is given (`trails end`, `open`) is checked by `key_ok`: a
-`WORKSPACE/NAME`, or a 0.6 `trails-…` looked up by its exact name, and nothing
-with `..` or a leading `/`. `rec_path` keeps a record's path inside its
+A key trails is handed (by the picker, the map) is checked by `key_ok`: a
+`WORKSPACE/NAME`, and nothing with `..` or a leading `/`. `rec_path` keeps a record's path inside its
 directory whatever it is given.
 
 ## Agents
@@ -259,9 +254,10 @@ word, legend line and sort position, and every view draws from it: the picker,
 
 | State | Running | Comes from |
 |---|---|---|
-| needs you | yes | `classify`: still, and asking (`blocked` inside the script) |
-| your turn | yes | `classify`: still, not asking (`idle`) |
-| working | yes | `classify`: the screen changed |
+| needs you | yes | `classify`: the agent is asking (`blocked` inside the script) |
+| your turn | yes | `classify`: its turn ended (`idle`) |
+| unknown | yes | `classify`: nothing said |
+| working | yes | `classify`: it is busy |
 | lost | no | a record whose trail is gone |
 | closed | no | an agent's own history, with nothing running it |
 | elsewhere | no | the same, but held open by a `claude` trails didn't start |
@@ -272,51 +268,38 @@ name, never by glyph: macOS awk compares strings by locale collation, which rank
 
 ## Who wants you: working, your turn, needs you
 
-There are no per-agent hooks. Claude Code's hooks would report this exactly, but
-only for Claude, and they need setting up. Two signals are used instead, in order
-([ADR 11](decisions/0011-an-agents-own-state-beats-its-screen.md)).
+The agent says ([ADR 18](decisions/0018-status-from-the-agents-hooks.md)).
+`classify` reads each trail's word in one pass over all of them (`said`):
 
-**The agent's own record, where it keeps one.** `agent_state` asks the reader the
-agent's config names as `session.find`. `claude` reads `status` from
-`~/.claude/sessions/<pid>.json`, the same file it reads the conversation from:
+1. **Its hooks.** `trails state working|waiting|idle`, run from the agent's hooks,
+   sets `@trails_state` and `@trails_state_at` on the agent's pane, the hook's
+   `TMUX_PANE`. It is dispatched at the top of the script, before the config or the
+   agents are read, since it runs on every turn of every hooked agent, and it is
+   silent and exits 0 whatever happens, since a hook's output can land in the
+   transcript and a failing hook is reported on every turn. `classify` reads both
+   options in the `list-windows` it already makes.
+2. **Claude's own record.** `agent_state` asks the reader the agent's config names
+   as `session.find`; `claude` reads `status` from `~/.claude/sessions/<pid>.json`,
+   the same file it reads the conversation from: `busy` is `working`, `waiting` (a
+   dialog is open, `waitingFor` says which) is `blocked`, `idle` is `idle`. A value
+   it doesn't know is no answer. When the hook and the record both answer, the newer
+   wins, `@trails_state_at` against `statusUpdatedAt`: a turn interrupted before its
+   `Stop` hook fired leaves the hook at `working` while Claude's file has moved on.
+3. Otherwise `unknown`: grey, sorted between *your turn* and *working*.
 
-| `status` | State |
-|---|---|
-| `busy` | `working` |
-| `waiting` (a dialog is open, `waitingFor` says which) | `blocked` |
-| `idle` | `idle` |
+Pane pids, hook words and the process tree are read once per pass.
 
-`codex` reads the last turn event in the trail's rollout,
-`rollout-<time>-<id>.jsonl`, found by its `@trails_id`. A `task_complete` or
-`turn_aborted` there is `idle`. A `task_started` falls through, because codex
-doesn't write approval prompts to the rollout, so only the screen can tell working
-from blocked.
+The screen is not read. Up to 1.5 it was: two captures `AGENT_SETTLE` apart,
+changed being working and a question on screen needing you. It guessed, and a
+status line or countdown that redraws an idle screen read as working; hooks know.
 
-No file, or a value the reader doesn't know, falls through to the screen.
-
-**The screen, for everything else.** Each TUI animates while it works (spinner,
-timer, token count), and a stopped one sits still. So `classify` captures the
-visible screen of every window left over, waits `AGENT_SETTLE` (0.35s), and
-captures again:
-
-| State | Rule |
-|---|---|
-| `working` | the screen changed between the samples |
-| `blocked` | still, and the bottom 15 lines match `AGENT_ASK_RE` |
-| `idle` | still, and not asking |
-
-The sleep is paid once for the whole list, and not at all when every trail
-answered from its record. Pane pids and the process tree are read once per pass.
-
-The screen's error is mostly one-sided: `working` needs two samples to differ, so
-the bad case is a slow agent read as idle. The exception is anything an idle agent
-redraws on a timer. A Claude status line with a `refreshInterval` did exactly that,
-and is why Claude is read from its record. `blocked` vs `idle` is the screen's one
-heuristic, and both sort above `working`, so a wrong guess costs a colour, not a
-missed agent.
-
-A tmux timestamp doesn't work instead: `#{session_activity}` tracks tmux's own
-alert bookkeeping, not bytes written to the pane.
+`trails hooks` (`hooks_cmd`, `hook_spec`) prints each known agent's hooks and says
+where they go: the events that mean working (a prompt sent, a tool done; the second
+clears *waiting* once a permission is granted), waiting (a permission prompt, a
+question) and idle (a session started, a turn ended). Pasting them is the user's.
+The repo's Claude Code plugin, `plugins/trails`, carries the same hooks; a test
+keeps the two identical. Copilot and Cursor have no hook for a permission prompt,
+so their hooks say working through one.
 
 ## trails ls
 
@@ -328,7 +311,7 @@ ones, then ended conversations newest first.
 
 Piped, it is TSV, a contract for notifiers: `life state session agent yolo dir id
 when pid peer workspace title`, `life` being `running` or `stopped` and `session`
-the trail's session name (or a 0.6 session's). An empty field is written `-`, never
+the trail's session name. An empty field is written `-`, never
 left empty, because tab counts as whitespace to `read` and two tabs in a row
 collapse, shifting every later field. The title goes last because it is free
 text, and new fields go in front of it. On a terminal it is a padded table, the
@@ -337,7 +320,7 @@ extra leading field that the TSV drops, since a badge needs the label and name
 the TSV doesn't carry.
 
 Reading conversation history costs most of an `ls`. `TRAILS_RECENT_MAX=0` skips it,
-for a menu-bar poll that only wants running trails.
+for a poll that only wants running trails.
 
 ## Surviving tmux
 
@@ -346,7 +329,7 @@ from choosing a trail's session through marking its window, so two launches at
 once can't take one name, and a restore that finds its trail back on its own
 conversation stops (status 3) rather than starting a second agent. Records are
 rewritten (`rec_rewrite`) only while they exist, each writer with its own temp
-file, so the menu bar's `trails ls` can't bring back a trail that just ended.
+file, so a poll's `trails ls` can't bring back a trail that just ended.
 
 Every agent lives inside the tmux server, so a reboot, a crash or
 `tmux kill-server` takes them all down. The conversations survive, since each CLI
@@ -354,7 +337,7 @@ keeps its transcripts. What dies is the knowledge of which conversation belonged
 to which trail.
 
 So `trails` writes that down outside tmux, one file per trail, keyed by its
-session's name (one directory down), or by its session name for a trail from 0.6:
+session's name, one directory down:
 
 ```text
 ~/.local/state/trails/sessions/lattiq/augur-2
@@ -366,15 +349,22 @@ task=Fixing the flaky test
 workspace=lattiq
 label=augur
 name=
+server=default
 ```
+
+**A record belongs to one tmux server**, the socket's name (`default`, or what `-L`
+named). A record counts as lost, and is restored, only on its own server: on any
+other, every trail of the first would look dead, and restoring them there would run
+each conversation twice. A record from before 1.6 has no `server` and counts as
+`default`.
 
 **The ID is chosen up front.** `trails` generates it and starts the agent under it
 (`claude --session-id`, `opencode --session`), then resumes by it (`--resume`,
 `--session`). `--continue` would not do: it means "the latest conversation in
 this directory", so two trails in one codebase would resume the same one.
 
-**The task is kept current** by every `sessions` pass, which a menu-bar poll
-runs every few seconds, so a lost row can say what the trail was doing.
+**The task is kept current** by every `sessions` pass (the picker, `trails ls`,
+anything polling it), so a lost row can say what the trail was doing.
 
 **So is the conversation.** The ID trails chose is only where a trail started:
 `/resume` or `/clear` inside claude moves it to another one. Every `sessions`
@@ -407,8 +397,8 @@ agent can take longer than the launch check to start and then refuse the resume
 the record then would lose the only pointer to the conversation, so the trail
 comes back as lost, to retry or forget.
 
-**A record is dead** when no window carries its key (`@trails_session`, or the
-session name for 0.6) together with its ID as `@trails_id`, not when no session
+**A record is dead** when no window carries its key (`@trails_session`) together
+with its ID as `@trails_id`, not when no session
 has its name. Otherwise a session you created by hand under the same name would
 hide it. The trail's window killed is nothing to a record: the trail lives in its
 session. A
@@ -482,12 +472,19 @@ codebase.
 | its ended conversations | `workspace-old` | |
 | a codebase's agents | `agents` | a `new` row per agent, for the codebase `＋ new trail…` was picked on or for; Esc goes back to the workspace it was reached from (`TRAILS_BACK`), else the codebase |
 
+`?` on every screen runs `trails --keys` (fzf's `execute`): `trails help keys`
+(`keys_help`, also the middle of `trails help`) in a popup over the picker's pane, or
+in `less` in place when the picker is itself in a popup, since tmux shows one popup at a
+time and refuses a second silently. `q` comes back to the list as it was. `prefix ?`,
+from `trails keys`, shows the same in a popup, in place of tmux's list of every binding.
+
 Esc goes up a level on every screen (D4 in `docs/design/picker-consolidation.md`):
 the screens name it in `--expect`, so fzf reports it as a key, and the dispatch
 execs the screen above — a codebase's to its workspace's, a workspace's to the
 workspaces. The workspaces screen has no Esc key, so there it aborts. An abort
 (ctrl-c) quits from anywhere, and an editor's terminal quits on Esc too.
 | the workspaces | `ws` | one row each with what runs in it, the last attached marked and under the cursor |
+| every trail | `all` | every running trail, in every workspace, its codebase column `workspace/codebase`; no new or old rows. `prefix A` opens it; ctrl-a on the screens above reaches it, and Esc goes back to that screen (`TRAILS_FROM`), else closes |
 
 `print_menu` builds TSV rows of `verb`, `target`, `what's drawn`. fzf draws only
 the third field. Trails are gathered first as raw rows (`state verb target dir
@@ -572,9 +569,25 @@ panes change (`tool_remark`): `<codebase>·shell` once the editor has left, the
 editor's name again when one is opened in it. When a trail ends with panes beside it, `window_release` turns the
 trail's window into such a window rather than killing what you had open: renamed
 for the editor (or `<codebase>·shell`), marked `@trails_tool`, the trail's mark
-dropped. Run by the agent's wrapper on exit and by `trails end` and ctrl-x before
-they kill the session. An editor's terminal is shown no editor or shell rows in
+dropped. Run by the agent's wrapper on exit and by ctrl-x before it kills the
+session. An editor's terminal is shown no editor or shell rows in
 the picker.
+
+## The diff
+
+`trails diff` (`diff_cmd`) finds the codebase as `trails edit` does (`diff_dir`):
+`DIR`, else the window you are on (`@trails_dir`), else the pane's directory, else
+`$PWD`. From `prefix G`, a run-shell job with no terminal, it opens a popup on the
+terminal that pressed the key, 90% of it, running `trails diff --show DIR`; from a
+shell it runs there. `diff_show` builds the diff in the codebase: `git diff HEAD`
+(the empty tree's hash before a first commit), then each untracked file not
+ignored against `/dev/null` with `git diff --no-index`, since agents make files
+`git diff` leaves out, and nothing is staged to show them. It is piped to the
+config's `diff` command (`diff_cfg`), uncoloured, or with colour into `less -R`
+when there is none and delta isn't installed. A `{ "command", "pipe": false }` diff
+finds the changes itself (Neovim with codediff), so `diff_show` only checks there
+are some (`git status --porcelain`) and execs it in the popup; a `"gui": true` one is
+run in the codebase instead, with no popup.
 
 ## Keys
 
@@ -588,15 +601,23 @@ and the picker's dim text is unreadable on it. The colour's name is chosen by
 `tmux -V`: in a style `bg=default` means the base style's background, which for
 a popup is `popup-style` itself, so on 3.8 it keeps the grey; 3.8 added
 `bg=terminal` for the terminal's own, and a tmux before it rejects the word.
-`prefix P`, `W`, `e`, `` ` `` and `N` are free in tmux 3.8's default table (`n` is
-next-window); `P` is "pick a trail", the backtick for the shell is the editors'
-own toggle-terminal key, and `N` is a note. `(` and `)` take tmux's cycling
+`prefix P`, `W`, `A`, `e`, `` ` ``, `N` and `G` are free in tmux 3.8's default table (`n` is
+next-window, `g` and `D` are taken); `P` is "pick a trail", the backtick for the shell is the editors'
+own toggle-terminal key, `N` is a note, `A` all trails and `G` the git diff. `(` and `)` take tmux's cycling
 through every session for the workspaces alone, and `M` takes clearing the marked
 pane (which `prefix m` on it still does) for the map.
 
 `run-shell "trails keys | tmux source-file -"` in tmux.conf loads them all each time
 tmux reads it, so they follow an upgrade; the lines it prints that say so are tmux
 comments, which the sourcing skips.
+
+One line is printed commented out, so the loader skips it and it stays opt-in:
+`run-shell -b "trails restore >/dev/null 2>&1"`, which brings back the trails tmux
+lost whenever it starts (continuum's idea, without its snapshots: the records are
+already current). Restore is a no-op with nothing lost, safe on every reload, and
+races a launch only through `launch_lock` and restore's back-already check, as any
+two launches do. Its output goes nowhere, since a run-shell's output is shown over
+the pane.
 
 `trails keys` also sets `status-left` to the running workspaces: tmux's own
 `#{S/n:…}` loop over the sessions marked `@trails_workspace`, each in a
@@ -623,42 +644,6 @@ time. trails writes nothing else in the repo, `.gitignore` included.
 Without `TEXT`, `note_ask` takes one line on fzf's input line: `--disabled` over
 nothing to pick, and `enter:accept-or-print-query`, so Enter prints what was
 typed. Esc drops it, and an empty line opens the notes (`notes_open`).
-
-## The menu-bar plugin
-
-`extras/swiftbar/trails.10s.sh` is a SwiftBar plugin, installed into
-`share/trails/swiftbar/` with its icons. It is a reader of `trails ls -a`, not
-part of trails: every 10 seconds it runs `TRAILS_RECENT_MAX=0 trails ls -a`, keeps the
-running rows, and draws them.
-
-- **Icon:** twelve pre-drawn PNGs in `icons/` (three top-dot states, two bottom,
-  for a light and a dark bar), made by `assets/render.swift --menubar`. A
-  coloured image can't be a template image, so the plugin picks the light or dark
-  set from the system appearance.
-- **Notifications:** it remembers each trail's state between polls in
-  `~/.cache/trails/swiftbar-state` and speaks on the working → stopped edge, once,
-  after `TRAILS_NOTIFY_AFTER` seconds. Nothing can tell whether you're looking at
-  a trail, so the wait is what keeps the one you're working in quiet.
-- **Resume** runs `trails open` on the key as the command of a new tab, through
-  the chosen terminal's AppleScript, so it lands where the picker would: the
-  workspace on the trail's window, with the editor and shell beside the agent. The
-  choice is stored in `~/.config/trails/terminal`, not in SwiftBar's storage for
-  the plugin: SwiftBar names that after the plugin's resolved path, which through
-  Homebrew carries the version, so every upgrade would start it empty.
-- **End** runs `trails end` on the key, which kills the trail's session (the
-  nested client in the trail's window exits with it, and the window keeps any
-  editor or shell beside the agent as an editor or shell window) or a 0.6
-  session, and forgets the record.
-
-A launchd job has no locale, and a tmux client in the C locale rewrites every
-byte it cannot print as `_`, the tab between two format fields included. trails
-exports a UTF-8 `LC_CTYPE` when the caller set none, so what the plugin asks for
-reads the same as it would from a shell.
-
-`trails swiftbar` links the plugin into SwiftBar's plugin folder (read from
-`defaults read com.ameba.SwiftBar PluginDirectory`). It links through the path the
-script was invoked by, `/opt/homebrew/bin/../share/…`, not the resolved Cellar
-path, so the link survives `brew upgrade`. It never replaces a real file.
 
 ## The map
 
@@ -701,24 +686,35 @@ it in among them.
 
 ## The README demos
 
-`assets/workspace.gif`, `assets/nvim.gif` and `assets/map.gif` are recorded with
-[VHS](https://github.com/charmbracelet/vhs) from `assets/demo/*.tape`, with the real
-Claude Code: the map demo gives four agents a small task each, so a recording costs a little
-of your plan. Each tape first sources `assets/demo/sandbox.sh`, which gives trails
-its own config (a workspace `acme` over `~/code/*`), records and tmux server, and a
-sample Go project at `~/code/checkout` (refused if that exists, removed afterwards).
-The demo's tmux runs through a wrapper that loads the demo's own config, the
-`trails keys` bindings and a plain status line, so the recording machine's tmux.conf
-is not in the shot. trails reads a sandboxed Claude history holding only two example
+`assets/trails.gif` and `assets/map.gif` are recorded with
+[VHS](https://github.com/charmbracelet/vhs) from `assets/demo/trails.tape` and
+`map.tape`, with the real Claude Code. The first is the tour, kept to the everyday loop: the
+workspaces, a workspace's trails with the live preview, the editor and a shell
+beside an agent, and the status line's workspaces. The
+second is the map: prefix M's pick, across two workspaces, and four agents at work
+in one window. Both give their agents small tasks, so a recording costs a little of
+your plan; the tour's runs one, the map's five.
+
+Each tape first sources `assets/demo/sandbox.sh`, which gives trails its own config
+(a workspace `acme` over `~/code/*`, and `personal` over `~/src/*`), records and tmux
+server, and small Go projects at `~/code/checkout` and those in `DEMO_EXTRA`, with
+the repos in `DEMO_PERSONAL` under `~/src` (each refused if it exists, all removed
+afterwards). The demo's tmux runs through a wrapper that loads the demo's own
+config, a plain status line with `trails keys` after it, so the recording machine's
+tmux.conf is not in the shot and the keys are the ones being released. Each of
+those bindings is wrapped to name itself for a few seconds in a yellow badge at the
+right of the status line (`prefix e · editor`), since a GIF cannot show a key
+press. The tape's
+shell has `TMUX` and `TMUX_PANE` unset, since VHS run from inside tmux would hand
+them down. trails reads a sandboxed Claude history holding only two example
 conversations, so `trails ls -a` never lists the machine's own projects; a wrapper
-drops that setting before running the real `claude`, whose demo conversation is
+drops that setting before running the real `claude`, whose demo conversations are
 removed afterwards too. The repo's own `bin/trails` comes first on `PATH`, so a
-re-record shows the version being released. After a change to what the picker or
-`ls` shows, re-record from the repo root, with `claude` logged in:
+re-record shows the version being released. After a change to what the picker, a
+key or the status line shows, re-record from the repo root, with `claude` logged in:
 
 ```console
-vhs assets/demo/workspace.tape
-vhs assets/demo/nvim.tape
+vhs assets/demo/trails.tape
 vhs assets/demo/map.tape
 ```
 
@@ -727,21 +723,24 @@ vhs assets/demo/map.tape
 `test/run.sh` runs the integration tests in `test/t-*.sh`, one per area: launch,
 ls, classify, picker, screens (the workspace screens), tools (the editor and the
 shell), inside (inside
-tmux: switch-client, a nested editor client, the refused collision), legacy (0.6
-sessions beside the new model), restore, map, workspace (the config), and the
-popup check behind D4 of the design. CI runs them after ShellCheck. Each test is
+tmux: switch-client, a nested editor client, the refused collision), restore, map, workspace (the config), hooks
+(`trails state`, the order `classify` takes them in, `trails hooks`), diff, and
+the popup check behind D4 of the design. CI runs them after ShellCheck. Each test is
 its own process on its own tmux server in a throwaway `HOME`: `TMUX_TMPDIR` puts
 the socket there, `XDG_CONFIG_HOME` and `XDG_STATE_HOME` give it a config and
 records of its own, and `TMUX`, `TERM_PROGRAM`, `NVIM` and `ZED_TERM` are unset so
 trails sees a plain terminal outside tmux even when the tests run from an editor
-inside one. Nothing in `bin/trails` knows it is under test.
+inside one. Nothing in `bin/trails` knows it is under test. The stub agent calls
+`trails state` as a hooked agent would; `t-hooks.sh` runs it with `--no-hooks` to
+see what an agent with none shows.
 
 Three stand-ins on `PATH` from `test/bin` do what a person, a CLI and an editor
 would:
 
 - **`agent`** plays the agent. It takes the flags trails passes and then reads commands
   from its pane, so a test drives it with `tmux send-keys`: `ask` puts a question on
-  screen, `busy` changes the screen for two seconds, `title` sets the task, `exit` quits.
+  screen, `busy` changes the screen for two seconds, `title` sets the task, `hook WORD`
+  runs `trails state WORD` as an agent's hook would, `exit` quits.
 - **`fzf`** plays the picker's keyboard. It prints the first row matching `$FZF_PICK`,
   copies the rows it was given to `$FZF_DUMP` (numbered, one block per fzf a run
   opens), and with ctrl-n among `$FZF_KEYS` runs the bound command so `$FZF_QUERY`

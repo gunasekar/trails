@@ -15,31 +15,15 @@ CFG
 }
 stub_cfg
 
-# ── Keys: only a trail's, and nothing past the records' directory ──────────────────────
+# ── The preview: only a trail's ─────────────────────────────────────────────────────────
 DRIVER_DIR=$PROJ driver "$TRAILS" new one
 wait_for 5 screen_has default/one 'agent id=' || fail "one never started"
-tmux new-session -d -s mine 'sleep 120'
-echo precious >"$T/precious"
-for k in default mine min "default/../../precious" /etc ''; do
-  "$TRAILS" end "$k" >/dev/null 2>&1 && fail "end '$k' was taken as a trail"
-  "$TRAILS" open "$k" >/dev/null 2>&1 && fail "open '$k' was taken as a trail"
-done
-has_session default || fail "end default killed the workspace"
-has_session mine || fail "end mine killed a session of your own"
-assert_eq "$(tmux show-options -qv -t mine status)" "" "open mine left mine's status alone"
-assert_eq "$(cat "$T/precious")" precious "a key with .. deleted nothing"
-# A lost trails-proj beside a live trails-proj-2: ending the one leaves the other.
-printf 'agent=stub\ndir=%s\nid=x\nyolo=\ntask=\n' "$PROJ" >"$STATE/trails-proj"
-tmux new-session -d -s trails-proj-2 'sleep 120'
-"$TRAILS" end trails-proj >/dev/null 2>&1
-has_session trails-proj-2 || fail "end trails-proj killed trails-proj-2"
-assert_no_file "$STATE/trails-proj" "the lost one forgotten"
 # The preview shows a running trail or nothing: never "-" read as the last window, nor a
 # name that is gone read as another's prefix.
 assert_eq "$("$TRAILS" --peek -)" "" "no preview for a row that is no trail"
 assert_eq "$("$TRAILS" --peek default/on)" "" "no preview for a trail that is gone"
 
-# With the system's PATH alone (a tab the menu bar opened, launchd), trails still finds tmux,
+# With the system's PATH alone (a tab another app opened, launchd), trails still finds tmux,
 # and so its trails: Resume read a running trail as gone.
 assert_match "$(PATH=/usr/bin:/bin "$TRAILS" ls -a 2>&1 | grep default/one)" "^running" "a bare PATH still sees the trail running"
 
@@ -119,9 +103,7 @@ assert_eq "$("$TRAILS" ws of "$T/a1" 2>/dev/null)" "" "a1 isn't"
 jq '.workspaces.s = "~/w1"' "$T/dots/config.json" >"$T/c.tmp" && cat "$T/c.tmp" >"$T/dots/config.json"
 "$TRAILS" ws add s "$T/sp ace" >/dev/null 2>&1
 assert_eq "$(jq -c '.workspaces.s.codebases' "$T/dots/config.json")" '["~/w1","~/sp ace"]' "the string kept"
-for bad in trails-x list; do
-  "$TRAILS" ws add "$bad" "$T/w1" >/dev/null 2>&1 && fail "'$bad' accepted as a workspace name"
-done
+"$TRAILS" ws add list "$T/w1" >/dev/null 2>&1 && fail "'list' accepted as a workspace name"
 "$TRAILS" ws add r / >/dev/null 2>&1 && fail "/ accepted as a codebase"
 # A path with a space is in the tree, and a workspace with none counts none.
 jq '.workspaces.e = []' "$T/dots/config.json" >"$T/c.tmp" && cat "$T/c.tmp" >"$T/dots/config.json"
@@ -149,12 +131,13 @@ for a in abc 0 -1 99999999999999999999; do
   assert_match "$("$TRAILS" map "$a" 2>&1)" "map takes a number" "map $a refused as such"
 done
 
-# ── trails edit that starts the server leaves no editor's markers in it ───────────────
+# ── trails edit that starts the server leaves no editor's markers in it, and no other
+# server's pane: a TMUX_PANE left by an `unset TMUX` would be every binding's pane ──
 tmux kill-server 2>/dev/null
 wait_for 5 sh -c '! tmux ls >/dev/null 2>&1' || fail "the server stayed up"
-(cd "$PROJ" && NVIM=/tmp/nvimsock ZED_TERM=1 EDITOR=ed "$TRAILS" edit >/dev/null 2>&1 &)
+(cd "$PROJ" && unset TMUX && TMUX_PANE=%99 NVIM=/tmp/nvimsock ZED_TERM=1 EDITOR=ed "$TRAILS" edit >/dev/null 2>&1 &)
 wait_for 5 sh -c 'tmux ls >/dev/null 2>&1' || fail "edit started no server"
-assert_eq "$(tmux show-environment -g 2>/dev/null | grep -cE '^(NVIM|ZED_TERM)=')" 0 "no NVIM or ZED_TERM in the server"
+assert_eq "$(tmux show-environment -g 2>/dev/null | grep -cE '^(NVIM|ZED_TERM|TMUX_PANE)=')" 0 "no NVIM, ZED_TERM or TMUX_PANE in the server"
 assert_match "$(cd "$PROJ" && EDITOR=nosuch-editor "$TRAILS" edit 2>&1)" "nosuch-editor, which isn't installed" "a missing editor, said so"
 
 # ── Without fzf ────────────────────────────────────────────────────────────────────────
@@ -166,3 +149,11 @@ out=$(cd "$PROJ" && PATH=$T/nofzf "$TRAILS" 2>&1 </dev/null)
 rc=$?
 assert_match "$out" "needs fzf" "fzf missing, said so"
 [ "$rc" -ne 0 ] || fail "and exits with an error"
+
+# ── The keys, alone (? in the picker) and within trails help, once ──────────────────────
+keys=$("$TRAILS" help keys)
+assert_match "$keys" "^In the picker" "the picker's keys"
+assert_match "$keys" "^  \? +these keys; q comes back" "? among them"
+assert_match "$keys" "^In tmux, from trails keys" "and the tmux ones"
+assert_eq "$("$TRAILS" help | grep -c '^In tmux, from trails keys')" 1 "trails help has them, once"
+assert_match "$("$TRAILS" keys)" '^bind \? run-shell "TRAILS_CLIENT=#{client_name} .* --keys"$' "prefix ? shows them"

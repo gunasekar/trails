@@ -36,19 +36,6 @@ assert_eq "$(opts '#{@trails_label}')" proj "@trails_label"
 assert_eq "$(opts '#{@trails_name}')" payments "@trails_name"
 assert_match "$(opts '#{@trails_since}')" '^[0-9]{10}$' "@trails_since"
 
-# The 1.3 tags are still read, for one release: a trail that was running through the
-# upgrade carries @trails_view and @trails_cell, and is listed and found all the same.
-tmux set-option -wu -t "$wid" @trails_session \; set-option -w -t "$wid" @trails_view default/payments
-tmux set-option -wu -t "$win" @trails_window \; set-option -w -t "$win" @trails_cell default/payments
-assert_match "$(cd "$PROJ" && "$TRAILS" ls)" 'payments' "listed by the old tag"
-assert_eq "$(cd "$PROJ" && "$TRAILS" ls -a | wc -l | tr -d ' ')" 1 "once"
-driver EDITOR=ed "$TRAILS" edit "$PROJ"
-wait_for 5 sh -c "[ \"\$(tmux list-panes -t '$win' | wc -l | tr -d ' ')\" = 2 ]" || fail "trails edit did not find the old-tagged window"
-assert_eq "$(tmux list-windows -t default | wc -l | tr -d ' ')" 1 "and made no second one"
-tmux kill-pane -t "$(tmux list-panes -t "$win" -F '#{pane_id} #{@trails_pane}' | awk '$2 == "editor" { print $1 }')"
-tmux set-option -wu -t "$wid" @trails_view \; set-option -w -t "$wid" @trails_session default/payments
-tmux set-option -wu -t "$win" @trails_cell \; set-option -w -t "$win" @trails_window default/payments
-
 # The driver landed in the workspace, on that window (after BOOT, so wait for it).
 wait_for 5 sh -c "tmux list-clients -F '#{session_name}' | grep -qx default" || fail "the driver never attached"
 client=$(tmux list-clients -F '#{client_name} #{session_name}' | awk '$2 == "default" { print $1; exit }')

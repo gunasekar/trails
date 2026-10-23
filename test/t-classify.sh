@@ -1,6 +1,6 @@
 #!/bin/sh
-# States read off the screen, for an agent with no state file of its own: a question is
-# "needs you", a changing screen is "working", a still one is "your turn".
+# States as an agent's hooks give them: a question is "needs you", a turn under way is
+# "working", a finished one is "your turn".
 . "$REPO/test/lib.sh"
 t_setup
 
@@ -10,11 +10,11 @@ state_is() { [ "$(state)" = "$1" ]; }
 trails_bg new payments
 wait_for 5 screen_has default/payments 'agent id=' || fail "agent never started"
 
-wait_for 5 state_is your-turn || fail "a quiet agent should be your-turn, got $(state)"
+wait_for 5 state_is your-turn || fail "a started agent should be your-turn, got $(state)"
 
 type_in default/payments ask
 wait_for 5 state_is needs-you || fail "a question should be needs-you, got $(state)"
 
 type_in default/payments busy
-assert_eq "$(state)" working "a changing screen"
-wait_for 5 state_is your-turn || fail "a quiet agent again, got $(state)"
+wait_for 5 state_is working || fail "a turn under way should be working, got $(state)"
+wait_for 5 state_is your-turn || fail "the turn over, your-turn again, got $(state)"

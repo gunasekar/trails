@@ -44,7 +44,6 @@ covered yet.
 | | `trails ws add`, workspaces in the config | A `t-workspace` |
 | | no workspaces: `default` | A `t-picker`, `t-launch` |
 | | `trails keys` lines accepted by tmux | A `t-notes` (prefix N line) · M6 |
-| | `trails swiftbar` | M7 |
 | Starting | new trail in a repo, a workspace | A `t-picker`, `t-screens` |
 | | browse… to an unlisted folder | A `t-screens` |
 | | folder no workspace claims: the question | A `t-screens` |
@@ -54,28 +53,29 @@ covered yet.
 | | a second trail in a codebase (`#2`) | A `t-picker` |
 | Finding | codebase, workspace, workspaces screens | A `t-screens`, `t-picker` |
 | | `trails ws NAME` | A `t-screens` |
-| | `trails open KEY` | A `t-picker`, `t-map` |
 | | `trails ls`, `-a`, `DIR`, piped | A `t-ls` |
 | | Esc up, ctrl-c out | A `t-screens`, `t-picker` |
-| Watching | states | A `t-classify`, `t-ls` |
+| Watching | states, from hooks and Claude's file | A `t-classify`, `t-hooks`, `t-ls` |
 | | preview: layout, follow, live refresh, wrap | M9 |
-| | menu bar | M7 |
 | | `trails map` | A `t-map` |
+| | every running trail: prefix A, ctrl-a, Esc back, ctrl-x from it | A `t-all` |
+| | `?`: the keys, `trails help keys` | A `t-edges` (the text) · checked by hand with real fzf |
 | Beside the agent | edit, shell, toggles, kept window, ctrl-e | A `t-tools` |
+| | the diff: untracked files, a popup from prefix G, a gui command | A `t-diff` |
 | Notes | prefix N, Esc, Enter on empty, `note`, `notes`, path | A `t-notes` · M10 |
-| Ending | ctrl-x, `trails end` | A `t-picker`, `t-tools`, `t-map` |
+| Ending | ctrl-x | A `t-picker`, `t-tools`, `t-map` |
 | | resume old trails, Tab to flip mode | M5 |
 | | elsewhere: refused | — |
-| When things die | lost, `trails restore`, reboot | A `t-restore`, `t-legacy` · M4 |
+| When things die | lost, `trails restore` (and forgetting what it can't bring back), reboot | A `t-restore` · M4 |
+| | restore when tmux starts, the opt-in line | A `t-autorestore` |
 | Remote | ssh in, one connection for every workspace | M1 |
 | | Zed over ssh, VS Code Remote-SSH | M8 |
 | | two terminals on one workspace | A `t-grouped` |
 | Agents | any CLI by config | A (stub agent) |
-| | claude and codex's own state | M2 |
+| | `trails hooks`, Claude's own state | A `t-hooks` · M2 |
 | | session IDs bring a trail back | A `t-restore` |
 | Edges | refuse `/`, a deleted directory | A `t-edges` (deleted) |
 | | refuse a foreign session by a workspace's name | A `t-inside` |
-| | 0.6 sessions | A `t-legacy` |
 | | worktrees | A `t-workspace` |
 | | spaces and `'` in a codebase's name | A `t-picker` |
 
@@ -86,12 +86,12 @@ Each on the real machine, in Ghostty, with `trails keys` pasted into tmux.conf.
 | # | Do | Expect |
 |---|---|---|
 | M1 | From another machine: `ssh host -t trails`, pick a workspace, `prefix W` to another, detach, reconnect | The workspaces list; attached on the trail that most wants you; switched without reconnecting; the one you were in marked on return |
-| M2 | Ask claude something that needs a permission; let another finish its turn | `● needs you` and `● your turn` in the picker and the menu bar, the cursor on the one that needs you |
+| M2 | Ask claude something that needs a permission; let another finish its turn | `● needs you` and `● your turn` in the picker, the cursor on the one that needs you |
 | M3 | In a trail: `prefix e`, again, `` prefix ` ``, quit the agent | Editor left 60%, back to the agent, shell along the bottom; editor and shell kept as the codebase's window |
 | M4 | `tmux kill-server`, then `trails`, then `trails restore` | Trails shown `○ lost`; each back on its conversation, in its workspace |
 | M5 | End a claude trail, then **↩ resume old trails**, Tab on it, Enter | Listed as closed; Tab flips YOLO; resumes on its conversation |
 | M6 | `brew install` or `bin/trails` on PATH; `trails keys` into tmux.conf, reload | Every line accepted, every key works |
-| M7 | `trails swiftbar`; a trail needing you; Resume, End from the menu | Listed with its state; Resume opens it in the terminal; End ends it |
+| M7 | *(retired in 1.6, with the menu-bar plugin)* | |
 | M8 | VS Code / Zed terminal (local and Remote-SSH): `trails`, pick a trail | The codebase's trails only; attached to that one trail; no workspace |
 | M9 | `prefix P` on a busy trail, on a wide one, on a narrow one; ctrl-/ | Preview under the list to the popup's bottom, latest output, updating every second; wide one wrapped, narrow one at its width; ctrl-/ hides and shows |
 | M10 | `prefix N`, type, Enter; `prefix N`, Esc; `prefix N`, Enter on empty | Note added to `.scratch/trails/notes.md`; nothing added; notes open in a large popup |

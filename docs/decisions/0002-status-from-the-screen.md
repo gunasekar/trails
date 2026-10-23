@@ -1,6 +1,6 @@
 # 2. Read agent status off the screen
 
-- Status: accepted, amended by ADR 11
+- Status: superseded by ADR 18 in 1.6: the screen is no longer read
 - Date: 2026-07
 
 ## Context

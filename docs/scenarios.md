@@ -15,7 +15,7 @@ workspaces, `prefix e` the editor, `` prefix ` `` a shell, `prefix N` a note.
 | # | Scenario | How |
 |---|---|---|
 | 1 | Arrive at the machine: a fresh terminal, or an ssh login | `trails` from `~`, or `ssh host -t trails`: the workspaces; Enter attaches, on the trail that most wants you |
-| 2 | Get to the trail that needs you | Selected on arrival; or `prefix P`, where the cursor starts on it; or the menu bar's Resume |
+| 2 | Get to the trail that needs you | Selected on arrival; or `prefix P`, where the cursor starts on it |
 | 3 | Start a trail in this codebase | `trails` in the repo, or `prefix P`: **＋ new trail…**, then an agent |
 | 4 | Start a trail in another codebase of the workspace | `prefix P`: **＋ new trail…**, the codebase, then an agent |
 | 5 | Move between trails and workspaces | `prefix P` for this workspace's trails, `prefix W` for the workspaces, or tmux's own window keys |
@@ -37,8 +37,6 @@ workspaces, `prefix e` the editor, `` prefix ` `` a shell, `prefix N` a note.
    paths for codebases of their own, and an optional `root` for `browse…`.
 4. No workspaces at all: everything runs in `default`.
 5. `trails keys` prints the tmux.conf lines for the five keys above.
-6. `trails swiftbar` puts the menu-bar plugin into SwiftBar (macOS), and
-   `--remove` takes it out.
 
 ### Starting a trail
 
@@ -63,9 +61,7 @@ workspaces, `prefix e` the editor, `` prefix ` `` a shell, `prefix N` a note.
 2. `prefix P` in a workspace: its trails across its codebases.
 3. `trails` from `~`, a fresh ssh login, or `prefix W`: the workspaces.
 4. `trails ws NAME`: straight to a workspace.
-5. `trails open KEY`: straight to a trail by the key `trails ls` prints, from
-   anywhere.
-6. `trails ls`, `ls -a`, `ls DIR`: a table of trails, tab-separated when piped.
+5. `trails ls`, `ls -a`, `ls DIR`: a table of trails, tab-separated when piped.
 7. tmux's own keys: next and previous window, `prefix s`, `choose-tree`.
 8. Esc goes up a level, from a codebase to its workspace to the workspaces, and
    ctrl-c quits.
@@ -75,9 +71,7 @@ workspaces, `prefix e` the editor, `` prefix ` `` a shell, `prefix N` a note.
 1. Each trail says where it is: ● needs you, ● your turn, ● working, ○ lost,
    ○ closed, ○ elsewhere.
 2. ctrl-/ previews a trail's screen without opening it.
-3. The menu bar shows the trails waiting on you, each with Resume, and End
-   once it's your turn.
-4. `trails map [N]`: several agents side by side in one window, the N that
+3. `trails map [N]`: several agents side by side in one window, the N that
    most want you; `map new` picks them again.
 
 ### Beside the agent
@@ -101,10 +95,9 @@ workspaces, `prefix e` the editor, `` prefix ` `` a shell, `prefix N` a note.
 ### Ending and resuming
 
 1. ctrl-x in the picker ends a running trail, or forgets a lost one.
-2. `trails end KEY` ends one from anywhere, as the menu bar's End does.
-3. **↩ resume old trails**: the conversations that ended here in the last 10
+2. **↩ resume old trails**: the conversations that ended here in the last 10
    days; Enter resumes one in the mode it last ran in, and Tab flips it.
-4. One still open in a `claude` trails didn't start is listed as elsewhere,
+3. One still open in a `claude` trails didn't start is listed as elsewhere,
    and refused.
 
 ### When things die
@@ -130,7 +123,8 @@ workspaces, `prefix e` the editor, `` prefix ` `` a shell, `prefix N` a note.
 
 1. Any agent CLI, by one entry in the config: `name`, `program`, `yolo`,
    `session`.
-2. Claude and Codex report their own state; the rest are read off the screen.
+2. Each says what it is doing through its hooks (`trails hooks` prints them); Claude
+   also through its own file, with nothing to set up.
 3. Session IDs (`start`, `create`, `find`) are what bring a trail back after
    tmux dies.
 
@@ -138,6 +132,5 @@ workspaces, `prefix e` the editor, `` prefix ` `` a shell, `prefix N` a note.
 
 1. It refuses to start an agent in `/`.
 2. It refuses a tmux session named like a workspace that it didn't make.
-3. 0.6's `trails-<project>` sessions keep working until they end.
-4. A git worktree belongs where its main checkout does.
-5. A codebase whose name has a space or a `'` in it.
+3. A git worktree belongs where its main checkout does.
+4. A codebase whose name has a space or a `'` in it.

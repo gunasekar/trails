@@ -15,11 +15,15 @@ workspace, a set of codebases you choose. From anywhere, `trails` shows what is
 running and what is waiting on you, opens the one you pick, brings old ones back
 after tmux or the machine dies, and puts the editor beside the agent with one key.
 
-![Over one connection: the workspaces, a workspace's trails, and the editor and a shell beside the agent](assets/workspace.gif)
+![From one terminal: the workspaces, a workspace's trails with a live preview, the editor and a shell beside the agent, and the workspaces in the status line](assets/trails.gif)
 
-![Picking a new trail in a Neovim side panel](assets/nvim.gif)
+![prefix M: trails from two workspaces picked into the map, four agents at work side by side, and the map in the status line beside the workspaces](assets/map.gif)
 
-![Four Claude Code sessions in four projects, side by side in trails map](assets/map.gif)
+After the first `trails`, everything above is a key, named at the bottom right as
+it is pressed: `prefix P` a workspace's trails, `e` the editor, `` ` `` a shell,
+`(` and `)` the workspaces, `M` the map, `A` every trail, `G` the diff and `N` a
+note, all from the one tmux.conf line in [Workspaces](#workspaces). `prefix ?` lists
+them.
 
 ## What it's for
 
@@ -39,15 +43,24 @@ after tmux or the machine dies, and puts the editor beside the agent with one ke
   options beyond its own `@trails_*` marks. `tmux ls` reads as your layout, plain
   tmux keys drive it, and uninstalling trails leaves ordinary tmux behind.
 
+## Who it's for
+
+trails is for people who stay hands-on with their code. It keeps agents
+running and you beside them: the editor next to the agent, its diff a key away, a
+note for later. You read, review and write the code yourself, with agents doing a
+share of it, and you would rather have a small tool than a platform.
+
+It is not for running a swarm of agents and shipping what comes back unread, and
+it has no chat window of its own: the agent's interface is the agent's.
+
 ## Works with
 
 | | |
 |---|---|
-| Agents | Claude Code, Codex, Gemini, Copilot, Cursor, opencode built in; any CLI by one config entry. Claude and Codex report their own state and conversation; the rest are read off the screen |
+| Agents | Claude Code, Codex, Gemini, Copilot, Cursor, opencode built in; any CLI by one config entry. Each tells trails what it is doing through its own hooks (`trails hooks`); Claude also through its own file, with nothing to set up |
 | Editors | Zed (local and over ssh), VS Code and Cursor (local and Remote-SSH), Neovim, anything with a terminal pane |
 | Terminals | any, including over ssh; a popup inside tmux with `trails keys` |
-| Systems | macOS and Linux; tmux 3.3 or later, fzf, jq. The menu-bar plugin is macOS, through SwiftBar |
-| From 0.6 | running `trails-<project>` sessions keep working until they end, and restore into the new model |
+| Systems | macOS and Linux; tmux 3.3 or later, fzf, jq |
 
 Because it's just a command, it plugs into whatever you already use:
 
@@ -55,7 +68,6 @@ Because it's just a command, it plugs into whatever you already use:
   panel, or anything else that can run a command in a pane
 - **any terminal** (Ghostty, iTerm, Terminal), in the project you're working on
   or over ssh to the machine where the agents live
-- **the macOS menu bar**, which shows the agents waiting on you
 
 Every one of them lands on the same trails.
 
@@ -113,7 +125,16 @@ between them without reconnecting.
 
 And if tmux itself goes down, after a reboot, a crash or a `kill-server`, the
 trails show up as *lost*, not gone. `trails restore` brings each one back on the
-conversation it was in, into its workspace.
+conversation it was in, into its workspace. To have tmux do that itself whenever
+it starts, add the line `trails keys` offers for it to your tmux.conf:
+
+```tmux
+run-shell -b "trails restore >/dev/null 2>&1"
+```
+
+It is opt-in, and not loaded with the rest of `trails keys`: every lost trail comes
+back on its own, so ctrl-x a lost row you don't want back. With nothing lost, it
+does nothing, so reloading tmux.conf is harmless.
 
 ## Install
 
@@ -130,6 +151,10 @@ It needs `tmux` (3.3 or later), `fzf` and `jq`, plus at least one agent CLI on
 `PATH`. macOS ships `jq`; Homebrew installs all three. Reading recent opencode
 conversations uses `sqlite3`, which macOS ships with, and keeping the picker's
 preview current uses `curl`, without which it is a snapshot.
+
+Recommended: [delta](https://github.com/dandavison/delta) (`brew install git-delta`),
+which `trails diff` uses to show changes side by side. Without it the diff is git's
+own one-column output in `less`. See [The diff](#the-diff).
 
 ## Quickstart
 
@@ -159,15 +184,15 @@ The everyday loop, and every other way trails is used, are in
 | `trails new NAME [AGENT]` | start a trail named `NAME`, with `-y` for YOLO: its session is `<workspace>/NAME`, and claude takes `NAME` as its own name, so other Claude sessions can message it by that name |
 | `trails edit` / `shell` | the editor beside the agent, or a shell along the bottom, as panes of the trail's window in the workspace (the editor alone in a window of its own when nothing runs there): made once, then selected. The window you are on says which codebase, or `DIR` after the command |
 | `trails ls [-a \| DIR]` | this directory's trails: running, lost when tmux died, or finished in the last 10 days. `DIR` lists that directory instead, `-a` every directory |
-| `trails open KEY` | go to a trail from anywhere, by the key `trails ls` prints (`acme/checkout-2`): its workspace on its window, or the trail alone from an editor's terminal |
-| `trails end KEY` | end a trail from anywhere, by the key `trails ls` prints (`acme/checkout-2`) |
 | `trails note [TEXT]` / `notes` | add a note on this codebase, typed on a line without `TEXT`; open its notes in `$EDITOR`. See [Notes](#notes) |
 | `trails restore` | bring back every trail lost when tmux died, each on its own conversation, into its workspace, detached |
 | `trails map [N]` | several running agents side by side in one window: re-attach to the map already up, pick a set, or take the `N` that most want you (`map new` forces a fresh pick) |
-| `trails keys` | print tmux.conf lines that put the picker in a popup and bind the editor and the shell; trails binds nothing itself |
-| `trails swiftbar` | put the menu-bar plugin into SwiftBar (macOS); `--remove` takes it out |
+| `trails keys` | print tmux.conf lines that put the picker, the workspaces, every trail, a note and the diff in popups, bind the editor, a shell, the workspaces and the map, and list the workspaces in the status line; trails binds nothing itself |
+| `trails diff [DIR]` | the codebase's changes, untracked files too, side by side: in a popup from `prefix G`. See [The diff](#the-diff) |
+| `trails hooks [AGENT]` | whether each agent's hooks tell trails what it is doing; `AGENT`'s hook config, to paste where it reads hooks. See [Status](#status-from-the-agents-hooks) |
+| `trails state WORD` | for an agent's hooks: `working`, `waiting` or `idle` |
 | `trails config` | open the config in `$EDITOR`, writing the built-ins first if there isn't one |
-| `trails help` | the commands and picker keys (also `-h`, `--help`) |
+| `trails help [keys]` | the commands, the picker's keys and the tmux ones (also `-h`, `--help`); `keys` for the keys alone, which `?` in the picker shows |
 
 ### Workspaces
 
@@ -192,7 +217,7 @@ as paths or globs, with an optional `root`:
 - `root` is where `browse…`, under "＋ new trail…" in the picker, starts walking;
   `~` without one.
 - A name is letters, digits, `-` and `_`: it becomes a tmux session name. It
-  can't be `trails-…`, how a trail from 0.6 is named, nor `list`, `of` or `add`.
+  can't be `list`, `of` or `add`.
 - `trails ws add NAME` adds a codebase for you, and the picker offers to when
   you start a trail in a directory no workspace claims. Edits never move a running
   trail.
@@ -245,6 +270,9 @@ your tmux takes.
 # trails: one line in tmux.conf loads all of these, and follows every upgrade:
 #   run-shell "'trails' keys | tmux source-file -"
 # or paste what you want of them instead.
+# Opt-in, not loaded with the rest: put this in tmux.conf to bring back, whenever tmux starts,
+# the trails it lost (a reboot, a crash). To drop one for good, ctrl-x on its lost row.
+# run-shell -b "'trails' restore >/dev/null 2>&1"
 bind P display-popup -E -w 60% -h 70% -s bg=terminal -S bg=terminal,fg=brightblack "'trails' || { echo; echo press enter to close; read -r _; }"
 bind W display-popup -E -w 60% -h 50% -s bg=terminal -S bg=terminal,fg=brightblack "'trails' ws || { echo; echo press enter to close; read -r _; }"
 bind e run-shell "TRAILS_CLIENT=#{client_name} 'trails' edit"
@@ -253,6 +281,9 @@ bind N display-popup -E -w 70% -h 3 -s bg=terminal -S bg=terminal,fg=brightblack
 bind ( run-shell "TRAILS_CLIENT=#{client_name} 'trails' ws prev"
 bind ) run-shell "TRAILS_CLIENT=#{client_name} 'trails' ws next"
 bind M run-shell "TRAILS_CLIENT=#{client_name} 'trails' map here"
+bind ? display-popup -E -w 70% -h 80% -s bg=terminal -S bg=terminal,fg=brightblack -T " trails keys " "'trails' help keys | less -R"
+bind A display-popup -E -w 70% -h 70% -s bg=terminal -S bg=terminal,fg=brightblack "env TRAILS_PICKER=all 'trails' || { echo; echo press enter to close; read -r _; }"
+bind G run-shell "TRAILS_CLIENT=#{client_name} 'trails' diff"
 set -g status-left-length 60
 set -g status-left "#{S/n:#{?@trails_workspace,…}}│ "
 ```
@@ -274,9 +305,10 @@ format where `status-left` shows `…`. The `run-shell` lines pass the terminal
 that pressed the key, so with two terminals on one workspace the right one moves.
 A popup closes as soon as trails exits, so when trails refuses something there,
 the picker's and the workspaces' popups wait for Enter to let you read why, and
-the note's shows it on tmux's message line. `P`, `W`, `e`, `` ` `` and `N` are
+the note's shows it on tmux's message line. `P`, `W`, `A`, `e`, `` ` ``, `N` and `G` are
 unbound in tmux's defaults. `(` and `)` take tmux's cycling through every session
-for the workspaces alone, and `M` takes clearing the marked pane, which `prefix m`
+for the workspaces alone, `?` takes tmux's list of every binding (still
+`:list-keys`) for trails' keys alone, and `M` takes clearing the marked pane, which `prefix m`
 on it still does, for the map (`prefix M` in [trails map](#trails-map)). Change
 any of them.
 
@@ -373,6 +405,7 @@ Every trail has two signals. The glyph says whether it is running (`●`) or not
 |---|---|---|
 | `●` needs you | running, and the agent is asking you something | attach |
 | `●` your turn | running, and it finished its turn | attach |
+| `●` unknown | running, and nothing says what it's doing: [set up its hooks](#status-from-the-agents-hooks) | attach |
 | `●` working | running, and it's busy | attach |
 | `○` lost | tmux died under it (a reboot, a crash, `kill-server`) | bring it back on its conversation |
 | `○` closed | it ended in the last 10 days; its conversation can be resumed | resume it, in the mode it last ran in |
@@ -398,6 +431,48 @@ stateDiagram-v2
     closed --> working: resume
 ```
 
+### Status from the agent's hooks
+
+What a running trail is doing comes from the agent, in this order
+([ADR 18](docs/decisions/0018-status-from-the-agents-hooks.md)):
+
+1. **Its hooks.** The agent runs `trails state working`, `waiting` or `idle` from
+   its own hooks, and trails takes its word.
+2. **Its own file**, for Claude, with nothing to set up. When its hooks and the
+   file both answer, the newer one wins.
+3. Otherwise *unknown*. trails doesn't guess from the screen.
+
+Setting the hooks up is yours, and short:
+
+```sh
+trails hooks            # each agent: hooked, or not set up
+trails hooks opencode   # its hook config, to paste where the table says
+```
+
+Paste it in beside any hooks already there. Each hook is silent and never fails a
+turn.
+
+| Agent | Where | working | needs you | your turn |
+|---|---|---|---|---|
+| claude | `~/.claude/settings.json`, or the [Claude Code plugin](plugins/trails) | prompt sent, tool done | permission prompt, a question | session start, turn end |
+| codex | `~/.codex/hooks.json` (trust them with `/hooks` in codex) | prompt sent, tool done | permission request | session start, turn end |
+| gemini | `~/.gemini/settings.json` | before the agent, after a tool | notification | session start, after the agent |
+| copilot | `~/.copilot/hooks/trails.json` | prompt sent, tool done | (no hook) | session start, agent stop |
+| cursor | `~/.cursor/hooks.json` | prompt sent | (no hook) | stop |
+| opencode | `~/.config/opencode/plugins/trails.js` | busy, tool done | permission asked | idle |
+
+For Claude, the plugin is the shortest way:
+
+```
+/plugin marketplace add gunasekar/trails
+/plugin install trails@trails
+```
+
+An agent with no hook for a permission prompt reads as *working* through one. For an agent
+trails has no entry for, have its hooks run `trails state working` when a prompt is
+sent or a tool has run, `trails state waiting` when it asks you something, and
+`trails state idle` when a session starts and when a turn ends.
+
 | Key | Does |
 |---|---|
 | `enter` | open the row: attach, restore, resume, start the agent, or go to the editor or shell window |
@@ -406,6 +481,8 @@ stateDiagram-v2
 | `ctrl-e` | the editor for the row's codebase (`trails edit`) |
 | `ctrl-/` | show or hide the preview: the trail's screen, under the list and kept current, refreshed every second, scrolled to its latest output. A trail wider than the preview wraps in it; a narrower one keeps its width, as its agent drew it. Open by default when there are rows for it |
 | `ctrl-x` | end a running trail, close an editor or shell window, or forget a lost one |
+| `ctrl-a` | every running trail, in every workspace, on one screen (also `prefix A` from `trails keys`). Esc there comes back to where you were |
+| `?` | the keys: the tmux ones from `trails keys`, the picker's, and what the states mean, in a popup (in place when the picker is itself in one). `q` comes back. `prefix ?` shows the same |
 | `esc` | up a level: an old list or the agents back to where they came from, a codebase's screen to its workspace's, a workspace's to the workspaces, and the workspaces out. An editor's terminal quits from its codebase's screen |
 | `ctrl-c` | quit, from any screen |
 
@@ -466,6 +543,7 @@ Where nothing runs, the editor gets a window of its own in the workspace,
 |---|---|
 | `trails edit` | `$EDITOR` (nvim if unset) beside the agent, in the trail you run it from, else in the codebase's trail that most wants you; alone in a window of its own when nothing runs there. `C-b z` zooms a pane |
 | `trails shell` | a shell in the codebase, tmux's own default command, along the bottom of that same window |
+| `trails diff` | the codebase's changes, side by side: see [The diff](#the-diff) |
 
 The window you are on decides the codebase: run from a trail or an editor window,
 the command acts on that window; from a plain window in the workspace, on the
@@ -475,6 +553,39 @@ goes back to the one you came from. When the agent exits or you end the trail
 with the editor or a shell beside it, they stay, as the codebase's editor window
 (`checkout·nvim`, or `checkout·shell` with only a shell). Nothing here is
 restored after tmux dies: an editor or a shell is reopened with one command.
+
+### The diff
+
+`trails diff`, or `prefix G` from `trails keys`, shows a codebase's changes side
+by side, to read what an agent did: in a popup over the workspace, wide enough for
+both sides, or in the terminal when run from a shell. `q` closes it. The codebase
+is the one `trails edit` would pick.
+
+The changes are the working tree against `HEAD`, staged or not, and the files no
+one has added yet, which agents make and `git diff` alone leaves out. Nothing is
+staged to show them.
+
+The config's `diff` says what shows them, in one of three ways.
+
+- **A pager**, the diff piped to it. It should page, since the popup closes when it
+  exits. The default is `delta --side-by-side --paging=always` when
+  [delta](https://github.com/dandavison/delta) is installed, else `less`.
+- **A program that finds the changes itself**, run in the popup in the codebase,
+  with `"pipe": false`. Neovim with
+  [codediff.nvim](https://github.com/esmuellert/codediff.nvim), VS Code's diff view,
+  untracked files included, `q` closing it and the popup:
+
+  ```json
+  "diff": { "command": "nvim -c 'CodeDiff --exit-on-close'", "pipe": false }
+  ```
+
+  It is only started when there are changes to show.
+- **A program with a window of its own**, run in the codebase with no popup, with
+  `"gui": true`. [Fork](https://git-fork.com)'s commit view on the codebase:
+
+  ```json
+  "diff": { "command": "fork status", "gui": true }
+  ```
 
 ### Notes
 
@@ -527,6 +638,7 @@ $ trails ls -a
 
 ● needs you  running, asking you something
 ● your turn  running, finished its turn
+● unknown    running, no status: set up its hooks (trails hooks)
 ○ lost       not running: tmux died · trails restore brings it back
 ○ closed     not running: it ended · resume it from its directory
 ○ elsewhere  not running here: open in a claude trails did not start
@@ -547,15 +659,14 @@ life  state  session  agent  yolo  dir  id  when  pid  peer  workspace  title
 |---|---|
 | `life` | `running` (the trail is there) or `stopped` |
 | `state` | `needs-you`, `your-turn`, `working` (running) · `lost`, `closed`, `elsewhere` (stopped) |
-| `session` | what to attach to: the trail's session (`acme/checkout-2`), or a `trails-…` session from before 1.0; `-` for a conversation nothing is running |
+| `session` | what to attach to: the trail's session (`acme/checkout-2`); `-` for a conversation nothing is running |
 | `yolo` | `yolo` or `-` |
 | `when` | when an ended conversation was last active (Unix time), else `-` |
 | `pid` | the process holding an `elsewhere` one, else `-` |
 | `peer` | the name a running or `elsewhere` Claude answers to, for messaging it from another Claude session, else `-` |
-| `workspace` | the trail's workspace; for an ended conversation, the one its directory belongs to now; `-` for a session from before 1.0 |
+| `workspace` | the trail's workspace; for an ended conversation, the one its directory belongs to now |
 
-That is what the menu-bar plugin below reads, and anything else can too. The
-title stays last, so a reader that takes the last field keeps working as columns
+Any status bar, notifier or script can read it. The title stays last, so a reader that takes the last field keeps working as columns
 are added. Set `TRAILS_RECENT_MAX=0` for a poll that only wants running trails; it
 skips reading conversation history.
 
@@ -594,33 +705,6 @@ With no map up, or on the map already, it asks which trails, from every
 workspace, with the four that most want you ticked; four at most, as a 2×2 grid.
 `trails map new` asks the same way.
 
-### Menu bar (macOS)
-
-trails ships a [SwiftBar](https://swiftbar.app) plugin that keeps your agents in
-the menu bar, whether or not you're looking at them:
-
-```console
-brew install --cask swiftbar    # once, then open it and pick a plugin folder
-trails swiftbar                 # link the plugin in; --remove takes it out
-```
-
-- **The icon is the trails mark.** Its top dot turns red when an agent is asking
-  you something and amber when one finished its turn; its bottom dot is green
-  while any agent is working. The number beside it is how many want you.
-- **The menu** lists every running trail. Each has *Resume*, which opens it in
-  a new tab of your terminal, in its workspace on its window as the picker would
-  (`trails open`), and, once it's your turn, *End session*, which runs
-  `trails end`.
-- **Open sessions in** at the bottom picks the terminal: Terminal (the default),
-  iTerm or Ghostty.
-- **Notifications:** an agent that stops working and stays stopped for 30 seconds
-  sends one notification. `TRAILS_NOTIFY_AFTER` changes the wait; `0` notifies at
-  once.
-- It hides itself when no agent is running.
-
-The plugin is linked, not copied, so `brew upgrade trails` updates it along with
-the `trails ls -a` it reads.
-
 ### Environment
 
 | Variable | Default | Does |
@@ -628,8 +712,6 @@ the `trails ls -a` it reads.
 | `TRAILS_ATTACH` | *(unset)* | `session` or `workspace`: where picking a trail lands, instead of guessing from the editor's variables (see From an editor). `view`, the old spelling, still works |
 | `TRAILS_RECENT_DAYS` | `10` | how far back closed trails are listed |
 | `TRAILS_RECENT_MAX` | `5` | how many of them to show (`0` for none) |
-| `AGENT_SETTLE` | `0.35` | seconds between the two screen samples that tell *working* from *your turn*, for agents that don't report their own state |
-| `AGENT_ASK_RE` | *(see script)* | regex meaning "this agent is asking you something" |
 
 ### Agents
 
@@ -664,6 +746,7 @@ file in `$EDITOR`. Changing agents never needs a change to trails.
 | `default_agent` | *(optional)* listed first in the picker |
 | `mode` | *(optional)* `default` (the agent's own, prompting mode) or `yolo`: the mode a *new trail* row starts in. Tab flips a row from it, so with `yolo` Tab is how you start one in default mode. Closed trails come back in the mode they last ran in unless Tab flips them, and an agent with no `yolo` flag always runs in default mode. |
 | `map` | *(optional)* how `trails map` lays out its panes: `two` (`side`, `stacked`, or `auto`, the default, which goes side by side from 160 columns) and `layout` for three or more (a tmux layout name, `tiled` by default). See [trails map](#trails-map). |
+| `diff` | *(optional)* what `trails diff` shows the changes with: a pager to pipe to, `{ "command": ..., "pipe": false }` for one that finds them itself, or `{ "command": ..., "gui": true }` for an app. See [The diff](#the-diff). |
 | `notes` | *(optional)* where a codebase's notes go: a path from the codebase's root, or `~`/absolute, with `{codebase}` for its name (`"~/notes/{codebase}.md"`). `.scratch/trails/notes.md` by default. See [Notes](#notes). |
 
 Only agents whose command is on `PATH` are offered. Recent conversations are
@@ -756,28 +839,24 @@ everywhere else too.
 - **Zed:** in `settings.json`, set `"terminal_init_command": "exec trails"` under
   `agent`. In remote mode it runs on the ssh host, where tmux keeps the agent
   alive across disconnects.
-- **Neovim:** open a terminal running `trails` in a side panel, like the first
-  demo at the top.
+- **Neovim:** open a terminal running `trails` in a side panel.
 - **Anything else:** run `trails` wherever the editor opens a terminal.
 
-### Upgrading from 0.6
+### Upgrading to 1.6
 
-Trails started before 1.0 live in sessions named `trails-<project>`. They keep
-working until they end: `trails` and `trails ls` list them, attach to them and end
-them as before, and a record of one that died with tmux restores as a window in
-the workspace its directory belongs to now. Nothing is moved while it runs. The
-state and config files stay where they were; the records of new trails go one
-directory down, under their workspace.
-
-The `trails ls` TSV has a new `workspace` field before the title, and `session`
-now holds the trail's session name. The menu-bar plugin that ships with this version reads
-both.
+- **Status comes from the agent's hooks.** Claude needs nothing; for another
+  agent, `trails hooks AGENT` prints what to paste. trails no longer reads state
+  off the screen, so an agent without hooks shows *unknown*.
+- **Gone:** the SwiftBar menu-bar plugin and `trails swiftbar`, `trails open` and
+  `trails end` (ctrl-x ends a trail; `trails restore` forgets records it can't
+  bring back), and support for trails from 0.6 (`trails-<project>` sessions):
+  end any still running before upgrading.
 
 ## How it works
 
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) covers how workspaces, trails and
 their windows map onto tmux, how trails are found and named, how *working*, *your
-turn* and *needs you* are read from the agent or off the screen, how trails
+turn* and *needs you* come from the agent's hooks and files, how trails
 survive tmux dying, where recent conversations come from, and how the map and the
 editor borrow a trail's session without owning it. Key design decisions are recorded in
 [docs/decisions/](docs/decisions/), and the 1.0 design with its principles in

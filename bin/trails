@@ -12,8 +12,6 @@
 #   trails restore          bring back every session that died with tmux (a reboot, a
 #                           crash, kill-server), each resuming its conversation, detached.
 #                           See "Surviving tmux" below.
-#   trails swiftbar         link the SwiftBar menu-bar plugin that ships with trails. See
-#                           "Menu bar" below.
 #   trails config           the agents file, ~/.config/trails/config.json. See
 #                           "Agents" below.
 #   trails map [N]          several agents at once in one window. Pick them, or take the
@@ -33,8 +31,6 @@
 # agent or a closed session, ctrl-x ends a running session or forgets a lost one.
 #
 # Env:
-#   AGENT_SETTLE           seconds between the two screen samples (default 0.35)
-#   AGENT_ASK_RE           regex meaning "the agent is asking you something"
 #   TRAILS_RECENT_DAYS     how far back closed rows look, in the picker and `trails ls` (default 10)
 #   TRAILS_RECENT_MAX      how many of them to show (default 5)
 #
@@ -61,6 +57,23 @@
 # environment is a leak from a trails before 0.4.2, which exported it into tmux; clear it so it
 # can't stop this run from attaching.
 unset LAUNCH_DETACHED
+
+# `trails state working|waiting|idle`: an agent's hooks telling trails what it is doing
+# (ADR 18). It marks the agent's own pane, which the hook inherits as TMUX_PANE, with the
+# word and when it was said, and classify reads both back. Here at the top, before anything
+# reads the config: it runs on every turn of every agent that has the hooks. Silent and 0
+# whatever happens, outside tmux or with a word it doesn't know included, since a hook's
+# output can land in the agent's transcript and a failing hook is reported on every turn.
+if [ "${1:-}" = state ]; then
+  case ${2:-} in
+    working | waiting | idle) ;;
+    *) exit 0 ;;
+  esac
+  [ -n "${TMUX:-}" ] && [ -n "${TMUX_PANE:-}" ] &&
+    tmux set-option -pq -t "$TMUX_PANE" @trails_state "$2" \; \
+      set-option -pq -t "$TMUX_PANE" @trails_state_at "$(date +%s)" >/dev/null 2>&1
+  exit 0
+fi
 
 # TRAILS_NAME is the name of the trail being started, set by `trails new` and the picker's
 # ctrl-n, never read from outside: one inherited from an agent's shell would name every trail
@@ -97,8 +110,7 @@ TRAILS_NAME=
 #               create  a command that prints a fresh ID (cursor-agent create-chat)
 #               find    a reader for the agent's own files, built in below: "claude" (also
 #                       follows /resume inside claude, and reads its working/waiting/idle
-#                       state instead of the screen), "codex" (also reads whether it is
-#                       between turns)
+#                       state, with no hooks needed), "codex"
 #             Without it the agent still runs, it just isn't brought back after a reboot.
 #             session.name is the flag that gives the agent a name of its own, {name} where it
 #             goes: claude's --name, which is the name other claude sessions message it by.
@@ -111,6 +123,11 @@ TRAILS_NAME=
 #   notes          where a codebase's notes go (see "Notes"): relative to the codebase's root,
 #                  or ~ or absolute, with {codebase} for its label. ".scratch/trails/notes.md"
 #                  without it.
+#   diff           what `trails diff` shows the changes with (see "The diff"): a command
+#                  the diff is piped to; { "command": ..., "pipe": false } for one that
+#                  finds them itself, run in the popup; or { "command": ..., "gui": true }
+#                  for a program with a window of its own. delta, side by side, when
+#                  installed.
 #
 # Without a file, the built-in agents below apply; `trails config` writes them out as a
 # starting point. Only agents whose command is on PATH are offered, so listing an agent you
@@ -381,13 +398,7 @@ check_ws_name() {
       echo "trails: a workspace name is letters, digits, - and _ (got '$1')" >&2
       return 1
       ;;
-    # trails-<project> is how a 0.6 trail's session is named, so a workspace by such a name
-    # would be taken for one; the others are `trails ws` commands, which `trails ws NAME`
-    # could never reach.
-    trails-*)
-      echo "trails: '$1' can't name a workspace: trails-<name> is a trail from trails 0.6" >&2
-      return 1
-      ;;
+    # `trails ws` commands, which `trails ws NAME` could never reach.
     list | of | add | next | prev)
       echo "trails: '$1' can't name a workspace: it is trails ws $1" >&2
       return 1
@@ -579,15 +590,7 @@ available_agents() {
 #
 # The trail's window carries @trails_window (the trail's key) with @trails_dir, @trails_ws and
 # @trails_label, and each of its panes @trails_pane: agent, editor or shell (window_layout says
-# where each goes). Until 1.4 these were @trails_view, @trails_cell and @trails_companion, and
-# the panes view and edit; every read takes both spellings for one release, so a trail that
-# was running through the upgrade is still found.
-#
-# Before 1.0 a trail was a session of its own, trails-<project>, and one still running keeps
-# working until it ends (D6 in the design): everything below lists, attaches to and kills
-# those as before, keyed by their session name. $PREFIX is the one definition of such a
-# session, so changing it orphans anything already running.
-PREFIX=trails-
+# where each goes).
 
 # tmux forbids '.' and ':' in names (both are target separators), and spaces make `tmux a -t
 # <name>` a quoting chore. A codebase's label is its directory's basename with those swapped
@@ -608,30 +611,16 @@ codebase_label() {
   label_of "$1"
 }
 
-# What a 0.6 session's name says beyond its project: trails-foo is foo's unnamed trail,
-# trails-foo-2 its second, anything else a name you gave. $2 is the project's label.
-legacy_name() {
-  ln=${1#"$PREFIX"}
-  case $ln in
-    "$2") ;;
-    "$2"-*) case ${ln#"$2"-} in *[!0-9]*) printf '%s' "$ln" ;; *) ;; esac ;;
-    *) printf '%s' "$ln" ;;
-  esac
-}
-
 # A trail's badge in the picker and `trails ls`: #<name> for one you named, #N for the Nth
-# unnamed trail of its codebase, - for the first. $1 is its key (session name, or 0.6 session
-# name), $2 its codebase label, $3 its name if any. A trail you named is the one case where
+# unnamed trail of its codebase, - for the first. $1 is its key, its session's name, $2 its
+# codebase label, $3 its name if any. A trail you named is the one case where
 # the badge is the name to call it by — `tmux a -t lattiq/payments`.
 trail_badge() {
   [ -n "$3" ] && {
     printf '#%s' "$3"
     return 0
   }
-  case $1 in
-    */*) tb=${1#*/} ;;
-    *) tb=${1#"$PREFIX"} ;;
-  esac
+  tb=${1#*/}
   rest=${tb#"$2"-}
   if [ "$tb" = "$2" ]; then
     printf -- -
@@ -642,41 +631,36 @@ trail_badge() {
   fi
 }
 
-# Three things read off a trail's window, by id. The dir and key fall back to what a 0.6
-# session has — its path and its name — so one question serves both kinds.
-trail_dir() { tmux display-message -pt "$1" '#{?@trails_dir,#{@trails_dir},#{session_path}}' 2>/dev/null; }
-trail_key() { tmux display-message -pt "$1" '#{?@trails_session,#{@trails_session},#{session_name}}' 2>/dev/null; }
+# Three things read off a trail's window, by id.
+trail_dir() { tmux display-message -pt "$1" '#{@trails_dir}' 2>/dev/null; }
+trail_key() { tmux display-message -pt "$1" '#{@trails_session}' 2>/dev/null; }
 trail_ws() { tmux display-message -pt "$1" '#{?@trails_ws,#{@trails_ws},-}' 2>/dev/null; }
 
-# The window a key names: the one marked with it as its session, or a 0.6 session's one window.
+# The window a key names: the one marked with it as its session.
 agent_wid() {
   case $1 in
-    */*) tmux list-windows -a -F "#{?@trails_session,#{@trails_session},#{@trails_view}}$TAB#{window_id}" 2>/dev/null |
+    */*) tmux list-windows -a -F "#{@trails_session}$TAB#{window_id}" 2>/dev/null |
       awk -F"$TAB" -v k="$1" '$1 == k { print $2; exit }' ;;
-    # A 0.6 trail's session, by its exact name: tmux takes a bare name as a prefix too, and
-    # trails-proj would find a live trails-proj-2.
-    "$PREFIX"*) tmux display-message -pt "=$1:" '#{window_id}' 2>/dev/null ;;
     *) ;;
   esac
 }
 
-# A trail's key as a command takes it: <workspace>/<name> or a 0.6 trails-<project>, and
-# nothing that could step out of the records' directory (.., a leading or trailing /).
+# A trail's key as a command takes it: <workspace>/<name>, and nothing that could step out
+# of the records' directory (.., a leading or trailing /).
 key_ok() {
   case $1 in
     '' | /* | */ | *..* | *//*) ;;
-    */* | "$PREFIX"*) return 0 ;;
+    */*) return 0 ;;
     *) ;;
   esac
   echo "trails: no trail $1 — a trail's key is WORKSPACE/NAME, as trails ls prints it" >&2
   return 1
 }
 
-# The agent runs in tmux wherever there is one — inside tmux too, since 1.0. 0.6 ran it bare
-# in the pane there, where no other editor could reach it (R6 in the design); now it gets a
-# window in its workspace like anywhere else, and the client you are in is switched to it.
+# The agent runs in tmux wherever there is one, inside tmux too: it gets a window in its
+# workspace like anywhere else, and the client you are in is switched to it.
 # Without tmux the agent runs bare, and nothing in this file applies.
-# A bare environment, a terminal tab the menu bar opened or a launchd job, can have the
+# A bare environment, a terminal tab another app opened or a launchd job, can have the
 # system's PATH alone, without the tmux, fzf and jq trails runs on, and then a running trail
 # read as gone. They are where trails was installed from (Homebrew's bin), or in a Homebrew
 # prefix: those go on the end of PATH, after anything the caller chose.
@@ -721,6 +705,15 @@ client_outer() {
   done
   printf '%s' "$co"
 }
+# A TMUX_PANE without TMUX is another server's pane, left behind by an `unset TMUX` to get out
+# of it. Kept, it would go into the environment of any server trails starts from here, and
+# every run-shell binding and popup there would read it as the pane it was run in.
+[ -n "${TMUX:-}" ] || unset TMUX_PANE
+# And a key's run-shell job (TRAILS_CLIENT, which trails keys' bindings pass) runs in no
+# pane: a TMUX_PANE it has came with the server's environment, from wherever the server
+# was started, and taken for a pane it would show a popup's content in the job's output,
+# which nobody sees.
+[ -z "${TRAILS_CLIENT:-}" ] || unset TMUX_PANE
 CLIENT=${TRAILS_CLIENT:-}
 if [ -z "$CLIENT" ] && [ -n "$TMUX" ]; then
   [ -z "${TMUX_PANE:-}" ] || CLIENT=$(tmux list-clients -F '#{client_activity} #{client_name} #{pane_id}' 2>/dev/null |
@@ -790,12 +783,13 @@ TAB=$(printf '\t')
 # meant for this, and appears in no name.
 US=$(printf '\037')
 
-# A locale, when the caller has none: launchd jobs (the menu-bar plugin, a cron) start with
-# no LANG or LC_*, and a tmux client in the C locale rewrites every byte it cannot print
-# as `_` on the way out: the tab between two fields of a format, the `·` in a window's
-# name. The fields then never match, and a trail that `ls` lists is one `end` cannot find.
-# Any UTF-8 locale the system has will do; nothing here depends on the language. Taken
-# as `locale -a` spells it: glibc says C.utf8 where macOS says C.UTF-8.
+# A locale, when the caller has none: launchd jobs (a cron, a tmux started at login) start
+# with no LANG or LC_*, and a tmux client in the C locale rewrites every byte it cannot
+# print as `_` on the way out: the separator between two fields of a format, the `·` in a
+# window's name. The fields then never match, and a trail that `ls` lists is one restore
+# cannot find, so it starts it again. Any UTF-8 locale the system has will do; nothing here
+# depends on the language. Taken as `locale -a` spells it: glibc says C.utf8 where macOS
+# says C.UTF-8.
 if [ -z "${LANG:-}${LC_ALL:-}${LC_CTYPE:-}" ]; then
   for l in 'C\.UTF-?8' 'en_US\.UTF-?8' 'UTF-8'; do
     LC_CTYPE=$(locale -a 2>/dev/null | grep -ixE "$l" | head -n 1)
@@ -836,98 +830,46 @@ TASK_FMT='#{=45:#{?#{==:#{pane_title},#{host}},,#{s|^[^A-Za-z0-9 ]+ ||:pane_titl
 # opened it. tmux's session_attached is a fact about your terminal, not the agent —
 # every session here reads "attached" whether mid-edit or sat on a finished turn.
 #
-# The signal is the screen, and it's agent-agnostic: every one of these TUIs animates
-# while it works (spinner, token count, timer), so a working pane's screen differs
-# 300ms later and a stopped one's is byte-identical. A permission prompt doesn't
-# animate (the blinking cursor is drawn by the terminal, not the pty). So: hash the
-# screen, wait, hash again.
+# The agent says, through its hooks (ADR 18). Every agent worth running now runs a command
+# when a turn starts, when it ends, and most when it wants permission; `trails state` is that
+# command, and it marks the agent's pane with the word. `trails hooks AGENT` prints the hooks.
+# Setting them up is yours, as it is the agent's to call them: a hook knows the state, where
+# anything trails could look at, the screen included, only suggests it.
 #
-# That's why there are no hooks. Claude Code's Stop/PermissionRequest hooks would
-# report this exactly — and only for Claude; cursor-agent, opencode and antigravity
-# have nothing, so a hook-built status would light one row and leave the rest blank.
-# Repainting a pty is the one thing all four already do.
+# Claude also writes its state down for itself (ADR 11): a status in
+# ~/.claude/sessions/<pid>.json, the file trails already reads for its conversation, so a
+# Claude trail answers with nothing set up. When its hooks and its file both answer, the
+# newer wins. An agent nothing speaks for is unknown.
 #
-# Except where an agent writes its state down for itself, and then its word wins (ADR 11).
-# Claude keeps a status in ~/.claude/sessions/<pid>.json, the file trails already reads for
-# its conversation, so agent_state asks there first. Codex's rollout says whether a turn is
-# running, which settles idle and leaves the rest to the screen. That matters because the screen stopped
-# being still: a Claude status line that refreshes on a timer redraws an idle screen, and
-# two captures that straddle the redraw read a finished turn as working. A file trails
-# reads anyway is not a hook — nothing to install, nothing running between commands.
+# classify()'s words:
 #
-# And not a tmux timestamp: #{session_activity} tracks tmux's sticky alert bookkeeping,
-# not pty bytes — a detached pane printing every 200ms still had its "activity" age
-# grow 0 → 3 → 5s. Two captures is the honest way, and costs one sleep for the list.
-#
-#   working   the screen changed across the gap
-#   blocked   still, and the bottom is asking you a question
-#   idle      still, and not asking — finished its turn, your move
-#
-# blocked-vs-idle is the one heuristic: it greps the screen, so an agent that prints
-# "Approve" can fool it. Both mean "wants you" and sort above working, so a wrong guess
-# costs a colour. AGENT_ASK_RE overrides the pattern for an agent that asks in other words.
-#
-# AGENT_SETTLE is the gap, and the whole latency this adds. It must outlast the slowest
-# repaint of a *working* agent; real ones spin at ~10Hz (Claude repainted on 5/5 samples
-# 300ms apart), so 0.35 has room. The error is one-sided by construction: guessing
-# working needs both samples to differ, so a still screen can never read as working. The
-# bad case is a slow agent shown idle (you open it and it's busy); a stopped agent
-# hidden under "working" cannot happen.
-SETTLE=${AGENT_SETTLE:-0.35}
-ASK_RE=${AGENT_ASK_RE:-'Do you want|Would you like|Allow |Approve|\[y/[nN]\]|\(y/[nN]\)|❯ +[0-9]\.'}
-# Both from the environment, so a typo in either is said once and the default used: a settle
-# that isn't a number made sleep print its usage on every pass, and a regex grep can't read
-# made every state "your turn".
-case $SETTLE in
-  '' | *[!0-9.]* | *.*.*)
-    echo "trails: AGENT_SETTLE is '$SETTLE', not a number of seconds; using 0.35" >&2
-    SETTLE=0.35
-    ;;
-  *) ;;
-esac
-printf '' | grep -qE -- "$ASK_RE" 2>/dev/null
-if [ $? -eq 2 ]; then
-  echo "trails: AGENT_ASK_RE isn't a regex grep -E reads; using the built-in one" >&2
-  ASK_RE='Do you want|Would you like|Allow |Approve|\[y/[nN]\]|\(y/[nN]\)|❯ +[0-9]\.'
-fi
-
+#   working   busy
+#   blocked   asking you something
+#   idle      finished its turn, your move
+#   unknown   nothing says
 RED=$(printf '\033[31m')
 YEL=$(printf '\033[33m')
-CYN=$(printf '\033[36m')
 DIM=$(printf '\033[2m')
 RST=$(printf '\033[0m')
-
-# The *visible* screen only (no -S): a question is on screen by definition, and
-# scrollback would turn old questions into current ones.
-#
-# Both samples must hash through the identical pipeline or every session reads as
-# working forever: `$(screen_of x)` strips the capture's trailing blank rows (command
-# substitution eats trailing newlines) and piping straight to cksum does not, so the
-# two passes hashed different bytes. screen_hash takes the *content*, so both callers
-# normalise the same way by construction.
-screen_of() { tmux capture-pane -pt "$1" 2>/dev/null; }
-screen_hash() { printf '%s\n' "$1" | cksum; }
 
 # Every trail on the box, TSV: window id, key, workspace, agent label, directory, codebase,
 # badge, task. Unclassified and unfiltered — the picker keeps this directory's or this
 # workspace's, `trails ls -a` the lot.
 #
 #   wid       the trail's window, in its session: what every tmux call below targets
-#   key       its record's key and the name to attach to: its session, or a 0.6 session name
-#   ws        its workspace, or - for a 0.6 session
-#   label     @agent — "claude", or "claude (YOLO)" — or the pane's command for a session
-#             trails did not start
+#   key       its record's key and the name to attach to: its session
+#   ws        its workspace
+#   label     @agent — "claude", or "claude (YOLO)"
 #   codebase  the codebase label its window is named from (augur, augur@retry)
 #   badge     #name, #N, or -
 #
 # One list-windows for the lot. A trail's window is the one in its session, the session named
-# by its key; its window in the workspace shows it but is not it, and has no @agent. A 0.6
-# session's row is its active window.
+# by its key; its window in the workspace shows it but is not it, and has no @agent.
 #
 # Also the one place a trail's record learns what it is working on (rec_note_task): the task
 # is only ever on screen, and a trail that dies takes its screen with it. This runs every
-# time anything asks — the SwiftBar plugin polls `trails ls -a` every 10s — so the record is
-# never more than a poll behind, and a lost row can say what it was doing.
+# time anything asks — the picker, `trails ls`, a script polling `trails ls -a` — so the
+# record is as fresh as the last look, and a lost row can say what it was doing.
 #
 # The fields rec_note_id needs ride along, and ps is read once for the whole pass (PS_TREE,
 # see ps_tree), so the work per trail per poll is no tmux clients of its own. '|' and not TAB
@@ -936,20 +878,10 @@ screen_hash() { printf '%s\n' "$1" | cksum; }
 sessions() {
   PS_TREE=$(ps -A -o pid= -o ppid=)
   tmux list-windows -a -F \
-    "#{window_id}${US}#{session_name}${US}#{@trails_ws}${US}#{?@trails_session,#{@trails_session},#{@trails_view}}${US}#{?@agent,#{@agent},#{pane_current_command}}${US}#{@agent}${US}#{@trails_id}${US}#{?@trails_dir,#{@trails_dir},#{session_path}}${US}#{pane_pid}${US}#{@trails_label}${US}#{@trails_name}${US}#{window_active}${US}$TASK_FMT" 2>/dev/null |
-    while IFS="$US" read -r wid sname ws sess label s_agent s_id dir pid clabel cname active task; do
-      if [ -n "$ws" ]; then
-        [ "$sname" = "$sess" ] && [ -n "$s_agent" ] || continue
-        key=$sess
-      else
-        case $sname in
-          "$PREFIX"*) [ "$active" = 1 ] || continue ;;
-          *) continue ;; # a window of your own
-        esac
-        key=$sname ws=-
-        clabel=$(label_of "$dir")
-        cname=$(legacy_name "$sname" "$clabel")
-      fi
+    "#{window_id}${US}#{session_name}${US}#{@trails_ws}${US}#{@trails_session}${US}#{@agent}${US}#{@trails_id}${US}#{@trails_dir}${US}#{pane_pid}${US}#{@trails_label}${US}#{@trails_name}${US}$TASK_FMT" 2>/dev/null |
+    while IFS="$US" read -r wid sname ws key label s_id dir pid clabel cname task; do
+      # A window of your own, or a trail's window in its workspace: not a trail.
+      [ -n "$ws" ] && [ "$sname" = "$key" ] && [ -n "$label" ] || continue
       rec_note_task "$key" "$task"
       rec_note_id "$key" "$wid" "$label" "$s_id" "$dir" "$pid"
       printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$wid" "$key" "$ws" "$label" "$dir" "$clabel" \
@@ -962,59 +894,71 @@ sessions() {
 # task — peer being the name the agent answers to (claude_peer_of), or - for an agent that
 # has none.
 #
-# An agent that reports its own state is asked first (agent_state): exact, and no sleep.
-# The rest are read off the screen, and the sleep is paid once for all of them: hash every
-# screen, wait, hash every screen again. A list of only claudes skips it entirely.
+# Per trail, its hooks' word (`trails state` set @trails_state on its pane) or its own file's
+# (agent_state: claude's), the newer when both answer: a turn interrupted before its end hook
+# fired leaves the hook saying working while claude's file has moved on to idle. Else unknown.
 #
-# Pane pids and the process tree are read once for the pass, not per trail: the menu-bar
-# plugin runs this every 10 seconds.
+# Pane pids, hook words and the process tree are read once for the pass, not per trail: a
+# script polling `trails ls -a` runs this every few seconds.
 classify() {
   rows=$(cat)
   [ -n "$rows" ] || return 0
 
   PS_TREE=$(ps -A -o pid= -o ppid=)
-  pids=$(tmux list-windows -a -F "#{window_id}$TAB#{pane_pid}$TAB#{@trails_id}" 2>/dev/null)
+  # $US between the fields, not TAB, which read takes as whitespace: an agent with no
+  # conversation ID (no session block) has an empty @trails_id, and the fields after it
+  # would shift left into it.
+  panes=$(tmux list-windows -a -F "#{window_id}$US#{pane_pid}$US#{@trails_id}$US#{@trails_state}$US#{@trails_state_at}" 2>/dev/null)
   known=$(printf '%s\n' "$rows" | while IFS="$TAB" read -r wid _key _ws label _dir _cb _badge _task; do
-    finder=$(agent_row "${label%% *}" | awk -F'|' '{ print $9 }')
-    [ -n "$finder" ] || continue
-    m=$(printf '%s\n' "$pids" | awk -F"$TAB" -v n="$wid" '$1 == n { print $2 "|" $3; exit }')
-    st=$(agent_state "$finder" "$wid" "${m%%|*}" "${m#*|}") || st=
-    peer=
-    [ "$finder" = claude ] && peer=$(claude_peer_of "$wid" "${m%%|*}")
-    [ -n "$st$peer" ] && printf '%s\t%s\t%s\n' "$wid" "${st:--}" "${peer:--}"
+    said "$wid" "$label"
   done)
   PS_TREE=
-
-  unknown=$(printf '%s\n' "$rows" | cut -f1 | while read -r wid; do
-    printf '%s\n' "$known" | awk -F"$TAB" -v n="$wid" '$1 == n && $2 != "-" { f = 1 } END { exit !f }' ||
-      printf '%s\n' "$wid"
-  done)
-  before=
-  if [ -n "$unknown" ]; then
-    before=$(printf '%s\n' "$unknown" | while read -r wid; do
-      printf '%s\t%s\n' "$wid" "$(screen_hash "$(screen_of "$wid")")"
-    done)
-    sleep "$SETTLE"
-  fi
 
   printf '%s\n' "$rows" | while IFS="$TAB" read -r wid key ws label dir cb badge task; do
     k=$(printf '%s\n' "$known" | awk -F"$TAB" -v n="$wid" '$1 == n { print $2 "|" $3; exit }')
     state=${k%%|*} peer=${k#*|}
-    [ "$state" = - ] && state=
+    case $state in
+      '' | -) state=unknown ;;
+      *) ;;
+    esac
     [ -n "$peer" ] || peer=-
-    if [ -z "$state" ]; then
-      now=$(screen_of "$wid")
-      was=$(printf '%s\n' "$before" | awk -F"$TAB" -v n="$wid" '$1 == n { print $2 }')
-      if [ "$(screen_hash "$now")" != "$was" ]; then
-        state=working
-      elif printf '%s\n' "$now" | awk 'NF' | tail -n 15 | grep -Eq "$ASK_RE"; then
-        state=blocked
-      else
-        state=idle
-      fi
-    fi
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$state" "$wid" "$key" "$ws" "$label" "$dir" "$cb" "$badge" "$peer" "$task"
   done
+}
+
+# One trail's word from its hooks or its own file, for classify: "wid state peer",
+# tab-separated, state - with only a peer, or nothing when neither says. $1 is the trail's
+# window, $2 its agent label; $panes is classify's list-windows.
+said() {
+  m=$(printf '%s\n' "$panes" | awk -F"$US" -v n="$1" '$1 == n { print; exit }')
+  IFS="$US" read -r _ m_pid m_id h h_at <<EOF
+$m
+EOF
+  case $h in
+    waiting) h=blocked ;;
+    working | idle) ;;
+    *) h= ;;
+  esac
+  case $h_at in
+    '' | *[!0-9]*) h_at=0 ;;
+    *) ;;
+  esac
+  st='' st_at='' peer=''
+  finder=$(agent_row "${2%% *}" | awk -F'|' '{ print $9 }')
+  if [ -n "$finder" ]; then
+    st=$(agent_state "$finder" "$1" "$m_pid" "$m_id") || st=
+    st_at=${st#* } st=${st%% *}
+    case $st_at in
+      '' | *[!0-9]*) st_at=0 ;;
+      *) ;;
+    esac
+    [ "$finder" = claude ] && peer=$(claude_peer_of "$1" "$m_pid")
+  fi
+  # A tie goes to the file: both are whole seconds, and the file is the agent's own word.
+  if [ -n "$h" ] && { [ -z "$st" ] || [ "$h_at" -gt "$st_at" ]; }; then
+    st=$h
+  fi
+  [ -z "$st$peer" ] || printf '%s\t%s\t%s\n' "$1" "${st:--}" "${peer:--}"
 }
 
 # A running trail's badge in the picker, the names to call it by: its own badge ($1: #2 or
@@ -1039,6 +983,7 @@ badge_of() {
 #
 # running:  needs you  the agent is asking you something (a permission prompt, a question)
 #           your turn  it finished its turn and is waiting on you
+#           unknown    nothing says: no hooks, and no file of its own
 #           working    it is getting on with it
 # stopped:  lost       tmux died under it (a reboot, a crash); `trails restore` brings it back
 #           closed     it ended, and its conversation can be resumed
@@ -1048,6 +993,7 @@ badge_of() {
 #                                         └──────────(tmux dies)──────────▶ lost
 STATES='needs-you|●|red|needs you|running, asking you something
 your-turn|●|yellow|your turn|running, finished its turn
+unknown|●|dim|unknown|running, no status: set up its hooks (trails hooks)
 working|●|dim|working|running, busy
 lost|○|plain|lost|not running: tmux died · trails restore brings it back
 closed|○|dim|closed|not running: it ended · resume it from its directory
@@ -1057,11 +1003,12 @@ elsewhere|○|dim|elsewhere|not running here: open in a claude trails did not st
 # newline in it. No state's text has a `;`.
 STATES_FLAT=$(printf '%s' "$STATES" | tr '\n' ';')
 
-# classify()'s screen verdict (blocked, idle, working) → the state it is shown as.
+# classify()'s verdict (blocked, idle, unknown, working) → the state it is shown as.
 state_of() {
   case $1 in
     blocked) echo needs-you ;;
     idle) echo your-turn ;;
+    unknown) echo unknown ;;
     *) echo working ;;
   esac
 }
@@ -1088,15 +1035,16 @@ rank_dot() {
   case $1 in
     blocked) rank=0 dot=$RED word="needs you" ;;
     idle) rank=1 dot=$YEL word="your turn" ;;
-    *) rank=2 dot=$DIM word=working ;;
+    unknown) rank=2 dot=$DIM word=unknown ;;
+    *) rank=3 dot=$DIM word=working ;;
   esac
 }
 
 # `trails ls` — this directory's trails: running, lost with tmux, or ended recently. The
 # same rows the picker shows, as text: `ls` reads as "here", as plain ls does, and the picker
 # already taught that trails means this directory. `trails ls -a` is every directory on the
-# machine — "what did I leave where", the question the menu-bar plugin asks (extras/swiftbar,
-# the caller the TSV was built for). See docs/decisions/0010.
+# machine — "what did I leave where", and the TSV a script reads it as. See
+# docs/decisions/0010.
 #
 # `trails ls DIR` is DIR's, the same list as if you had cd'd there and run `trails ls`.
 #
@@ -1107,16 +1055,16 @@ rank_dot() {
 #   life  state  session  agent  yolo  dir  id  when  pid  peer  workspace  title
 #
 #   life       running (the trail is there) or stopped (it isn't)
-#   state      a STATES id: needs-you, your-turn, working · lost, closed, elsewhere
-#   session    what to attach to: the trail's session (lattiq/augur-2), or a 0.6 session's
-#              name; - for a conversation nothing is running
+#   state      a STATES id: needs-you, your-turn, unknown, working · lost, closed, elsewhere
+#   session    what to attach to: the trail's session (lattiq/augur-2); - for a
+#              conversation nothing is running
 #   yolo       yolo or -
 #   when       when an ended conversation was last active (Unix time), - otherwise
 #   pid        the process holding an "elsewhere" one, - otherwise
 #   peer       the name a claude answers to, what other claude sessions message it by:
 #              running and elsewhere rows, - otherwise and for other agents
 #   workspace  the trail's workspace; for an ended conversation, the one its directory
-#              belongs to now; - for a 0.6 session. Added before title, so a reader that
+#              belongs to now. Added before title, so a reader that
 #              splits on tabs must name it to keep title whole.
 #
 # Never an empty field mid-row, for recent_rows' reason, and the title last since it is free
@@ -1127,7 +1075,7 @@ rank_dot() {
 # piped TSV: a badge is drawn from the label and name, and the TSV carries neither.
 #
 # Each running row's conversation comes from one list-windows for the lot, not a tmux client
-# per trail: the SwiftBar plugin runs this every 10s. Read after sessions() has run, because
+# per trail: a script may poll this every few seconds. Read after sessions() has run, because
 # that pass is what moves @trails_id when the agent has changed conversations.
 ls_rows() {
   live=$(sessions | classify)
@@ -1279,16 +1227,17 @@ list_sessions() {
 }
 
 # The running trails as the picker's raw rows (see print_menu for the shape): this
-# directory's, or with an argument that workspace's. The key is worth hiding — on one
+# directory's, with an argument that workspace's, or with --all every one, its codebase
+# column then workspace/codebase. The key is worth hiding — on one
 # codebase's screen `lattiq/augur` would repeat on every row — and what differs survives
 # as a `#2` or `#name` badge; the window id is the target, what ctrl-x and the preview act on.
 live_trails() {
   sessions | while IFS="$TAB" read -r wid key ws label dir cb badge task; do
-    if [ -n "${1:-}" ]; then
-      [ "$ws" = "$1" ] || continue
-    else
-      [ "$dir" = "$PWD" ] || continue
-    fi
+    case ${1:-} in
+      --all) cb=$ws/$cb ;;
+      '') [ "$dir" = "$PWD" ] || continue ;;
+      *) [ "$ws" = "$1" ] || continue ;;
+    esac
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$wid" "$key" "$ws" "$label" "$dir" "$cb" "$badge" "$task"
   done | classify | while IFS="$TAB" read -r state wid _key _ws label dir cb badge peer task; do
     # launch() writes @agent as "claude (YOLO)" for an armed launch: the first word is the
@@ -1311,35 +1260,29 @@ top_trail() {
   else
     rows=$(sessions | awk -F"$TAB" -v w="$1" '$3 == w' | classify)
   fi
-  printf '%s\n' "$rows" | awk -F"$TAB" '
-    $1 == "blocked" && !b { b = $2 }
-    $1 == "idle" && !i { i = $2 }
-    NR == 1 { f = $2 }
+  printf '%s\n' "$rows" | most_wants 2
+}
+
+# stdin: classify()'s rows. Field $1 of the one that most wants you: the first asking you
+# something, else the first whose turn it is, else the first.
+most_wants() {
+  awk -F"$TAB" -v c="$1" '
+    $1 == "blocked" && !b { b = $c }
+    $1 == "idle" && !i { i = $c }
+    NR == 1 { f = $c }
     END { print b ? b : (i ? i : f) }'
 }
 
-# A record's workspace and codebase, for the picker's lost rows: what the record kept, or
-# for a 0.6 record what its directory says now.
+# A record's workspace and codebase, for the picker's lost rows: what the record kept, else
+# its key's workspace and its directory's label.
 rec_ws() {
   rw=$(rec_get "$1" workspace)
-  [ -n "$rw" ] || rw=$(workspace_of "$(rec_get "$1" dir)") || rw=-
-  printf '%s' "$rw"
+  printf '%s' "${rw:-${1%%/*}}"
 }
 rec_codebase() {
   rc=$(rec_get "$1" label)
   [ -n "$rc" ] || rc=$(label_of "$(rec_get "$1" dir)")
   printf '%s' "$rc"
-}
-
-# What a 0.6 session looks like, applied when one is attached to: @agent_locked marks "one
-# agent, one pane" for a tmux.conf that guards its split keys on it, and the status bar and
-# pane border are off, since the session is a single pane and both would cost a line. A
-# workspace session gets none of this: it is the user's to arrange, and trails sets nothing
-# but @trails_* options on what it makes (principle 3 of the design).
-apply_policy() {
-  tmux set-option -t "$1" @agent_locked 1
-  tmux set-option -t "$1" status off
-  tmux set-option -t "$1" pane-border-status off
 }
 
 # Taken means running, or recorded: a trail that died with tmux keeps its session's name
@@ -1349,7 +1292,7 @@ apply_policy() {
 # record key to disregard: a restore may keep its own old name.
 session_taken() {
   tmux has-session -t "=$1" 2>/dev/null && return 0
-  tmux list-windows -a -F '#{?@trails_session,#{@trails_session},#{@trails_view}}' 2>/dev/null | grep -qxF "$1" && return 0
+  tmux list-windows -a -F '#{@trails_session}' 2>/dev/null | grep -qxF "$1" && return 0
   [ "$1" != "${2:-}" ] && [ -f "$(rec_path "$1")" ]
 }
 
@@ -1367,13 +1310,11 @@ next_session() {
   printf '%s/%s-%s' "$1" "$2" "$n"
 }
 
-# Is NAME, as a trail's name, in use: on a running trail's window, a 0.6 session, or a
-# record (other than $2's). Names are checked box-wide, not per workspace, because claude's
-# peers are: two claudes called payments would be one address.
+# Is NAME, as a trail's name, in use: on a running trail's window, or a record (other than
+# $2's). Names are checked box-wide, not per workspace, because claude's peers are: two
+# claudes called payments would be one address.
 trail_name_taken() {
-  tmux has-session -t "=$PREFIX$1" 2>/dev/null && return 0
   tmux list-windows -a -F '#{@trails_name}' 2>/dev/null | grep -qxF -e "$1" && return 0
-  [ "${2:-}" != "$PREFIX$1" ] && [ -f "$(rec_path "$PREFIX$1")" ] && return 0
   [ -d "$STATE_DIR" ] || return 1
   grep -rlxF -e "name=$1" "$STATE_DIR" 2>/dev/null | grep -qv "^$(rec_path "${2:-//}")\$"
 }
@@ -1389,17 +1330,18 @@ trail_name_taken() {
 # directory guards it: a "new  default" row would otherwise hand us the agent name.
 #
 # On a lost row it forgets instead: there is no process to kill, only the record that would
-# bring one back. restorable_here guards that half the way the directory guards the other.
+# bring one back, and only a lost row of this directory or workspace, as the directory guards a
+# running one.
 #
 # A kill is on purpose, so it forgets the record too. The agent's wrapper would forget it
 # anyway were it allowed to finish, but killing the window hangs up on the wrapper along with
 # the agent — which is exactly what keeps a record alive when tmux dies — so it never gets to.
-# A 0.6 session goes as a session; a trail's window goes alone, and its session, holding
-# nothing else, goes with it.
+# A trail's window goes alone, and its session, holding nothing else, goes with it.
 kill_session() {
   ks_ws=
   case ${TRAILS_PICKER:-} in
     workspace*) ks_ws=$TRAILS_WS ;;
+    all) ks_ws=--all ;;
     *) ;;
   esac
   if rec_is_dead "$1"; then
@@ -1415,30 +1357,27 @@ kill_session() {
     @*) ;;
     *) return 0 ;;
   esac
-  if [ -n "$ks_ws" ]; then
-    [ "$(trail_ws "$1")" = "$ks_ws" ] || return 0
-  else
-    [ "$(trail_dir "$1")" = "$PWD" ] || return 0
-  fi
+  case $ks_ws in
+    --all) ;; # every trail is on the all-trails screen
+    '') [ "$(trail_dir "$1")" = "$PWD" ] || return 0 ;;
+    *) [ "$(trail_ws "$1")" = "$ks_ws" ] || return 0 ;;
+  esac
   # An editor or shell window goes as a window, and has no record.
-  if [ -n "$(tmux display-message -pt "$1" '#{?@trails_tool,#{@trails_tool},#{@trails_companion}}' 2>/dev/null)" ]; then
+  if [ -n "$(tmux display-message -pt "$1" '#{@trails_tool}' 2>/dev/null)" ]; then
     tmux kill-window -t "$1" 2>/dev/null
     return 0
   fi
   # The agent's window, then its session: the window takes the session with it when it is
   # the only one, and the session call ends anything else that was made in it.
   key=$(trail_key "$1")
-  case $key in
-    */*) window_release "$key" ;;
-    *) ;;
-  esac
+  window_release "$key"
   tmux kill-window -t "$1" 2>/dev/null
   tmux kill-session -t "=$key" 2>/dev/null
   rec_forget "$key"
   # Recompute the cached running block so the reload that follows drops the killed row (and
   # re-reads the survivors' state). Guarded on the cache path so a bare `trails --kill x` (no
-  # picker, path unset) skips it. This is the one reload that pays classify's settle sleep, and
-  # it should: a kill is rare and wants fresh state — unlike a Tab, which only relabels.
+  # picker, path unset) skips it. This is the one reload that classifies again, and it should:
+  # a kill is rare and wants fresh state — unlike a Tab, which only relabels.
   [ -n "$TRAILS_MENU_CACHE" ] && live_trails $ks_ws >"$TRAILS_MENU_CACHE"
 }
 
@@ -1494,6 +1433,8 @@ agent_rows() {
 #   workspace-old  its ended conversations
 #   agents         one "<agent> · new trail" row per agent, for the codebase picked
 #   ws             the workspaces, with what runs in each (ws_menu)
+#   all            every running trail, in every workspace, with a workspace/codebase column
+#                  (prefix A, or ctrl-a from the screens above)
 #
 # Re-run by fzf after every Tab and ctrl-x, hence a subcommand.
 #
@@ -1514,14 +1455,15 @@ print_menu() {
     echo "trails: no agent CLIs found on PATH" >&2
     exit 1
   }
-  in_ws=
+  in_ws='' all=''
   case ${TRAILS_PICKER:-} in
     workspace*) in_ws=$TRAILS_WS ;;
+    all) all=1 ;;
     *) ;;
   esac
 
-  # Running trails, from the cache the dispatch classified once. classify() sleeps
-  # AGENT_SETTLE to sample each screen twice, and this runs on every Tab and ctrl-x; the
+  # Running trails, from the cache the dispatch classified once. classify() reads every
+  # trail's state, a few processes each, and this runs on every Tab and ctrl-x; the
   # snapshot is fixed for the picker's life anyway (fzf never live-refreshes it). Empty with
   # no tmux.
   running=
@@ -1541,7 +1483,7 @@ print_menu() {
   # TRAILS_RESTORE_OK is the dispatch's verdict, exported because this also runs as fzf's
   # reload subprocess.
   lost=
-  if [ -n "$TRAILS_RESTORE_OK" ]; then
+  if [ -n "$TRAILS_RESTORE_OK" ] && [ -z "$all" ]; then
     lost=$(rec_dead | while read -r key; do
       d=$(rec_get "$key" dir)
       if [ -n "$in_ws" ]; then
@@ -1595,7 +1537,7 @@ print_menu() {
   # has to see it gone. Not in an editor's terminal, which wants trails and nothing else
   # (R9): picking an editor window there would put the whole workspace into the panel.
   comp=
-  from_editor || comp=$(tools $in_ws)
+  from_editor || [ -n "$all" ] || comp=$(tools $in_ws)
 
   # `$(...)` eats trailing newlines, so each block gets its own back or the last row of one
   # welds onto the first of the next.
@@ -1614,7 +1556,7 @@ print_menu() {
   # O (old list: closed and elsewhere).
   drawn=
   [ -n "$rows" ] && drawn=$(printf '%s\n' "$rows" | awk -F"$TAB" -v OFS="$TAB" -v states="$STATES_FLAT" \
-    -v red="$RED" -v yel="$YEL" -v dim="$DIM" -v rst="$RST" -v inws="$in_ws" "$STATES_AWK"'
+    -v red="$RED" -v yel="$YEL" -v dim="$DIM" -v rst="$RST" -v inws="$in_ws$all" "$STATES_AWK"'
     NF >= 10 {
       n++; st[n] = $1; vb[n] = $2; tg[n] = $3; cb[n] = $5; ag[n] = $6; yo[n] = $7; ti[n] = $10
       if ($1 == "tool") { comp[++nc] = n; if (length(cb[n]) > wc) wc = length(cb[n]); next }
@@ -1634,7 +1576,7 @@ print_menu() {
         sub(/ +$/, "", line)
         # By state name, never by glyph: macOS awk compares strings by locale collation,
         # which ranks ● and ○ equal.
-        print (st[i] ~ /^(needs-you|your-turn|working|lost)$/ ? "M" : "O"), vb[i], tg[i], line
+        print (st[i] ~ /^(needs-you|your-turn|unknown|working|lost)$/ ? "M" : "O"), vb[i], tg[i], line
       }
       for (c = 1; c <= nc; c++) {
         i = comp[c]
@@ -1648,6 +1590,10 @@ print_menu() {
   case ${TRAILS_PICKER:-} in
     old | workspace-old)
       printf '%s\n' "$drawn" | awk -F"$TAB" -v OFS="$TAB" '$1 == "O" { print $2, $3, $4 }'
+      return 0
+      ;;
+    all)
+      printf '%s\n' "$drawn" | awk -F"$TAB" -v OFS="$TAB" '$1 == "M" { print $2, $3, $4 }'
       return 0
       ;;
     *) ;;
@@ -2046,7 +1992,7 @@ BOOT=1.5
 tmux_door() {
   env -u TRAILS_PICKER -u TRAILS_YOLO_STATE -u TRAILS_MENU_CACHE -u TRAILS_RECENT_CACHE \
     -u TRAILS_RESTORE_OK -u USE_TMUX -u LAUNCH_DETACHED -u TRAILS_NAME -u TRAILS_ATTACH -u TRAILS_BACK \
-    -u TRAILS_WS -u TRAILS_CLIENT -u NVIM -u ZED_TERM tmux "$@"
+    -u TRAILS_FROM -u TRAILS_WS -u TRAILS_CLIENT -u NVIM -u ZED_TERM tmux "$@"
 }
 
 # One launch at a time through the part that names a trail: choosing its session, writing
@@ -2173,8 +2119,7 @@ EOF
   fi
 
   # Its name, if it has one: the one you gave, the one its record kept, the one its
-  # conversation carries (claude's --name, or a /rename inside it), or for a 0.6 session
-  # whatever its session name said beyond the project. Kept only if free — a lost #payments
+  # conversation carries (claude's --name, or a /rename inside it). Kept only if free — a lost #payments
   # comes back as lattiq/payments, not lattiq/augur-2 — and a restore counts its own record
   # as free.
   label=$(codebase_label "$PWD")
@@ -2182,10 +2127,7 @@ EOF
   if [ -z "$3" ] && [ -n "$TRAILS_NAME" ]; then
     name=$TRAILS_NAME
   elif [ -n "$4" ]; then
-    case $4 in
-      */*) name=$(rec_get "$4" name) ;;
-      *) name=$(legacy_name "$4" "$(label_of "$PWD")") ;;
-    esac
+    name=$(rec_get "$4" name)
     [ -z "$name" ] || ! trail_name_taken "$name" "$4" || name=
   elif [ -n "$3" ] && [ "$find" = claude ]; then
     name=$(claude_name_of "$3")
@@ -2196,7 +2138,7 @@ EOF
   # Brought back already, on this conversation, by another restore while this one waited.
   if [ -n "$4" ] && [ -n "$3" ] && [ "$(tmux display-message -pt "=$4:" '#{@trails_id}' 2>/dev/null)" = "$3" ]; then
     launch_unlock
-    echo "trails: $(rec_label "$4") is back already" >&2
+    echo "trails: $4 is back already" >&2
     exit 3
   fi
 
@@ -2321,7 +2263,7 @@ EOF
   # simply did nothing — the failure and a successful launch were both silence. Print what
   # the agent said rather than attaching to a corpse.
   #
-  # -S- to read history, unlike screen_of(): a dying pane scrolls its output up out of the
+  # -S- to read history, not just the visible screen: a dying pane scrolls its output up out of the
   # visible screen, so the last thing it said is only in the scrollback. The session goes as a
   # session, and its window's client exits with it, taking the trail's window.
   sleep "$BOOT"
@@ -2357,8 +2299,6 @@ EOF
 # which says nothing.
 #
 #   ensure_window WID KEY WS     WID is the agent's window, in the trail's session
-#
-# Not called for a 0.6 session, which is its own session and workspace.
 ensure_window() {
   ec_wid=$1 ec_key=$2 ec_ws=$3
   ec_win=$(window_of "$ec_key" "$ec_ws")
@@ -2414,7 +2354,7 @@ EOF
 
 # The trail's window showing trail KEY in workspace WS, if any (its window id).
 window_of() {
-  tmux list-windows -t "=$2" -F "#{?@trails_window,#{@trails_window},#{@trails_cell}}$TAB#{window_id}" 2>/dev/null |
+  tmux list-windows -t "=$2" -F "#{@trails_window}$TAB#{window_id}" 2>/dev/null |
     awk -F"$TAB" -v k="$1" '$1 == k { print $2; exit }'
 }
 
@@ -2430,9 +2370,8 @@ window_release() {
   # workspace is this anyway.
   cr_win=$(window_of "$1" "${1%%/*}")
   [ -n "$cr_win" ] || return 0
-  tmux list-panes -t "$cr_win" -F '#{@trails_pane}' 2>/dev/null | grep -qvE '^(view|agent)$' || return 0
+  tmux list-panes -t "$cr_win" -F '#{@trails_pane}' 2>/dev/null | grep -qvx agent || return 0
   tmux set-option -wqu -t "$cr_win" @trails_window \
-    \; set-option -wqu -t "$cr_win" @trails_cell \
     \; set-option -w -t "$cr_win" @trails_tool shell
   tool_remark "$cr_win"
 }
@@ -2442,7 +2381,7 @@ window_release() {
 # every change to its panes (tool, --layout, window_release), so tool_find and the picker's
 # row say what is there. Nothing to do for a trail's window, which is named for its agent.
 tool_remark() {
-  [ -n "$(tmux display-message -pt "$1" '#{?@trails_tool,#{@trails_tool},#{@trails_companion}}' 2>/dev/null)" ] || return 0
+  [ -n "$(tmux display-message -pt "$1" '#{@trails_tool}' 2>/dev/null)" ] || return 0
   tr_label=$(tmux display-message -pt "$1" '#{@trails_label}' 2>/dev/null)
   tr_ed=${EDITOR:-nvim}
   tr_panes=$(tmux list-panes -t "$1" -F '#{@trails_pane}' 2>/dev/null)
@@ -2502,14 +2441,9 @@ window_layout() {
 # editor inside tmux, or a map pane, where the pane *is* the editor's panel or the trail's window: that
 # pane becomes a nested client of the session, the way map() builds its windows, stamped with
 # @dir/@ag in the map so its border reads like its neighbours'.
-#
-# A 0.6 session is its own workspace, so every route is the session itself.
 attach_to() {
   at_wid=$1 at_key=$2 at_ws=$3
-  case $at_key in
-    */*) at_target="=$at_ws:$(ensure_window "$at_wid" "$at_key" "$at_ws")" || exit 1 ;;
-    *) at_target="=$at_key" ;;
-  esac
+  at_target="=$at_ws:$(ensure_window "$at_wid" "$at_key" "$at_ws")" || exit 1
   if [ -n "$TMUX" ]; then
     if [ -n "$IN_MAP" ] || from_editor; then
       if [ -n "$IN_MAP" ]; then
@@ -2527,21 +2461,14 @@ attach_to() {
 }
 
 # attach_to by key, for a caller holding a record key or a session name rather than a
-# window: a 0.6 session gets its policy applied on the way, so one started before any of
-# that existed picks it up next time.
+# window.
 attach_key() {
-  # Anything but a trail's key must not be taken for a 0.6 one: that would restyle whatever
-  # session it names.
   key_ok "$1" || exit 1
   ak_wid=${2:-$(agent_wid "$1")}
   [ -n "$ak_wid" ] || {
-    echo "trails: $(rec_label "$1") is gone" >&2
+    echo "trails: $1 is gone" >&2
     exit 1
   }
-  case $1 in
-    */*) ;;
-    *) apply_policy "$1" ;;
-  esac
   attach_to "$ak_wid" "$1" "$(trail_ws "$ak_wid")"
 }
 
@@ -2550,10 +2477,9 @@ attach_key() {
 # kill-server — every agent goes with it. The conversations survive (each CLI keeps its
 # transcripts on disk); what dies is the knowledge of which conversation was which session,
 # because that lived only in tmux. So write it down outside tmux, one small file per trail,
-# keyed by its session's name (a 0.6 session's, by its session name):
+# keyed by its session's name:
 #
 #   ~/.local/state/trails/sessions/lattiq/augur-2   agent= dir= id= yolo= task= workspace= label= name=
-#   ~/.local/state/trails/sessions/trails-foo       agent= dir= id= yolo= task=
 #
 # and bring trails back from it: lost rows in the picker, or `trails restore` for the lot.
 # The workspace in the record is a fallback: a restore puts the trail where the config says
@@ -2636,37 +2562,25 @@ rec_path() {
 rec_get() { sed -n "s/^$2=//p" "$(rec_path "$1")" 2>/dev/null | head -n 1; }
 rec_forget() { [ -n "$1" ] && rm -f "$(rec_path "$1")"; }
 
-# Every record's key, one per line: the 0.6 files at the top, and 1.0's one directory down.
+# Every record's key, one per line: WORKSPACE/NAME, a file one directory down.
 rec_keys() {
   [ -d "$STATE_DIR" ] || return 0
-  find "$STATE_DIR" -mindepth 1 -maxdepth 2 -type f ! -name '*.tmp' ! -name '*.tmp.*' 2>/dev/null |
+  find "$STATE_DIR" -mindepth 2 -maxdepth 2 -type f ! -name '*.tmp' ! -name '*.tmp.*' 2>/dev/null |
     sed "s|^$STATE_DIR/||"
 }
 
-# A record's name for a message: a 0.6 one without its prefix, a 1.0 one as it is.
-rec_label() { printf '%s' "${1#"$PREFIX"}"; }
-
 # key agent dir id yolo [workspace label name]. Through a temp file and mv, so a reader never
-# sees half a record.
+# sees half a record. It keeps the tmux server the trail runs on too (tmux_server).
 rec_write() {
   mkdir -p "$(dirname "$(rec_path "$1")")" || return 0
-  printf 'agent=%s\ndir=%s\nid=%s\nyolo=%s\ntask=\nworkspace=%s\nlabel=%s\nname=%s\n' \
-    "$2" "$3" "$4" "$5" "${6:-}" "${7:-}" "${8:-}" >"$(rec_path "$1").tmp.$$" &&
+  printf 'agent=%s\ndir=%s\nid=%s\nyolo=%s\ntask=\nworkspace=%s\nlabel=%s\nname=%s\nserver=%s\n' \
+    "$2" "$3" "$4" "$5" "${6:-}" "${7:-}" "${8:-}" "$(tmux_server)" >"$(rec_path "$1").tmp.$$" &&
     mv -f "$(rec_path "$1").tmp.$$" "$(rec_path "$1")"
   rm -f "$(rec_path "$1").tmp.$$"
 }
 
-# The badge a record's trail would wear (trail_badge), from what the record kept — a 0.6
-# record kept nothing, so its name is read off its key.
-rec_badge() {
-  case $1 in
-    */*) trail_badge "$1" "$(rec_get "$1" label)" "$(rec_get "$1" name)" ;;
-    *)
-      rb_label=$(label_of "$(rec_get "$1" dir)")
-      trail_badge "$1" "$rb_label" "$(legacy_name "$1" "$rb_label")"
-      ;;
-  esac
-}
+# The badge a record's trail would wear (trail_badge), from what the record kept.
+rec_badge() { trail_badge "$1" "$(rec_codebase "$1")" "$(rec_get "$1" name)"; }
 
 # Called for every live session on every sessions() pass, so it touches the disk only when a
 # record exists and its task actually changed.
@@ -2681,7 +2595,7 @@ rec_note_task() {
 }
 
 # Record $1 put through awk program $2, with $3 as ENVIRON["RR_V"], only while the record is
-# there: `trails ls` rewrites records every few seconds (the menu bar), and a trail whose
+# there: `trails ls` rewrites records on every pass, and a trail whose
 # wrapper forgot its record in the meantime must not come back as lost. Each writer has a
 # temp file of its own, so two never trade halves.
 rec_rewrite() {
@@ -2701,15 +2615,21 @@ claude_conv_of() {
   grep -o '"sessionId":"[^"]*"' "$f" | head -n 1 | json_field sessionId
 }
 
+# Session $1's pane pid: $2 when the caller already has it, else tmux's. Fails on anything
+# that isn't a pid.
+pane_pid_of() {
+  ppo=${2:-$(tmux display-message -pt "$1" '#{pane_pid}' 2>/dev/null)}
+  case $ppo in
+    '' | *[!0-9]*) return 1 ;;
+    *) printf '%s' "$ppo" ;;
+  esac
+}
+
 # The ~/.claude/sessions/<pid>.json of session $1's claude: the pane's process or its child.
 # Both readers above and below go through here, so they can't disagree about which claude
 # a session is.
 claude_file_of() {
-  pp=${2:-$(tmux display-message -pt "$1" '#{pane_pid}' 2>/dev/null)}
-  case $pp in
-    '' | *[!0-9]*) return 1 ;;
-    *) ;; # a pid
-  esac
+  pp=$(pane_pid_of "$1" "${2:-}") || return 1
   for k in "$pp" $(ps_tree | awk -v p="$pp" '$2 == p { print $1 }'); do
     f=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/sessions/$k.json
     [ -f "$f" ] || continue
@@ -2728,16 +2648,21 @@ claude_file_of() {
 #   idle      neither                                       idle
 #
 # Any other value, or no field, is a claude this reader doesn't understand: it fails, and
-# classify falls back to the screen, so a release that renames the field costs accuracy
-# for that release, not the state.
+# classify goes by the hooks alone (unknown without them), so a release that renames the
+# field costs accuracy for that release, not the listing.
+#
+# After the verdict, when it was set: statusUpdatedAt, in seconds, which classify weighs
+# against a hook's word (ADR 18). Nothing after it when the file has none.
 claude_state_of() {
   f=$(claude_file_of "$1" "$2") || return 1
   case $(grep -o '"status":"[^"]*"' "$f" | head -n 1 | json_field status) in
-    busy) echo working ;;
-    waiting) echo blocked ;;
-    idle) echo idle ;;
+    busy) cs=working ;;
+    waiting) cs=blocked ;;
+    idle) cs=idle ;;
     *) return 1 ;;
   esac
+  cs_at=$(grep -o '"statusUpdatedAt":[0-9]*' "$f" | head -n 1 | cut -d: -f2)
+  printf '%s %s\n' "$cs" "${cs_at%???}"
 }
 
 # The name session $1's claude answers to: what other claude sessions list it as and message
@@ -2756,46 +2681,15 @@ claude_peer_by_pid() {
   [ -f "$f" ] && claude_peer_in "$f"
 }
 
-# Session $2's state by reader $1 (an agent's session.find), when that reader can tell.
-# The agent's own word beats the screen; an agent without one, or a reader that can't
-# answer, falls back to classify()'s two captures. $3 is the pane's pid, $4 its @trails_id.
+# Session $2's state by reader $1 (an agent's session.find), when that reader can tell, and
+# when the agent last said so (Unix time, or nothing): "idle 1792738435". classify weighs it
+# against a hook's word, and falls back past it for an agent without a reader, or a reader
+# that can't answer. $3 is the pane's pid, $4 its @trails_id.
 agent_state() {
   case $1 in
     claude) claude_state_of "$2" "$3" ;;
-    codex) codex_state_of "$4" ;;
     *) return 1 ;;
   esac
-}
-
-# Whether conversation $1's codex is between turns. Codex writes each turn's start and end
-# to its rollout, as event_msg lines whose payload type is task_started, then task_complete
-# or turn_aborted (turn_started and turn_complete are the v2 spellings it also reads). What it
-# never writes is an approval prompt: those are transient events, left out of the rollout.
-#
-# So the rollout answers only half: after a turn ended, codex is idle, exactly, whatever its
-# screen redraws. Inside a turn it is either working or waiting on an approval, which only
-# the screen can tell apart, so that, like no rollout yet, fails back to the screen.
-#
-# The rollout is found by name: rollout-<time>-<id>.jsonl, under a date directory. The ID is
-# the session's @trails_id, which rec_note_id has just set in the same pass, so this costs
-# a glob, not the lsof that finding an unrecorded one takes. The match is on the bare
-# `"type":"task_complete"`: inside a message's text the quotes would be escaped, so only the
-# event itself has them plain.
-codex_state_of() {
-  case $1 in
-    '' | *[!A-Za-z0-9-]*) return 1 ;;
-    *) ;; # an ID
-  esac
-  for f in "${CODEX_HOME:-$HOME/.codex}"/sessions/*/*/*/rollout-*-"$1".jsonl; do
-    [ -f "$f" ] || continue
-    case $(grep -oE '"type":"(task_started|turn_started|task_complete|turn_complete|turn_aborted)"' "$f" |
-      tail -n 1) in
-      *_complete\" | *_aborted\") echo idle ;;
-      *) return 1 ;;
-    esac
-    return 0
-  done
-  return 1
 }
 
 # Follow a session to the conversation it is actually in, for an agent whose config names a
@@ -2819,7 +2713,7 @@ codex_state_of() {
 #   rec_note_id KEY WID @agent @trails_id dir pane_pid
 #
 # All but the key come from sessions()' one list-windows, rather than a tmux client each per
-# trail per pass — and the SwiftBar plugin makes a pass every 10s, all day.
+# trail per pass — and a script polling `trails ls -a` makes a pass every few seconds.
 rec_note_id() {
   id_label=$3
   id_agent=${id_label%% *}
@@ -2845,11 +2739,7 @@ $w
 EOF
     rec_write "$1" "$id_agent" "$5" "$now" "$mode" "$w_ws" "$w_label" "$w_name"
   fi
-  # On the window for a trail, on the session for one from 0.6, which is where its launch put it.
-  case $1 in
-    */*) tmux set-option -w -t "$2" @trails_id "$now" ;;
-    *) tmux set-option -t "$1" @trails_id "$now" ;;
-  esac
+  tmux set-option -w -t "$2" @trails_id "$now"
 }
 
 # The conversation trail $2 (window $3) has open, by reader $1 (an agent's session.find). $4
@@ -2877,11 +2767,7 @@ ps_tree() {
 # installed codex is a node shim in front of the real binary). Three levels is all of those.
 # $2 is the pane's pid when the caller already has it.
 pane_pids() {
-  pp=${2:-$(tmux display-message -pt "$1" '#{pane_pid}' 2>/dev/null)}
-  case $pp in
-    '' | *[!0-9]*) return 1 ;;
-    *) ;; # a pid
-  esac
+  pp=$(pane_pid_of "$1" "${2:-}") || return 1
   ps_tree | awk -v p="$pp" '
     { kid[$2] = kid[$2] " " $1 }
     END {
@@ -2950,28 +2836,38 @@ codex_conv_of() {
 # by something else (a `tmux new -s lattiq/augur` of your own), and that would hide the dead
 # record from every lost row and from restore. launch() stamps each trail with its
 # conversation ID as @trails_id, and a record is alive only while a window carrying its key
-# carries its ID too. The key is on the window for a trail (@trails_session) and is the session
-# name for one from 0.6.
+# carries its ID too. The key is on the window for a trail (@trails_session).
+#
+# Only a record of this tmux server: on another (`tmux -L other`, a test's), every trail of
+# the first would look dead, and restoring them there would run each conversation twice.
 #
 # ALIVE is the one list-windows for a whole rec_dead pass; a lone question asks itself.
 rec_is_dead() {
   [ -f "$(rec_path "$1")" ] || return 1
-  rid_alive=${ALIVE:-$(tmux list-windows -a -F "#{?@trails_session,#{@trails_session},#{session_name}}${US}#{@trails_id}" 2>/dev/null)}
+  rid_srv=$(rec_get "$1" server)
+  [ "${rid_srv:-default}" = "$(tmux_server)" ] || return 1
+  rid_alive=${ALIVE:-$(tmux list-windows -a -F "#{@trails_session}${US}#{@trails_id}" 2>/dev/null)}
   ! printf '%s\n' "$rid_alive" | grep -qxF "$1$US$(rec_get "$1" id)"
+}
+
+# The tmux server this run talks to, by its socket's name: the one in $TMUX inside tmux (a
+# run-shell job has it too), else tmux's default.
+tmux_server() {
+  if [ -n "${TMUX:-}" ]; then
+    ts=${TMUX%%,*}
+    printf '%s' "${ts##*/}"
+  else
+    printf default
+  fi
 }
 
 # Every record whose trail is not running: what died with tmux. Keys only.
 rec_dead() {
-  ALIVE=$(tmux list-windows -a -F "#{?@trails_session,#{@trails_session},#{session_name}}${US}#{@trails_id}" 2>/dev/null)
+  ALIVE=$(tmux list-windows -a -F "#{@trails_session}${US}#{@trails_id}" 2>/dev/null)
   rec_keys | while read -r key; do
     rec_is_dead "$key" && printf '%s\n' "$key"
   done
   ALIVE=
-}
-
-# The lost half of "here": a dead trail started in this directory.
-restorable_here() {
-  rec_is_dead "$1" && [ "$(rec_get "$1" dir)" = "$PWD" ]
 }
 
 # Bring one dead trail back, detached, from its record; prints the key it came back under.
@@ -3004,20 +2900,20 @@ restore_one() {
   # Turned away by tmux (status 3) with the trail running under its key: another restore
   # brought it back a moment ago. Starting it fresh would be a second agent in its place.
   if [ "$ro_rc" -eq 3 ] && [ -n "$(agent_wid "$1")" ]; then
-    echo "trails: $(rec_label "$1") is back already" >&2
+    echo "trails: $1 is back already" >&2
     return 0
   fi
   # A trail that comes back under its old key overwrites its record on the way in, and a
   # launch that dies on arrival forgets what it wrote — so the record is put back between
   # the attempts, since the second reads its name and workspace from it.
   mkdir -p "$(dirname "$(rec_path "$1")")" && printf '%s\n' "$saved" >"$(rec_path "$1")"
-  echo "trails: nothing to resume for $(rec_label "$1") — starting $agent fresh in its place" >&2
+  echo "trails: nothing to resume for $1 — starting $agent fresh in its place" >&2
   (
     LAUNCH_DETACHED=1
     launch "$agent" "$mode" "" "$1"
   ) && return 0
   mkdir -p "$(dirname "$(rec_path "$1")")" && printf '%s\n' "$saved" >"$(rec_path "$1")"
-  echo "trails: could not bring $(rec_label "$1") back — its record is kept, try again once $agent starts" >&2
+  echo "trails: could not bring $1 back — its record is kept, try again once $agent starts" >&2
   return 1
 }
 
@@ -3043,22 +2939,25 @@ restore_all() {
   # Each in a subshell: restore_one cds, and launch exits on failure — neither may leak into
   # the next one.
   for key in $keys; do
-    dir=$(rec_get "$key" dir)
-    # trails end works from anywhere; ctrl-x on a lost row only from its own directory, which
-    # is the one that's gone.
-    if [ -z "$dir" ] || [ -z "$(rec_get "$key" agent)" ]; then
-      echo "trails: skipping $(rec_label "$key") — its record is unreadable (trails end $key forgets it)" >&2
+    dir=$(rec_get "$key" dir) ra_agent=$(rec_get "$key" agent) ra_id=$(rec_get "$key" id)
+    # One that can never come back is forgotten, and said so: ctrl-x on a lost row only works
+    # from its own directory, which may be the one that's gone. The conversation stays in the
+    # agent's own history; only the pointer to it goes.
+    if [ -z "$dir" ] || [ -z "$ra_agent" ]; then
+      rec_forget "$key"
+      echo "trails: forgot $key — its record was unreadable" >&2
       continue
     fi
     if [ ! -d "$dir" ]; then
-      echo "trails: skipping $(rec_label "$key") — $dir is gone (trails end $key forgets it)" >&2
+      rec_forget "$key"
+      echo "trails: forgot $key — $dir is gone${ra_id:+ (conversation $ra_id stays in the history of $ra_agent)}" >&2
       continue
     fi
     new=$(cd "$dir" && restore_one "$key") || continue
     if [ "$new" = "$key" ]; then
-      echo "restored $(rec_label "$key")"
+      echo "restored $key"
     else
-      echo "restored $(rec_label "$key") as $new"
+      echo "restored $key as $new"
     fi
   done
 }
@@ -3101,6 +3000,15 @@ newest_first() {
   else
     find "$@" -exec stat -f '%m %N' {} + 2>/dev/null
   fi | sort -rn
+}
+
+# One file's mtime, the same way.
+file_mtime() {
+  if stat -c %Y / >/dev/null 2>&1; then
+    stat -c %Y "$1" 2>/dev/null
+  else
+    stat -f %m "$1" 2>/dev/null
+  fi
 }
 
 # A string field off one JSON line, then made readable. sed rather than jq, which a fresh
@@ -3272,7 +3180,7 @@ tool() {
     tl_at=${TMUX_PANE:-$CLIENT}
     # shellcheck disable=SC2086 # the -t and its target are two words on purpose
     # Asked first, read after: the read's IFS would otherwise split -t from its target.
-    tl_out=$(tmux display-message -p ${tl_at:+-t "$tl_at"} "#{window_id}${US}#{@trails_dir}${US}#{@trails_ws}${US}#{?@trails_tool,#{@trails_tool},#{@trails_companion}}${US}#{?@trails_window,#{@trails_window},#{@trails_cell}}${US}#{pane_id}${US}#{pane_current_path}" 2>/dev/null)
+    tl_out=$(tmux display-message -p ${tl_at:+-t "$tl_at"} "#{window_id}${US}#{@trails_dir}${US}#{@trails_ws}${US}#{@trails_tool}${US}#{@trails_window}${US}#{pane_id}${US}#{pane_current_path}" 2>/dev/null)
     IFS="$US" read -r cur_wid w_dir w_ws cur_kind cur_win cur_pane p_path <<EOF
 $tl_out
 EOF
@@ -3288,15 +3196,11 @@ EOF
 
   # The window: the trail's or tool window you are on; else the window of the codebase's trail that
   # most wants you, in that trail's workspace; else the codebase's editor window, made if
-  # need be. A 0.6 trail has no window, so its codebase gets the editor alone.
+  # need be.
   if [ -n "$cur_win" ] || [ -n "$cur_kind" ]; then
     wid=$cur_wid
   else
     key=$(trail_in "$here")
-    case $key in
-      */*) ;;
-      *) key= ;;
-    esac
     if [ -n "$key" ]; then
       twid=$(agent_wid "$key")
       ws=$(trail_ws "$twid")
@@ -3312,7 +3216,7 @@ EOF
   # else made, and the trail's window laid out (window_layout) either way. The editor pane's command ends
   # by asking for the layout again, from outside the pane (run-shell -b, after the pane has
   # gone): a shell that sat under the editor would otherwise keep its column, tall and narrow.
-  pane=$(tmux list-panes -t "$wid" -F '#{pane_id} #{@trails_pane}' 2>/dev/null | awk -v k="$mark" '$2 == k || (k == "editor" && $2 == "edit") { print $1; exit }')
+  pane=$(tmux list-panes -t "$wid" -F '#{pane_id} #{@trails_pane}' 2>/dev/null | awk -v k="$mark" '$2 == k { print $1; exit }')
   if [ -n "$pane" ] && [ "$pane" = "$cur_pane" ]; then
     [ "$(tmux list-panes -t "$wid" 2>/dev/null | wc -l)" -gt 1 ] && exec tmux select-pane -l
     exec tmux last-window
@@ -3346,9 +3250,8 @@ editor_cmd() {
 
 # The window of tool kind $1 for directory $3 in workspace $2, if any.
 tool_find() {
-  tmux list-windows -t "=$2" -F "#{window_id}${US}#{?@trails_tool,#{@trails_tool},#{@trails_companion}}${US}#{@trails_dir}" 2>/dev/null |
+  tmux list-windows -t "=$2" -F "#{window_id}${US}#{@trails_tool}${US}#{@trails_dir}" 2>/dev/null |
     while IFS="$US" read -r w k d; do
-      [ "$k" = edit ] && k=editor
       [ "$k" = "$1" ] && same_dir "$d" "$3" && printf '%s\n' "$w" && break
     done
 }
@@ -3357,11 +3260,7 @@ tool_find() {
 trail_in() {
   sessions | while IFS="$TAB" read -r row; do
     same_dir "$(printf '%s\n' "$row" | cut -f5)" "$1" && printf '%s\n' "$row"
-  done | classify | awk -F"$TAB" '
-    $1 == "blocked" && !b { b = $3 }
-    $1 == "idle" && !i { i = $3 }
-    NR == 1 { f = $3 }
-    END { print b ? b : (i ? i : f) }'
+  done | classify | most_wants 3
 }
 
 # The editor alone, for a codebase with no trail running: a window in the workspace, dir,
@@ -3405,7 +3304,7 @@ same_dir() {
 # and the title what the window was named for. Panes beside an agent are the trail's, and
 # have no row of their own.
 tools() {
-  tmux list-windows -a -F "#{window_id}${US}#{session_name}${US}#{?@trails_tool,#{@trails_tool},#{@trails_companion}}${US}#{@trails_dir}${US}#{@trails_ws}${US}#{@trails_label}${US}#{window_name}" 2>/dev/null |
+  tmux list-windows -a -F "#{window_id}${US}#{session_name}${US}#{@trails_tool}${US}#{@trails_dir}${US}#{@trails_ws}${US}#{@trails_label}${US}#{window_name}" 2>/dev/null |
     while IFS="$US" read -r wid sname kind dir ws label wname; do
       [ -n "$kind" ] && [ "$sname" = "$ws" ] || continue
       if [ -n "${1:-}" ]; then
@@ -3574,7 +3473,7 @@ fzf_ok() {
     esac
     fo_v=no
     # Without the test fzf's variables: a probe is no list a test drove.
-    FZF_DUMP='' FZF_PICKS='' FZF_PICK='' FZF_KEYS='' fzf "$fo_o" --filter=x </dev/null >/dev/null 2>&1 || [ $? -ne 2 ] && fo_v=yes
+    FZF_DUMP='' FZF_PICKS='' FZF_PICK='' FZF_KEYS='' FZF_KEY='' fzf "$fo_o" --filter=x </dev/null >/dev/null 2>&1 || [ $? -ne 2 ] && fo_v=yes
     eval "FZF_OK_$1=$fo_v"
   fi
   [ "$fo_v" = yes ]
@@ -3650,15 +3549,292 @@ note_cmd() {
   return 0
 }
 
+# ─── The diff ────────────────────────────────────────────────────────────────
+# `trails diff [DIR]`: a codebase's changes, side by side, to read what an agent did. prefix G
+# (trails keys) shows them in a popup over the workspace, since side by side wants the
+# width; from a shell it is the terminal itself.
+#
+# The codebase is the one `trails edit` would pick: DIR; else the window you are on, a trail's
+# window naming its codebase; else the pane's directory; else $PWD. The changes are the
+# working tree against HEAD, staged or not, and the untracked files, each against /dev/null:
+# agents make new files, and a plain git diff leaves them out. Nothing is staged to show them.
+#
+# The config's "diff" is what reads them, run in the codebase: a command the diff is piped to,
+#
+#   "diff": "delta --side-by-side --paging=always"
+#
+# which is the default when delta is installed (else less), and which should page, since the
+# popup closes when it exits; or a program that finds the changes itself, run in the popup,
+# in the codebase, with nothing piped to it (an editor's diff view):
+#
+#   "diff": { "command": "nvim -c 'CodeDiff --exit-on-close'", "pipe": false }
+#
+# or a program with a window of its own, run instead, with no popup opened:
+#
+#   "diff": { "command": "fork status", "gui": true }
+#
+# diff_cfg prints which, then the command: pipe, run or gui, a tab between.
+diff_cfg() {
+  dc=
+  [ -f "$CONFIG" ] && dc=$(jq -r '.diff | if type == "string" then "pipe\t" + .
+    elif type == "object" then
+      (if .gui == true then "gui" elif .pipe == false then "run" else "pipe" end) + "\t" + (.command // "" | tostring)
+    else empty end' "$CONFIG" 2>/dev/null)
+  case $dc in
+    *"$TAB"?*) printf '%s' "$dc" ;;
+    *)
+      if command -v delta >/dev/null 2>&1; then
+        printf 'pipe\tdelta --side-by-side --paging=always'
+      else
+        printf 'pipe\t'
+      fi
+      ;;
+  esac
+}
+
+diff_dir() {
+  dd=${1:-}
+  if [ -z "$dd" ] && [ -n "$TMUX" ]; then
+    dd_at=${TMUX_PANE:-$CLIENT}
+    # shellcheck disable=SC2086 # the -t and its target are two words on purpose
+    dd=$(tmux display-message -p ${dd_at:+-t "$dd_at"} '#{?@trails_dir,#{@trails_dir},#{pane_current_path}}' 2>/dev/null)
+  fi
+  dd=${dd:-$PWD}
+  [ -d "$dd" ] || {
+    echo "trails: no such directory: $dd" >&2
+    return 1
+  }
+  printf '%s' "$dd"
+}
+
+# The changes in $1, through the config's command; in a popup ($2 set), a word before it
+# closes on anything that has nothing to page.
+diff_show() {
+  cd "$1" || exit 1
+  ds_hold() { [ -z "${2:-}" ] || { printf '\npress enter to close'; read -r _; }; }
+  git rev-parse --git-dir >/dev/null 2>&1 || {
+    echo "trails: $(tilde_path "$1") isn't a git repository"
+    ds_hold "$@"
+    exit 1
+  }
+  ds_cfg=$(diff_cfg)
+  ds_cmd=${ds_cfg#*"$TAB"}
+  # A program that finds the changes itself is only started when there are some.
+  if [ "${ds_cfg%%"$TAB"*}" = run ]; then
+    if [ -z "$(git status --porcelain 2>/dev/null)" ]; then
+      echo "No changes in $(tilde_path "$1")."
+      ds_hold "$@"
+      exit 0
+    fi
+    exec sh -c "$ds_cmd"
+  fi
+  ds_color=--color=always
+  [ -n "$ds_cmd" ] && ds_color=--no-color
+  ds_base=HEAD
+  git rev-parse -q --verify HEAD >/dev/null || ds_base=$(git hash-object -t tree /dev/null)
+  ds=$({
+    git diff "$ds_color" "$ds_base"
+    # shellcheck disable=SC2016 # $1 is the inner shell's: the file xargs hands it
+    git ls-files --others --exclude-standard -z |
+      xargs -0 -n 1 sh -c 'git diff '"$ds_color"' --no-index -- /dev/null "$1"; :' _
+  } 2>/dev/null)
+  if [ -z "$ds" ]; then
+    echo "No changes in $(tilde_path "$1")."
+    ds_hold "$@"
+    exit 0
+  fi
+  if [ -n "$ds_cmd" ]; then
+    printf '%s\n' "$ds" | sh -c "$ds_cmd"
+  else
+    printf '%s\n' "$ds" | less -R
+  fi
+}
+
+diff_cmd() {
+  dir=$(diff_dir "${1:-}") || exit 1
+  dcfg=$(diff_cfg)
+  if [ "${dcfg%%"$TAB"*}" = gui ]; then
+    (cd "$dir" && sh -c "${dcfg#*"$TAB"}") >/dev/null 2>&1
+    exit 0
+  fi
+  # From prefix G, a run-shell job, with no terminal of its own: a popup on the one that pressed it.
+  if [ -n "$TMUX" ] && [ -z "${TMUX_PANE:-}" ] && [ -n "$CLIENT" ]; then
+    dbg=$(popup_bg)
+    exec tmux display-popup -c "$CLIENT" -E -w 90% -h 90% -d "$dir" -s "bg=$dbg" -S "bg=$dbg,fg=brightblack" \
+      -T " $(codebase_label "$dir") " "$(shq "$SELF") diff --show $(shq "$dir")"
+  fi
+  diff_show "$dir"
+}
+
+# ─── Hooks ───────────────────────────────────────────────────────────────────
+# An agent's hooks are how it tells trails what it is doing (ADR 18): each calls
+# `trails state WORD` at the moments its state changes. Setting them up is yours; this
+# prints them for the agents trails knows, and says where they go.
+#
+#   trails hooks                each agent in the config: whether its hooks are set up
+#   trails hooks AGENT          the hook config for AGENT, to paste where it reads hooks
+#
+# The words, per agent: working when a prompt is sent or a tool has run (the second is what
+# clears waiting once a permission is granted), waiting when it asks you something, idle when
+# its session starts and when a turn ends. The hook command calls trails by name and never
+# fails, so a trails off the hook's PATH costs the status, not an error on every turn.
+hook_say() { printf 'trails state %s 2>/dev/null || true' "$1"; }
+
+# Where agent program $1's hooks go and what to know about them: sets hk_file and hk_note.
+# Fails for a program trails has no hooks for. No jq: `trails hooks` asks it of every agent.
+hook_where() {
+  hk_note=
+  case $1 in
+    claude)
+      hk_file=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json
+      hk_note="Claude reads hooks when a session starts: running ones need a restart. The same hooks ship as a Claude Code plugin: /plugin marketplace add gunasekar/trails, then /plugin install trails@trails; use one or the other."
+      ;;
+    codex)
+      hk_file=${CODEX_HOME:-$HOME/.codex}/hooks.json
+      hk_note="Codex runs a hook only once you have reviewed and trusted it: /hooks in codex."
+      ;;
+    gemini) hk_file=$HOME/.gemini/settings.json ;;
+    copilot)
+      hk_file=$HOME/.copilot/hooks/trails.json
+      hk_note="Copilot has no hook for a permission prompt: it reads as working until answered."
+      ;;
+    cursor-agent)
+      hk_file=$HOME/.cursor/hooks.json
+      hk_note="Cursor's CLI has been reported to skip beforeSubmitPrompt and stop, which its editor runs: check with trails ls after a turn. It has no hook for a permission prompt."
+      ;;
+    opencode) hk_file=${XDG_CONFIG_HOME:-$HOME/.config}/opencode/plugins/trails.js ;;
+    *) return 1 ;;
+  esac
+}
+
+# The hooks for agent program $1, printed; hook_where says where they go. Fails for a program trails has no hooks for.
+hook_spec() {
+  hk_wk=$(hook_say working) hk_wt=$(hook_say waiting) hk_id=$(hook_say idle)
+  # The jq programs below are single-quoted on purpose: their $names are jq's, not the shell's.
+  case $1 in
+    claude | codex)
+      if [ "$1" = claude ]; then
+        # shellcheck disable=SC2016
+        hk_ask='{ "Notification": [{ "matcher": "permission_prompt", "hooks": $wt }],
+                  "PreToolUse": [{ "matcher": "AskUserQuestion", "hooks": $wt }] }'
+      else
+        # shellcheck disable=SC2016
+        hk_ask='{ "PermissionRequest": [{ "hooks": $wt }] }'
+      fi
+      jq -n --arg wk "$hk_wk" --arg wt "$hk_wt" --arg id "$hk_id" '
+        def h($c): [{ "type": "command", "command": $c }];
+        (h($wk)) as $wk | (h($wt)) as $wt | (h($id)) as $id
+        | { "hooks": ({ "SessionStart": [{ "hooks": $id }],
+                        "UserPromptSubmit": [{ "hooks": $wk }],
+                        "PostToolUse": [{ "hooks": $wk }],
+                        "Stop": [{ "hooks": $id }] } + '"$hk_ask"') }'
+      ;;
+    gemini)
+      jq -n --arg wk "$hk_wk" --arg wt "$hk_wt" --arg id "$hk_id" '
+        def h($c): [{ "hooks": [{ "type": "command", "command": $c }] }];
+        { "hooks": { "SessionStart": h($id), "BeforeAgent": h($wk), "AfterTool": h($wk),
+                     "Notification": h($wt), "AfterAgent": h($id) } }'
+      ;;
+    copilot)
+      jq -n --arg wk "$hk_wk" --arg id "$hk_id" '
+        def h($c): [{ "type": "command", "bash": $c }];
+        { "version": 1,
+          "hooks": { "sessionStart": h($id), "userPromptSubmitted": h($wk), "postToolUse": h($wk),
+                     "agentStop": h($id) } }'
+      ;;
+    cursor-agent)
+      jq -n --arg wk "$hk_wk" --arg id "$hk_id" '
+        { "version": 1,
+          "hooks": { "beforeSubmitPrompt": [{ "command": $wk }], "stop": [{ "command": $id }] } }'
+      ;;
+    opencode)
+      cat <<'JS'
+// trails: tell trails what this opencode is doing (trails state), from its own events.
+export const Trails = async ({ $ }) => {
+  const say = (word) => $`trails state ${word}`.quiet().nothrow()
+  return {
+    "tool.execute.after": async () => { await say("working") },
+    event: async ({ event }) => {
+      const t = event.type
+      if (t === "session.status") {
+        const s = event.properties?.status?.type
+        if (s === "busy") await say("working")
+        else if (s === "idle") await say("idle")
+      } else if (t === "session.idle") await say("idle")
+      else if (t === "permission.asked") await say("waiting")
+      else if (t === "permission.replied") await say("working")
+    },
+  }
+}
+JS
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+# The agent program behind name $1: a config agent's program, else $1 itself.
+hook_program() {
+  hp=$(agent_row "$1" | awk -F'|' '{ print $2 }')
+  basename "${hp:-$1}"
+}
+
+# Whether file $1 holds trails' hooks.
+hooked() { [ -f "$1" ] && grep -q 'trails state' "$1"; }
+
+# Whether the Claude Code plugin with them is installed, which is as good.
+claude_plugin_hooked() {
+  grep -q '"trails@trails"' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/installed_plugins.json" 2>/dev/null
+}
+
+hooks_cmd() {
+  if [ -z "${1:-}" ]; then
+    printf '%s\n' "$AGENTS" | while IFS='|' read -r name prog _rest; do
+      [ -n "$name" ] || continue
+      p=$(basename "$prog")
+      if ! hook_where "$p"; then
+        st="no hooks   trails knows none for $p; see trails help"
+      elif hooked "$hk_file"; then
+        st="hooked     $(tilde_path "$hk_file")"
+      elif [ "$p" = claude ] && claude_plugin_hooked; then
+        st="hooked     the Claude Code plugin (trails@trails)"
+      else
+        st="not set up trails hooks $name"
+      fi
+      # Claude's own state file speaks for it with no hooks at all (said).
+      [ "$p" != claude ] || st="$st  (its own file speaks without them)"
+      printf '%-10s %s\n' "$name" "$st"
+    done
+    return 0
+  fi
+  prog=$(hook_program "$1")
+  hook_where "$prog" || {
+    echo "trails: no hooks for $1 that trails knows: have its hooks run" >&2
+    echo "        trails state working | waiting | idle   (see trails help)" >&2
+    return 1
+  }
+  [ -z "${2:-}" ] || {
+    echo "trails: hooks takes an agent, and prints its hooks to paste" >&2
+    return 1
+  }
+  hook_spec "$prog"
+  if [ "$prog" = claude ] && claude_plugin_hooked; then
+    echo "# the Claude Code plugin (trails@trails) has these already: pasting them too would run each twice" >&2
+  else
+    echo "# into $(tilde_path "$hk_file"), merged with any hooks already there${hk_note:+ — $hk_note}" >&2
+  fi
+}
+
 # ─── Keys ────────────────────────────────────────────────────────────────────
 # trails binds nothing (principle 2 of the design). `trails keys` prints lines for a
 # tmux.conf, to paste or ignore, or to load whole with the one run-shell line it opens with:
-# the picker and the workspace picker in a popup, which leaves no window behind, the editor
-# and the shell, a note in a popup, the previous and next workspace, the map, and the
-# workspaces and the map at the status line's left. P, W, e, ` and N are free in tmux 3.8's
-# default prefix table (p is previous-window, T pane title, E even layout, n next-window, so
-# none of those); P for "pick a trail", ` for the shell because that is the editors' own
-# toggle-terminal key, N for a note. ( and ) take tmux's cycling through every session, each
+# the picker, the workspace picker and every running trail in a popup, which leaves no
+# window behind, the editor and the shell, a note in a popup, the previous and next
+# workspace, the map, the diff, and the workspaces and the map at the status line's left.
+# P, W, A, e, `, N and G are free in tmux 3.8's default prefix table (p is previous-window, T
+# pane title, E even layout, n next-window, g and D taken, so none of those); P for "pick a
+# trail", A for all trails, ` for the shell because that is the editors' own toggle-terminal
+# key, N for a note, G for the git diff. ? takes tmux's own list of every binding (still
+# :list-keys) for trails' keys alone. ( and ) take tmux's cycling through every session, each
 # trail's own among them, for the workspaces alone; M takes clearing the marked pane, which
 # prefix m on it still does, for the map.
 #
@@ -3716,6 +3892,9 @@ keys() {
 # trails: one line in tmux.conf loads all of these, and follows every upgrade:
 #   run-shell "$kq keys | tmux source-file -"
 # or paste what you want of them instead.
+# Opt-in, not loaded with the rest: put this in tmux.conf to bring back, whenever tmux starts,
+# the trails it lost (a reboot, a crash). To drop one for good, ctrl-x on its lost row.
+# run-shell -b "$kq restore >/dev/null 2>&1"
 bind P display-popup -E -w 60% -h 70% -s bg=$tbg -S bg=$tbg,fg=brightblack "$kq $khold"
 bind W display-popup -E -w 60% -h 50% -s bg=$tbg -S bg=$tbg,fg=brightblack "$kq ws $khold"
 bind e run-shell "TRAILS_CLIENT=#{client_name} $kq edit"
@@ -3724,41 +3903,12 @@ bind N display-popup -E -w 70% -h 3 -s bg=$tbg -S bg=$tbg,fg=brightblack "$kq no
 bind ( run-shell "TRAILS_CLIENT=#{client_name} $kq ws prev"
 bind ) run-shell "TRAILS_CLIENT=#{client_name} $kq ws next"
 bind M run-shell "TRAILS_CLIENT=#{client_name} $kq map here"
+bind A display-popup -E -w 70% -h 70% -s bg=$tbg -S bg=$tbg,fg=brightblack "env TRAILS_PICKER=all $kq $khold"
+bind G run-shell "TRAILS_CLIENT=#{client_name} $kq diff"
+bind ? run-shell "TRAILS_CLIENT=#{client_name} $kq --keys"
 set -g status-left-length 60
 set -g status-left "${kws}│ "
 EOF
-}
-
-# `trails end KEY`: end a trail by its key — its session's name, or a 0.6 session's — from
-# anywhere, for a caller that is not in its directory (the menu-bar plugin). The window goes,
-# and the session with it; a 0.6 session goes as a session; the record goes too, as
-# ctrl-x's does.
-end_trail() {
-  [ -n "${1:-}" ] || {
-    echo "trails: end takes a trail's key, as trails ls prints it (lattiq/augur-2)" >&2
-    exit 1
-  }
-  # Only a trail: never a workspace's session or any other by its name, and never a path out
-  # of the records' directory.
-  key_ok "$1" || exit 1
-  et_wid=$(agent_wid "$1")
-  [ -n "$et_wid" ] || {
-    if rec_is_dead "$1"; then
-      rec_forget "$1"
-      echo "forgot $(rec_label "$1")"
-      exit 0
-    fi
-    echo "trails: no trail $1 — trails ls -a lists them" >&2
-    exit 1
-  }
-  case $1 in
-    */*) window_release "$1" ;;
-    *) ;;
-  esac
-  tmux kill-window -t "$et_wid" 2>/dev/null
-  tmux kill-session -t "=$1" 2>/dev/null
-  rec_forget "$1"
-  echo "ended $(rec_label "$1")"
 }
 
 # ─── Map ─────────────────────────────────────────────────────────────────────
@@ -3770,7 +3920,7 @@ end_trail() {
 # session, it does not take the pane. That is the whole design, and the reason to prefer it
 # over join-pane, which is the obvious other way to get four agents into one window.
 # join-pane *moves* a pane, so trails-foo would stop being a session — and sessions are
-# what sessions(), list_sessions() and the SwiftBar plugin all ask tmux about, so all three would go
+# what sessions(), list_sessions() and everything reading `trails ls` ask tmux about, so all would go
 # blind at once. A map that died mid-flight would leave the agents merged into a
 # session none of them chose, with no way back but hand-run break-pane.
 #
@@ -3791,16 +3941,11 @@ end_trail() {
 # other is the one that pays. That is the behaviour worth having, and it is why no attempt
 # is made to be cleverer here.
 #
-# What the other one pays is a re-flow, and two consequences follow. Any *other* window
+# What the other one pays is a re-flow. Any *other* window
 # viewing that agent — a Zed thread, an nvim panel — draws it small in the corner until
 # you press a key there, which re-elects it and snaps it back (measured: 200x49 ↔ 180x44
-# across a keypress, either way). And a re-flow is a screen change, so the `trails ls`
-# poll that straddles an attach reads those agents as `working` — classify() calls a
-# changed screen working by construction — and the SwiftBar plugin re-announces them once
-# as they settle. That is the one place the map dents the notifier's one-sided error:
-# a still screen can never read as working, and a resize is a still screen that moves
-# (measured: capture-pane's content hash does change across a resize). AGENT_NOTIFY_AFTER
-# is the existing dial for it, for the same reason it exists at all.
+# across a keypress, either way). The state is untouched: it comes from the agent's hooks
+# and files, not its screen (ADR 18), so a re-flow reads as nothing.
 #
 # `-f ignore-size` on the pane clients is the other end of the lever and was measured too:
 # it holds the agent at the other client's size, keeps typing (it is not read-only, which
@@ -3829,13 +3974,6 @@ end_trail() {
 # has its `tmux attach` exit under it and drops back to a shell. Measured, and in the README,
 # because it is the one part of "re-running is free" that is not free. The agents are
 # untouched — they always are.
-#
-# Outside $PREFIX on purpose, and load-bearing rather than taste: sessions() calls
-# anything named trails-* an agent session, so a `trails-map` would be listed by
-# `trails ls` and counted by the notifier as one more agent — a sessioner reported as a
-# thing to watch, permanently "working" because its panes always repaint. The prefix
-# means "an agent lives here", and no agent lives here. An underscore, not a dash, for the
-# same reason: trails-map is what a project folder called "map" gets.
 MAP=trails_map
 
 # This is the one session the script kills without asking, so be sure it is ours first.
@@ -3877,7 +4015,7 @@ peek() {
   # and a name that is gone as the first session it prefixes, both some other trail's screen.
   case $1 in
     @*) pk=$1 ;;
-    */* | "$PREFIX"*)
+    */*)
       tmux has-session -t "=$1" 2>/dev/null || return 0
       pk="=$1:"
       ;;
@@ -3929,8 +4067,7 @@ map_pref() {
   jq -r --arg k "$1" '.map[$k] // empty | if type == "string" then . else empty end' "$CONFIG" 2>/dev/null
 }
 
-# The directory a map pane's agent works in — its session_path basename (a
-# 0.6 session's own), frozen at launch. Stamped onto the pane as @dir so the border can lead
+# The directory a map pane's agent works in — its session_path basename, frozen at launch. Stamped onto the pane as @dir so the border can lead
 # with it (see the pane-border-format below). Not folded into tmux.conf's set-titles-string,
 # which is where "claude · <task>" comes from: that string is also the Ghostty tab title and
 # the normal agent session's title, and the directory is wanted in the map grid only.
@@ -3954,8 +4091,8 @@ map_agent() { tmux display-message -pt "$1" '#{@agent}' 2>/dev/null; }
 # working sort list_sessions() and live_trails() use, so pane 1 of the grid is always the one
 # to look at first.
 #
-# Each row shows its trail's key — lattiq/augur-2, or a 0.6 session's name without its
-# prefix — since box-wide the codebase and the workspace are what tell trails apart.
+# Each row shows its trail's key — lattiq/augur-2 — since box-wide the codebase and the
+# workspace are what tell trails apart.
 map_menu() {
   sessions | classify | while IFS="$TAB" read -r state _wid key _ws label _dir _cb badge peer task; do
     rank_dot "$state"
@@ -3964,7 +4101,7 @@ map_menu() {
     [ -n "$task" ] && task="  $task"
     # Sort key up front, stripped after — leaving the key, then what fzf draws.
     printf '%s\t%s\t%s● %-9s%s  %s · %s%s\n' \
-      "$rank" "$key" "$dot" "$word" "$RST" "$label" "$(rec_label "$key")" "$task"
+      "$rank" "$key" "$dot" "$word" "$RST" "$label" "$key" "$task"
   done | sort | cut -f2-
 }
 
@@ -4039,13 +4176,14 @@ map() {
       need_fzf
       # Four at most, the four that most want you ticked: a 2x2 grid is as many as read well.
       # The whole terminal or popup, the preview every row the list leaves (the prompt, the
-      # header, a row each, one spare), as the picker's: a share of it left blank rows.
+      # line under it, the header, a row each, the preview's border), as the picker's: a
+      # share of it left blank rows, and a row short hid the last trail under the preview.
       mrows=$(stty size </dev/tty 2>/dev/null | cut -d' ' -f1)
       case $mrows in
         '' | *[!0-9]*) mrows=0 ;;
         *) ;;
       esac
-      mpv=$((mrows - 3 - $(printf '%s\n' "$rows" | wc -l)))
+      mpv=$((mrows - 4 - $(printf '%s\n' "$rows" | wc -l)))
       [ "$mpv" -ge 10 ] || mpv=50%
       mpw=wrap
       fzf_ok wrapword && mpw=wrap-word
@@ -4225,7 +4363,7 @@ map() {
   # no bookkeeping, and it follows the agent's own title as the task changes. The global
   # format is no use here — every pane in a map runs `tmux`, so #{pane_current_command}
   # would label all four "tmux". Set rather than inherited because the global exists for
-  # other windows' reasons and apply_policy turns it off for agent sessions.
+  # other windows' reasons.
   #
   # Led with #{@dir}, the per-pane directory stamped above, so the border reads
   # "<dir> · claude · <task>": directory, then agent and task from the agent's own title.
@@ -4263,83 +4401,6 @@ map() {
   tmux kill-session -t "=$MAP" 2>/dev/null
   tmux rename-session -t "=$build" "$MAP" || exit 1
   exec tmux attach-session -t "=$MAP"
-}
-
-# ─── Menu bar ────────────────────────────────────────────────────────────────
-# A SwiftBar plugin ships with trails (extras/swiftbar in the repo, share/trails/swiftbar
-# once installed): the agents that want you, in the macOS menu bar. It reads `trails ls -a`
-# like any other caller, so it is not part of trails' job — this only puts it where SwiftBar
-# looks, so that installing it is one command and not a path to copy out of `brew info`.
-#
-#   trails swiftbar            link it into SwiftBar's plugin folder and refresh SwiftBar
-#   trails swiftbar --remove   take the link out again
-#
-# A link and not a copy, and to the plugin through Homebrew's unversioned path
-# (/opt/homebrew/share/trails/…), so `brew upgrade trails` updates it with nothing to redo.
-# Found next to this script as it was invoked, not as it resolves: resolving would land in
-# the versioned Cellar directory, which the next upgrade deletes.
-
-# The plugin that came with this copy of trails, as an absolute path, or nothing.
-swiftbar_plugin() {
-  for f in "$(dirname "$SELF")/../share/trails/swiftbar/trails.10s.sh" \
-    "$(dirname "$SELF")/../extras/swiftbar/trails.10s.sh"; do
-    [ -f "$f" ] || continue
-    printf '%s/trails.10s.sh' "$(cd "$(dirname "$f")" && pwd)"
-    return 0
-  done
-  return 1
-}
-
-swiftbar_link() {
-  case ${1:-} in
-    '' | --remove) ;;
-    *)
-      echo "trails: swiftbar takes --remove or nothing, not '$1'" >&2
-      exit 1
-      ;;
-  esac
-  [ "$(uname -s)" = Darwin ] || {
-    echo "trails: the menu-bar plugin is for SwiftBar, which is macOS-only" >&2
-    exit 1
-  }
-  open -Ra SwiftBar 2>/dev/null || {
-    echo "trails: SwiftBar isn't installed — brew install --cask swiftbar, open it once, then run this again" >&2
-    exit 1
-  }
-  dir=$(defaults read com.ameba.SwiftBar PluginDirectory 2>/dev/null)
-  case $dir in
-    '')
-      echo "trails: SwiftBar has no plugin folder yet — open SwiftBar, choose one, then run this again" >&2
-      exit 1
-      ;;
-    \~/*) dir=$HOME/${dir#\~/} ;; # stored with a literal ~, which nothing expands for us
-    *) ;;                         # already absolute
-  esac
-  link=$dir/trails.10s.sh
-
-  if [ "${1:-}" = --remove ]; then
-    if [ -L "$link" ]; then
-      rm "$link" && echo "removed $link"
-    else
-      echo "trails: no plugin link at $link"
-    fi
-    open -g "swiftbar://refreshallplugins" 2>/dev/null
-    return 0
-  fi
-
-  src=$(swiftbar_plugin) || {
-    echo "trails: can't find the plugin that ships with trails (looked next to $SELF)" >&2
-    exit 1
-  }
-  # Never over a real file: that is someone's own plugin, not a link this made.
-  if [ -e "$link" ] && [ ! -L "$link" ]; then
-    echo "trails: $link is a file, not a link — move it aside, then run this again" >&2
-    exit 1
-  fi
-  mkdir -p "$dir" && ln -sfn "$src" "$link" || exit 1
-  echo "linked $link"
-  echo "    -> $src"
-  open -g "swiftbar://refreshallplugins" 2>/dev/null
 }
 
 # ─── Where an agent may not be opened ────────────────────────────────────────
@@ -4457,6 +4518,68 @@ refuse_bad_cwd() {
   exit 1
 }
 
+# The keys: the picker's, the tmux ones `trails keys` binds, and what the states mean. Part of
+# `trails help`, and on their own as `trails help keys`, which `?` in the picker shows.
+# The popup that shows them fits them: a row each, the border's two and less's prompt; the
+# widest line, the border's two and a column spare. Never larger than terminal $1 (a client
+# name), which tmux would refuse outright ("height too large") rather than shrink.
+keys_popup_size() {
+  kp_size=$(tmux list-clients -F '#{client_name} #{client_width} #{client_height}' 2>/dev/null |
+    awk -v c="$1" '$1 == c { print $2, $3; exit }')
+  keys_help | awk -v cw="${kp_size% *}" -v ch="${kp_size#* }" '
+    { n++; if (length > w) w = length }
+    END {
+      w += 3; h = n + 3
+      if (cw + 0 > 0 && w > cw) w = cw
+      if (ch + 0 > 0 && h > ch) h = ch
+      printf "-w %d -h %d", w, h
+    }'
+}
+
+keys_help() {
+  cat <<'EOF'
+In tmux, from trails keys (prefix, then):
+  ?                 these keys, in a popup
+  P                 this workspace's trails, in a popup (the picker)
+  W                 the workspaces
+  A                 every running trail, in every workspace
+  e                 the editor beside the agent; again, back
+  `                 a shell along the bottom; again, back
+  N                 a note on this codebase
+  ( )               the previous and next workspace
+  M                 the map: up to four trails side by side
+  G                 this codebase's changes, side by side (trails diff)
+
+In the picker — "＋ new trail…", which lists the agents to start here (in a workspace,
+a codebase first, then its agents), then running and lost trails, then "↩ resume old
+trails", which lists the ones that ended (esc comes back):
+  enter             open it: attach, restore, resume, or start the agent
+  tab               toggle YOLO (run everything unconfirmed) on an agent to start or a
+                    closed trail; "mode": "yolo" in the config starts new rows armed
+  ctrl-n            in the agents list, name the trail you are about to start: type the
+                    name, then enter (on the workspace picker: a new workspace)
+  ctrl-e            the editor for the row's codebase (trails edit)
+  ctrl-/            show or hide the preview: the trail's screen as it is now
+  ctrl-x            end a running trail, or forget a lost one
+  ctrl-a            every running trail, in every workspace (prefix A opens it too);
+                    esc there comes back
+  ?                 these keys; q comes back
+  esc               up a level: to the codebase's workspace, then the workspaces, then out
+                    (out at once in an editor's terminal)
+  ctrl-c            quit, from any screen
+
+States — ● running, ○ not:
+  ● needs you       asking you something
+  ● your turn       finished its turn, waiting on you
+  ● unknown         nothing says: set up its hooks (trails hooks)
+  ● working         busy
+  ○ lost            tmux died under it; enter (or trails restore) brings it back
+  ○ closed          it ended; enter resumes its conversation, in the mode it last ran in
+  ○ elsewhere       open in a claude trails didn't start; enter says where
+
+EOF
+}
+
 # ─── Dispatch ────────────────────────────────────────────────────────────────
 # `trails help` — the commands and picker keys, for whoever forgot them. Written out rather
 # than scraped from the header comment, which is written for whoever edits this file.
@@ -4478,7 +4601,8 @@ usage: trails [command]
                     want you ticked, or take the N that most want you; `new` rebuilds
                     instead of re-attaching
   restore           bring back every trail that died with tmux (the lost ones), each
-                    into its workspace
+                    into its workspace; trails keys offers a line to run it whenever
+                    tmux starts
   ws [NAME]         pick a workspace, or go to NAME: switch (inside tmux) or attach to
                     its session, or its picker when nothing runs there
   ws list           the workspaces in the config, and the codebases each holds
@@ -4491,45 +4615,27 @@ usage: trails [command]
                     in a window of its own when nothing runs there): made once, then
                     selected; run from the pane, back to where you were. The window you
                     are on says which codebase, or DIR after the command
-  open KEY          go to a trail by its key, as trails ls prints it, from anywhere: its
-                    workspace on its window, or its session from an editor's terminal
-  end KEY           end a trail by its key, as trails ls prints it, from anywhere
   note [TEXT]       TEXT as a note on this codebase; without it, type the line: enter
                     saves, esc drops it, enter on an empty line opens the notes
   notes [DIR]       this codebase's notes in $EDITOR (the config's "notes" says where)
-  keys              print tmux.conf lines that bind the picker, the editor, the shell,
-                    a note and the workspaces, and list the workspaces in the status line
-  swiftbar          link the menu-bar plugin into SwiftBar (macOS); --remove unlinks
+  keys              print tmux.conf lines that bind the picker, every trail, the editor,
+                    the shell, a note, the workspaces, the map and the diff, and list the
+                    workspaces in the status line
+  diff [DIR]        this codebase's changes, untracked files too, side by side: prefix G,
+                    in a popup; the config's "diff" says what shows them
+  hooks [AGENT]     whether each agent's hooks tell trails its state; AGENT's hook
+                    config, to paste where it reads hooks
+  state WORD        for an agent's hooks: working, waiting or idle
   config            the agents file: written from the built-ins the first
                     time, then opened in $EDITOR (~/.config/trails/config.json)
-  help              this
+  help [keys]       this; keys, the keys alone (? in the picker)
 
-In the picker — "＋ new trail…", which lists the agents to start here (in a workspace,
-a codebase first, then its agents), then running and lost trails, then "↩ resume old
-trails", which lists the ones that ended (esc comes back):
-  enter             open it: attach, restore, resume, or start the agent
-  tab               toggle YOLO (run everything unconfirmed) on an agent to start or a
-                    closed trail; "mode": "yolo" in the config starts new rows armed
-  ctrl-n            in the agents list, name the trail you are about to start: type the
-                    name, then enter (on the workspace picker: a new workspace)
-  ctrl-e            the editor for the row's codebase (trails edit)
-  ctrl-/            show or hide the preview: the trail's screen as it is now
-  ctrl-x            end a running trail, or forget a lost one
-  esc               up a level: to the codebase's workspace, then the workspaces, then out
-                    (out at once in an editor's terminal)
-  ctrl-c            quit, from any screen
-
-States — ● running, ○ not:
-  ● needs you       asking you something
-  ● your turn       finished its turn, waiting on you
-  ● working         busy
-  ○ lost            tmux died under it; enter (or trails restore) brings it back
-  ○ closed          it ended; enter resumes its conversation, in the mode it last ran in
-  ○ elsewhere       open in a claude trails didn't start; enter says where
+EOF
+  echo
+  keys_help
+  cat <<'EOF'
 
 Env:
-  AGENT_SETTLE        seconds between the two screen samples (default 0.35)
-  AGENT_ASK_RE        regex meaning "the agent is asking you something"
   TRAILS_RECENT_DAYS  how far back closed sessions are listed (default 10)
   TRAILS_RECENT_MAX   how many of them (default 5)
 EOF
@@ -4538,7 +4644,7 @@ EOF
 # A config that is there but isn't a JSON object reads, quietly, as no workspaces, the default
 # notes path and the default mode, each loader seeing nothing. So it is checked once, first,
 # and named for what it is: not JSON (with jq's reason), empty, or not an object. help,
-# config, keys and the internals go on, as does ls, so a typo can't blank a menu bar; the rest
+# config, keys and the internals go on, as does ls, so a typo can't blank what reads it; the rest
 # stop rather than act on a config they can't read.
 config_check() {
   [ -f "$CONFIG" ] || return 0
@@ -4557,7 +4663,7 @@ config_check() {
   return 1
 }
 case $1 in
-  help | -h | --help | config | keys | swiftbar | --forget | --layout | --peek) ;;
+  help | -h | --help | config | keys | --keys | --forget | --layout | --peek) ;;
   ls) config_check || true ;;
   *) config_check || exit 1 ;;
 esac
@@ -4565,9 +4671,9 @@ esac
 # The agents, read once per run. Not for what never starts or names an agent — help, config,
 # the wrapper's --forget and the editor pane's --layout, which have to work even when the
 # config is broken. ls carries on
-# without them (only its closed rows need them), so a typo in the file can't blank a menu bar.
+# without them (only its closed rows need them), so a typo in the file can't blank what reads it.
 case $1 in
-  help | -h | --help | config | swiftbar | keys | open | end | note | notes | --forget | --layout | --peek) AGENTS= ;;
+  help | -h | --help | config | keys | --keys | note | notes | diff | --forget | --layout | --peek) AGENTS= ;;
   ls | ws) AGENTS=$(load_agents) || AGENTS= ;;
   *) AGENTS=$(load_agents) || exit 1 ;;
 esac
@@ -4581,7 +4687,11 @@ esac
 
 case $1 in
   help | -h | --help)
-    usage
+    if [ "${2:-}" = keys ]; then
+      keys_help
+    else
+      usage
+    fi
     exit 0
     ;;
   ls)
@@ -4601,10 +4711,6 @@ case $1 in
     ;;
   config)
     edit_config
-    exit 0
-    ;;
-  swiftbar)
-    swiftbar_link "$2"
     exit 0
     ;;
   # The codebase's editor or shell (see "Editor and shell"): the window you are on says which codebase.
@@ -4630,21 +4736,20 @@ case $1 in
     keys
     exit 0
     ;;
+  hooks)
+    shift
+    hooks_cmd "$@"
+    exit
+    ;;
+  diff)
+    if [ "${2:-}" = --show ]; then
+      diff_show "${3:-}" popup
+    else
+      diff_cmd "${2:-}"
+    fi
+    exit
+    ;;
   # Box-wide like ls: the key says which trail, wherever you stand.
-  end)
-    end_trail "${2:-}"
-    exit 0
-    ;;
-  # `trails open KEY`: into a trail by its key, from anywhere, the way the picker goes — the
-  # workspace on the trail's window from a terminal of your own, the trail's session from an
-  # editor's. The menu-bar plugin's Resume runs this in a new tab.
-  open)
-    [ -n "${2:-}" ] || {
-      echo "trails: open takes a trail's key, as trails ls prints it (lattiq/augur-2)" >&2
-      exit 1
-    }
-    attach_key "$2"
-    ;;
   # Box-wide like ls: each session comes back in its own recorded directory, so where you
   # stand does not matter.
   restore)
@@ -4679,11 +4784,22 @@ case $1 in
     ;;
   # Called by the wrapper launch() puts around every agent, when the agent exits.
   --forget)
-    case $2 in
-      */*) window_release "$2" ;;
-      *) ;;
-    esac
+    window_release "$2"
     rec_forget "$2"
+    exit 0
+    ;;
+  # prefix ? and ? in the picker: the keys, in a popup the size of them, on the terminal that
+  # pressed the key (a run-shell job's TRAILS_CLIENT) or over the pane the picker runs in;
+  # in less in place where the picker itself is in a popup (prefix P), since tmux shows one
+  # popup at a time and refuses a second without a word, or outside tmux.
+  --keys)
+    if [ -n "$TMUX" ] && [ -n "$CLIENT" ] && { [ -n "${TRAILS_CLIENT:-}" ] || [ -n "${TMUX_PANE:-}" ]; }; then
+      kb=$(popup_bg)
+      # shellcheck disable=SC2046 # -w W -h H, four words on purpose
+      exec tmux display-popup -c "$CLIENT" -E $(keys_popup_size "$CLIENT") -s "bg=$kb" -S "bg=$kb,fg=brightblack" \
+        -T " trails keys " "$(shq "$SELF") help keys | less -R"
+    fi
+    keys_help | less -R
     exit 0
     ;;
   --print-menu)
@@ -4779,9 +4895,9 @@ esac
 # TRAILS_YOLO_STATE — which agent (if any) you armed for YOLO with Tab. The chosen row's verb
 #                     already carries the mode by the time fzf returns, so nothing reads it after.
 # TRAILS_MENU_CACHE — the running trails, classified once here rather than on every reload.
-#                     print_menu is re-run for each Tab and ctrl-x; live_trails() sleeps
-#                     AGENT_SETTLE to sample screens twice, so recomputing it per keystroke is
-#                     what delayed the Tab relabel. The snapshot does not change over the picker's
+#                     print_menu is re-run for each Tab and ctrl-x; live_trails() reads every
+#                     trail's state, so recomputing it per keystroke would delay the Tab
+#                     relabel. The snapshot does not change over the picker's
 #                     life (fzf never refreshes it on its own), so caching loses no freshness.
 #                     On the workspace picker it holds every trail classified, for the counts.
 # TRAILS_RECENT_CACHE — the closed rows' raw TSV, for the same reason: read once, drawn per reload.
@@ -4801,6 +4917,7 @@ if [ -n "$USE_TMUX" ]; then
   case ${TRAILS_PICKER:-} in
     '') live_trails >"$TRAILS_MENU_CACHE" ;;
     workspace) live_trails "$TRAILS_WS" >"$TRAILS_MENU_CACHE" ;;
+    all) live_trails --all >"$TRAILS_MENU_CACHE" ;;
     ws) sessions | classify >"$TRAILS_MENU_CACHE" ;;
     *) ;;
   esac
@@ -4816,7 +4933,7 @@ export TRAILS_RESTORE_OK
 # Closed rows need no tmux: resuming bare is still resuming. A workspace's are the box's
 # recent conversations whose directory it claims.
 case ${TRAILS_PICKER:-} in
-  ws | agents) : >"$TRAILS_RECENT_CACHE" ;;
+  ws | agents | all) : >"$TRAILS_RECENT_CACHE" ;;
   workspace*) recent_rows '' | while IFS="$TAB" read -r m agent dir rest; do
     [ "$(workspace_of "$dir" 2>/dev/null)" = "$TRAILS_WS" ] &&
       printf '%s\t%s\t%s\t%s\n' "$m" "$agent" "$dir" "$rest"
@@ -4825,6 +4942,10 @@ case ${TRAILS_PICKER:-} in
 esac
 
 MENU=$(print_menu) || exit 1
+[ -n "$MENU" ] || [ "${TRAILS_PICKER:-}" != all ] || {
+  echo "trails: no trails running" >&2
+  exit 1
+}
 [ -n "$MENU" ] || {
   echo "trails: nothing to pick from — trails ws add NAME DIR gives a workspace its first codebase" >&2
   exit 1
@@ -4853,9 +4974,11 @@ MENU=$(print_menu) || exit 1
 # that wraps. A share of the height instead left blank rows under a short list, and an 80%
 # box left a fifth of the popup empty. A preview under ten rows is hidden until ctrl-/. The
 # workspaces and the agents, with no preview, hug their rows.
+# ? shows the keys (keys_help, --keys); q comes back to the list.
 set -- --reverse --ansi --wrap --no-separator \
   --info='inline:   ' --color='info:dim' \
-  --delimiter='\t' --with-nth='3..'
+  --delimiter='\t' --with-nth='3..' \
+  --bind="?:execute($0 --keys)"
 # From the terminal itself: tput, with its output going to $(...), answers its default 24.
 rows=$(stty size </dev/tty 2>/dev/null | cut -d" " -f1)
 case $rows in
@@ -4866,12 +4989,12 @@ pv=$((rows - 2 - $(printf '%s\n' "$MENU" | wc -l)))
 hidden=
 [ "$pv" -ge 10 ] || hidden=,hidden pv=50%
 case ${TRAILS_PICKER:-} in
-  ws) set -- "$@" --height=~80% ;;
+  ws) set -- "$@" --height=~80% --expect=ctrl-a ;;
   agents) set -- "$@" --height=~80% --expect=ctrl-e,esc --bind="tab:execute-silent($0 --toggle-yolo {2})+reload($0 --print-menu)" ;;
   *) pw_wrap=wrap
     fzf_ok wrapword && pw_wrap=wrap-word
     set -- "$@" --preview="$0 --peek {2}" --preview-window="down,$pv,border-top,follow,$pw_wrap$hidden" \
-    --bind='ctrl-/:toggle-preview' --expect=ctrl-e,esc \
+    --bind='ctrl-/:toggle-preview' --expect=ctrl-e,esc,ctrl-a \
     --bind="tab:execute-silent($0 --toggle-yolo {2})+reload($0 --print-menu)" ;;
 esac
 
@@ -4891,18 +5014,19 @@ want=$(printf '%s\n' "$MENU" | awk -F"$TAB" '
 case ${TRAILS_PICKER:-} in
   old | workspace-old)
     set -- "$@" --prompt='Resume a trail: ' \
-      "$(hint_opt "# enter: resume · tab: toggle YOLO · ctrl-e: editor · ctrl-/: preview · esc: back")"
+      "$(hint_opt "# enter: resume · tab: toggle YOLO · ctrl-e: editor · ctrl-/: preview · ?: keys · esc: back")"
     ;;
   ws)
     # ctrl-n names a new workspace: the name is the query, as a trail's is below.
     set -- "$@" --prompt='Pick a workspace: ' --print-query \
-      "$(hint_opt "# enter: open · ctrl-n: new workspace")" \
+      "$(hint_opt "# enter: open · ctrl-n: new workspace · ctrl-a: all trails · ?: keys")" \
       --bind="ctrl-n:execute-silent(touch '$TRAILS_TMP/naming')+change-prompt(Name the workspace: )+disable-search+clear-query"
     ;;
   *)
     here_ws=$(workspace_of "$PWD" 2>/dev/null || printf '%s' "${TRAILS_WS:-default}")
     case ${TRAILS_PICKER:-} in
       workspace) prompt="$TRAILS_WS ▸ Pick a trail: " ;;
+      all) prompt="All trails ▸ Pick a trail: " ;;
       agents) prompt="$(label_of "$PWD") ($here_ws) ▸ Start an agent: " ;;
       *) prompt="$(label_of "$PWD") ($here_ws) ▸ Pick a trail: " ;;
     esac
@@ -4923,16 +5047,23 @@ case ${TRAILS_PICKER:-} in
     printf '%s\n' "$MENU" | grep -q '^attach' && x=end
     printf '%s\n' "$MENU" | grep -q '^restore' && x=${x:+$x, }forget
     printf '%s\n' "$MENU" | grep -q '^tool' && x=${x:+$x, }close
-    # Esc goes up from both main screens, but not out of an editor's one codebase.
+    # Esc goes up from both main screens, but not out of an editor's one codebase; the
+    # all-trails screen goes back where ctrl-a came from, or closes. ctrl-a gets there.
     up=' · esc: up'
     [ -n "${TRAILS_PICKER:-}" ] || ! from_editor || up=
+    all_key=' · ctrl-a: all'
+    if [ "${TRAILS_PICKER:-}" = all ]; then
+      all_key=''
+      up=' · esc: close'
+      [ -z "${TRAILS_FROM:-}" ] || up=' · esc: back'
+    fi
     if [ "${TRAILS_PICKER:-}" = agents ]; then
-      set -- "$@" "$(hint_opt "# enter: start$new_keys · ctrl-e: editor · esc: back")"
+      set -- "$@" "$(hint_opt "# enter: start$new_keys · ctrl-e: editor · ?: keys · esc: back")"
     elif [ -n "$x" ]; then
-      set -- "$@" "$(hint_opt "# enter: open$new_keys · ctrl-e: editor · ctrl-/: preview · ctrl-x: $x$up")" \
+      set -- "$@" "$(hint_opt "# enter: open$new_keys · ctrl-e: editor · ctrl-/: preview · ctrl-x: $x$all_key · ?: keys$up")" \
         --bind="ctrl-x:execute-silent($0 --kill {2})+reload($0 --print-menu)"
     else
-      set -- "$@" "$(hint_opt "# enter: open$new_keys · ctrl-e: editor · ctrl-/: preview$up")"
+      set -- "$@" "$(hint_opt "# enter: open$new_keys · ctrl-e: editor · ctrl-/: preview$all_key · ?: keys$up")"
     fi
     ;;
 esac
@@ -4971,7 +5102,8 @@ case ${TRAILS_PICKER:-} in
     ;;
   ws)
     query=$(printf '%s\n' "$choice" | head -n 1)
-    choice=$(printf '%s\n' "$choice" | sed 1d)
+    key=$(printf '%s\n' "$choice" | sed -n 2p)
+    choice=$(printf '%s\n' "$choice" | sed 1,2d)
     [ -f "$TRAILS_TMP/naming" ] && named=1
     ;;
   *)
@@ -4990,6 +5122,12 @@ target=$(printf '%s' "$choice" | cut -f2)
 rm -rf "$TRAILS_TMP"
 trap - EXIT INT TERM
 
+# ctrl-a: every running trail, Esc there coming back to this screen (TRAILS_FROM).
+if [ "$key" = ctrl-a ] && [ "${TRAILS_PICKER:-}" != all ]; then
+  from="${TRAILS_PICKER:-here}|${TRAILS_WS:-}"
+  TRAILS_FROM=$from TRAILS_PICKER=all exec "$SELF"
+fi
+
 # Esc: up a level. An old list goes back to its main one, the agents to the screen they were
 # reached from, a workspace's screen to the workspaces, and a codebase's to its workspace —
 # except in an editor's terminal, which sees one codebase and quits.
@@ -5002,6 +5140,11 @@ if [ "$key" = esc ]; then
       TRAILS_PICKER=here exec "$SELF"
       ;;
     workspace) TRAILS_PICKER=ws TRAILS_WS='' exec "$SELF" ;;
+    all)
+      [ -n "${TRAILS_FROM:-}" ] || exit 0
+      back=$TRAILS_FROM
+      TRAILS_PICKER=${back%%|*} TRAILS_WS=${back#*|} TRAILS_FROM='' exec "$SELF"
+      ;;
     *)
       ! from_editor || exit 0
       TRAILS_PICKER=workspace TRAILS_WS=$(workspace_of "$PWD" 2>/dev/null || printf '%s' "${TRAILS_WS:-default}") exec "$SELF"
@@ -5097,7 +5240,10 @@ case $choice in
       *) exit 0 ;;
     esac
     cd "$d" || exit 1
-    TRAILS_BACK=$TRAILS_WS TRAILS_PICKER=agents TRAILS_WS='' exec "$SELF"
+    # The workspace this came from goes on as TRAILS_BACK: Esc on the agents returns to it, and
+    # a folder no workspace claims is offered to it first.
+    back=$TRAILS_WS
+    TRAILS_BACK=$back TRAILS_PICKER=agents TRAILS_WS='' exec "$SELF"
     ;;
   attach*) attach_key "$(trail_key "$target")" "$target" ;;
   # An editor or shell window, in its workspace: switched to or attached, never nested.

@@ -51,3 +51,15 @@ wait_for 5 sh -c "tmux list-windows -t default -F '#{@trails_window}' | grep -qx
 win=$(tmux list-windows -t default -F '#{window_id} #{@trails_window}' | awk '$2 == "default/fast" { print $1 }')
 assert_eq "$(tmux display-message -pt "$win" '#{window_name}')" "proj·fast" "named like the trail"
 wait_for 5 sh -c "tmux list-clients -F '#{session_name} #{window_id}' | grep -qx 'default $win'" || fail "not attached on the rebuilt window"
+
+# A record that can never come back is forgotten, and said so: its directory gone, or the
+# record unreadable. The conversation it pointed to is named, since it stays in the agent's
+# own history.
+mkdir -p "$STATE/default"
+printf 'agent=stub\ndir=%s\nid=conv-1\nyolo=\ntask=\nworkspace=default\n' "$T/nowhere" >"$STATE/default/gone"
+printf 'id=conv-2\n' >"$STATE/default/broken"
+out=$(cd "$T" && "$TRAILS" restore 2>&1)
+assert_match "$out" "forgot default/gone — $T/nowhere is gone \(conversation conv-1 stays in the history of stub\)" "a gone directory, said so"
+assert_match "$out" "forgot default/broken — its record was unreadable" "an unreadable record, said so"
+assert_no_file "$STATE/default/gone" "the gone one forgotten"
+assert_no_file "$STATE/default/broken" "the broken one forgotten"
