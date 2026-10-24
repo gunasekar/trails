@@ -1,6 +1,7 @@
 #!/bin/sh
-# States from the agent's hooks (ADR 18): `trails state` marks the agent's pane, and that word
-# answers, against the agent's own file the newer of the two; else unknown.
+# What the agent's hooks say (ADR 18, ADR 19): `trails state WORD --id ID` marks the agent's
+# pane, the word answers for its state (else unknown), and the ID moves its record; a trail
+# that ends goes into the history, to resume. Nothing of the agent's own is read.
 . "$REPO/test/lib.sh"
 t_setup
 
@@ -42,50 +43,99 @@ wait_for 5 state_is needs-you || fail "hook waiting: got $(state)"
 type_in default/payments "hook idle"
 wait_for 5 state_is your-turn || fail "hook idle: got $(state)"
 pane=$(tmux list-panes -t default/payments -F '#{pane_id}')
-assert_match "$(tmux show-options -pv -t "$pane" @trails_state_at)" "^[0-9]+$" "when it was said, kept"
 
-# ── Hook and the agent's own file: the newer wins ───────────────────────────────────────
-# The stub read as claude: a state file under $HOME/.claude/sessions named for the pane's
-# process, as claude keeps one.
-cfg ', "find": "claude"'
-pid=$(tmux display-message -pt default/payments '#{pane_pid}')
-id=$(cd "$PROJ" && "$TRAILS" ls | awk -F'\t' '$3 == "default/payments" { print $7 }')
-mkdir -p "$HOME/.claude/sessions"
-claude_file() { # status, when (seconds)
-  printf '{"pid":%s,"sessionId":"%s","status":"%s","statusUpdatedAt":%s000}\n' "$pid" "$id" "$1" "$2" \
-    >"$HOME/.claude/sessions/$pid.json"
-}
-now=$(date +%s)
-tmux set-option -p -t "$pane" @trails_state working \; set-option -p -t "$pane" @trails_state_at "$now"
-claude_file idle $((now - 60))
-assert_eq "$(state)" working "the hook is newer than the file"
-claude_file idle $((now + 60))
-assert_eq "$(state)" your-turn "the file is newer than the hook (an interrupted turn)"
-tmux set-option -pu -t "$pane" @trails_state
-claude_file waiting "$now"
-assert_eq "$(state)" needs-you "no hook: the file answers"
+# ── --id: the conversation the agent says it is in ───────────────────────────────────
+# An ID that isn't one is left out, and the word still counts: characters no ID has, one an
+# agent would read as a flag, a path.
+for bad in 'bad;id' '-x' '..'; do
+  tmux set-option -pu -t "$pane" @trails_state
+  type_in default/payments "hook working --id $bad"
+  wait_for 5 state_is working || fail "hook working with the ID $bad: got $(state)"
+  assert_eq "$(tmux show-options -pqv -t "$pane" @trails_said_id)" "" "the ID $bad, left out"
+done
 
-# ── trails hooks ───────────────────────────────────────────────────────────────────────
-# The Claude Code plugin ships the hooks `trails hooks claude` prints, and never drifts from them.
-assert_eq "$(jq -S . "$REPO/plugins/trails/hooks/hooks.json")" "$("$TRAILS" hooks claude 2>/dev/null | jq -S .)" \
-  "the plugin's hooks are trails hooks claude's"
+# The agent says the conversation it is in from its hooks; an agent it started, from its shell,
+# says its own from further down, and is not the trail's.
+carried=$(tmux display-message -pt default/payments '#{@trails_id}')
+type_in default/payments "hook idle --id $carried"
+wait_for 5 sh -c "[ \"\$(tmux show-options -pqv -t '$pane' @trails_said_id)\" = '$carried' ]" || fail "its own ID, not taken"
+type_in default/payments "nested idle --id 99999999-0000-0000-0000-000000000000"
+sleep 1
+assert_eq "$(tmux show-options -pqv -t "$pane" @trails_said_id)" "$carried" "a nested agent's ID, left out"
+assert_eq "$(sed -n 's/^id=//p' "$STATE/default/payments")" "$carried" "and the record kept"
 
-# It prints them, and says where they go; there is nothing to install.
-assert_match "$("$TRAILS" hooks copilot 2>/dev/null | jq -r '.hooks.agentStop[0].bash')" "^trails state idle" "copilot's, to paste"
-assert_match "$("$TRAILS" hooks copilot 2>&1 >/dev/null)" "copilot/hooks/trails.json" "and where they go"
-assert_match "$("$TRAILS" hooks claude --install 2>&1)" "prints its hooks to paste" "no --install"
-assert_match "$("$TRAILS" hooks)" "^stub +no hooks" "an agent trails has no hooks for, said so"
+# The agent moves to another conversation (a /clear, a /resume): the record follows it, and
+# the one it left goes into the history, to resume.
+HIST=$XDG_STATE_HOME/trails/history
+old=$(sed -n 's/^id=//p' "$STATE/default/payments")
+new=11111111-2222-3333-4444-555555555555
+: >"$HOME/.agent/$new" # as the agent would keep it, so it can be resumed
+type_in default/payments "hook idle --id $new"
+# At once, not at the next listing: nothing lists the trails here.
+wait_for 5 grep -qx "id=$new" "$STATE/default/payments" ||
+  fail "the record did not follow the agent: $(cat "$STATE/default/payments")"
+assert_eq "$(tmux display-message -pt default/payments '#{@trails_id}')" "$new" "the trail carries it"
+assert_file "$HIST/$old" "the conversation it left, in the history"
+assert_eq "$(cd "$PROJ" && "$TRAILS" ls | awk -F'\t' '$2 == "closed" { print $7 }')" "$old" "listed as closed, to resume"
 
-# The Claude Code plugin installed counts as hooked, and pasting the hooks too is warned off.
-mkdir -p "$HOME/.claude/plugins"
-printf '{"version":2,"plugins":{"trails@trails":[{"scope":"user"}]}}\n' >"$HOME/.claude/plugins/installed_plugins.json"
-assert_match "$("$TRAILS" hooks claude 2>&1 >/dev/null)" "would run each twice" "the plugin has them already"
-rm "$HOME/.claude/plugins/installed_plugins.json"
+# The agent ends: its trail goes into the history too, with what it was working on. A turn
+# first: a conversation that never had one stays out (see t-tools).
+type_in default/payments "hook working"
+type_in default/payments "title Fix the retry budget"
+wait_for 5 sh -c "'$TRAILS' ls -a >/dev/null; grep -qx 'task=Fix the retry budget' '$STATE/default/payments'" ||
+  fail "the task never reached the record"
+tmux new-session -d -s hold # the server outlives the trail's session
+type_in default/payments exit
+wait_for 5 no_session default/payments || fail "the trail outlived its agent"
+assert_no_file "$STATE/default/payments" "no record: it ended"
+assert_match "$(cat "$HIST/$new")" "ended=[0-9]+" "in the history, ended"
+closed=$(cd "$PROJ" && "$TRAILS" ls | awk -F'\t' '$7 == "'"$new"'"')
+assert_match "$closed" "^stopped	closed	-	stub	-	$PROJ	$new	[0-9]+	default	Fix the retry budget$" "a closed row, its task its title"
+
+# ctrl-x on a closed row, in the picker's old trails, forgets it; and the picker's list of
+# them is read again, so the reload drops it.
+oldtitle=$(sed -n 's/^task=//p' "$HIST/$old")
+(cd "$PROJ" && TRAILS_PICKER=old FZF_KEYS=ctrl-x FZF_PICK="$oldtitle" "$TRAILS" >/dev/null 2>&1)
+assert_no_file "$HIST/$old" "forgotten by ctrl-x"
+(cd "$PROJ" && "$TRAILS" ls >/dev/null)
+(cd "$PROJ" && TRAILS_RECENT_CACHE=$T/recent "$TRAILS" --kill "stub:$new-not:$PROJ")
+assert_eq "$(cut -f4 "$T/recent")" "$new" "the list, read again, holds the one left"
+
+# Resuming one starts a trail on its conversation, and takes it out of the history.
+printf '%s\n' "resume old trails" "Fix the retry budget" >"$T/pick"
+DRIVER_DIR=$PROJ FZF_PICKS=$T/pick driver "$TRAILS"
+wait_for 5 screen_has default/payments "id=$new .*resume=1" || fail "not resumed: $(screen default/payments)"
+# Once it has survived starting, not before: a resume that dies on arrival keeps its entry.
+wait_for 5 sh -c "[ ! -e '$HIST/$new' ]" || fail "still in the history once running"
+
+# A resume the agent refuses (a conversation it doesn't have) dies on arrival, and keeps its
+# entry, to try again or forget.
+gone=33333333-4444-5555-6666-777777777777
+printf 'agent=stub\ndir=%s\nid=%s\nyolo=\ntask=Lost cause\nworkspace=default\nlabel=proj\nname=\nended=%s\n' \
+  "$PROJ" "$gone" "$(date +%s)" >"$HIST/$gone"
+printf '%s\n' "resume old trails" "Lost cause" >"$T/pick2"
+DRIVER_DIR=$PROJ FZF_PICKS=$T/pick2 driver "$TRAILS"
+sleep 3
+assert_file "$HIST/$gone" "a resume that died on arrival, still in the history"
+
+# ── An agent that picks its own ID: its record waits for its hooks to say it ────────────
+# No session.start: launch() has no ID to write down, and nothing is read from the agent.
+tmux kill-session -t '=default/payments'
+cat >"$XDG_CONFIG_HOME/trails/config.json" <<CFG
+{ "default_agent": "own", "agents": [ { "name": "own", "program": "agent --no-hooks",
+    "session": { "resume": "--resume {id}" } } ] }
+CFG
+trails_bg new mine
+wait_for 5 screen_has default/mine 'agent' || fail "the agent never started"
+assert_no_file "$STATE/default/mine" "no record before its ID is known"
+own=22222222-3333-4444-5555-666666666666
+type_in default/mine "hook idle --id $own"
+wait_for 5 sh -c "'$TRAILS' ls -a >/dev/null; grep -qx 'id=$own' '$STATE/default/mine' 2>/dev/null" ||
+  fail "no record once the hook said the ID"
+tmux kill-session -t '=default/mine'
 
 # ── An agent with no session block: its hooks still speak ───────────────────────────────
 # Its pane carries no @trails_id, an empty field between the ones that say its state.
-tmux new-session -d -s hold # the server outlives the trail's session
-tmux kill-session -t '=default/payments'
 cat >"$XDG_CONFIG_HOME/trails/config.json" <<CFG
 { "default_agent": "stub", "agents": [ { "name": "stub", "program": "agent --no-hooks" } ] }
 CFG
@@ -94,3 +144,8 @@ wait_for 5 screen_has default/plain 'agent' || fail "the session-less agent neve
 type_in default/plain "hook waiting"
 TRAIL=default/plain
 wait_for 5 state_is needs-you || fail "no session block, hook waiting: got $(state)"
+
+# ── The Claude Code plugin is the hooks the README gives Claude, and never drifts ────────
+claude_doc=$(awk '/^##### Claude Code/ { c = 1 } c && /^```json/ { f = 1; next } f && /^```/ { exit } f' "$REPO/README.md")
+assert_eq "$(jq -S . "$REPO/plugins/trails/hooks/hooks.json")" "$(printf '%s\n' "$claude_doc" | jq -S .)" \
+  "the plugin's hooks are the docs' Claude hooks"

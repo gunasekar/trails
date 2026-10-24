@@ -8,7 +8,11 @@
 #   ask         put a question on screen and say waiting: "needs you"
 #   busy        print a line every 0.1s for two seconds, saying working, then idle
 #   title TEXT  set the pane title, which trails reads as the task
-#   hook WORD   run `trails state WORD`, as an agent's hook would: the repo's trails
+#   hook WORD [--id ID]
+#               run `trails state WORD [--id ID]`, as an agent's hook would: the repo's trails
+#   nested WORD [--id ID]
+#               the same from a process further down, as an agent this one started (a
+#               `claude -p` from its shell) would
 #   exit        exit 0, as /exit would
 #   crash       exit 1
 #   anything    echo it back
@@ -43,9 +47,14 @@ fi
 printf 'agent%s id=%s name=%s resume=%s yolo=%s\n' "${other:+ (other)}" "$id" "$name" "${resume:-0}" "${yolo:-0}"
 printf '\033]2;%s\033\\' "${name:-agent} ready"
 
-# What its hooks would say: the repo's trails, as the hooks call it.
-say() { [ -z "$hooks" ] || "$(dirname "$0")/../../bin/trails" state "$1"; }
+# What its hooks would say: the repo's trails, as the hooks call it, with the conversation
+# it is in when it has one.
+say() { [ -z "$hooks" ] || "$(dirname "$0")/../../bin/trails" state "$1" ${id:+--id "$id"}; }
 say idle
+
+# A hook typed in: its words are trails state's arguments.
+# shellcheck disable=SC2086 # split on purpose
+hook() { "$(dirname "$0")/../../bin/trails" state $1; }
 
 while IFS= read -r line; do
   case $line in
@@ -64,7 +73,9 @@ while IFS= read -r line; do
       say idle
       ;;
     title\ *) printf '\033]2;%s\033\\' "${line#title }" ;;
-    hook\ *) "$(dirname "$0")/../../bin/trails" state "${line#hook }" ;;
+    hook\ *) hook "${line#hook }" ;;
+    # The ; : keeps sh from exec'ing trails in its place, which would put it no deeper.
+    nested\ *) sh -c "$(dirname "$0")/../../bin/trails state ${line#nested }; :" ;;
     exit) exit 0 ;;
     crash) exit 1 ;;
     *) echo "> $line" ;;

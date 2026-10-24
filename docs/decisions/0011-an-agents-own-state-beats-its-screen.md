@@ -1,7 +1,8 @@
 # 11. An agent's own state beats its screen
 
-- Status: accepted, amended by ADR 18: hooks answer too, the newer of hook and file
-  winning, and Codex's rollout no longer answers for its state
+- Status: superseded by [ADR 19](0019-no-agents-files-read.md): trails reads no
+  agent's files, Claude's included, and the hooks alone answer. Amended before that by
+  ADR 18: hooks answer too, the newer of hook and file winning
 - Date: 2026-10
 - Amends ADR 2, which reads every agent's state off its screen
 

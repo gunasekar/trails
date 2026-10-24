@@ -64,15 +64,16 @@ covered yet.
 | | the diff: untracked files, a popup from prefix G, a gui command | A `t-diff` |
 | Notes | prefix N, Esc, Enter on empty, `note`, `notes`, path | A `t-notes` · M10 |
 | Ending | ctrl-x | A `t-picker`, `t-tools`, `t-map` |
-| | resume old trails, Tab to flip mode | M5 |
-| | elsewhere: refused | — |
+| | resume old trails, from the history; ctrl-x forgets one; a resume that dies keeps it | A `t-hooks` · M5 |
+| | a conversation that never had a turn stays out of the history | A `t-tools` |
 | When things die | lost, `trails restore` (and forgetting what it can't bring back), reboot | A `t-restore` · M4 |
 | | restore when tmux starts, the opt-in line | A `t-autorestore` |
 | Remote | ssh in, one connection for every workspace | M1 |
 | | Zed over ssh, VS Code Remote-SSH | M8 |
 | | two terminals on one workspace | A `t-grouped` |
 | Agents | any CLI by config | A (stub agent) |
-| | `trails hooks`, Claude's own state | A `t-hooks` · M2 |
+| | hooks: the state, `--id` and the record following it at once; bad IDs and a nested agent's left out | A `t-hooks` · M2 |
+| | tmux 3.4 and 3.5, which escape the field separator | CI (Ubuntu, tmux 3.4) |
 | | session IDs bring a trail back | A `t-restore` |
 | Edges | refuse `/`, a deleted directory | A `t-edges` (deleted) |
 | | refuse a foreign session by a workspace's name | A `t-inside` |

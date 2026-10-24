@@ -1,6 +1,8 @@
 # 18. Status from the agent's hooks
 
-- Status: accepted
+- Status: accepted, amended by [ADR 19](0019-no-agents-files-read.md): the hooks are
+  the only source, Claude's file no longer answers, they say the conversation too
+  (`--id`), and `trails hooks` is gone, its snippets in [the README](../../README.md#hooks-for-each-agent)
 - Date: 2026-10
 - Supersedes ADR 2 (status from the screen); amends ADR 11 (an agent's own state
   beats its screen)

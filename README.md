@@ -57,7 +57,7 @@ it has no chat window of its own: the agent's interface is the agent's.
 
 | | |
 |---|---|
-| Agents | Claude Code, Codex, Gemini, Copilot, Cursor, opencode built in; any CLI by one config entry. Each tells trails what it is doing through its own hooks (`trails hooks`); Claude also through its own file, with nothing to set up |
+| Agents | Claude Code, Codex, Gemini, Copilot, Cursor, opencode built in; any CLI by one config entry. Each tells trails what it is doing through its own hooks ([setup](#hooks-for-each-agent)); trails reads none of an agent's files |
 | Editors | Zed (local and over ssh), VS Code and Cursor (local and Remote-SSH), Neovim, anything with a terminal pane |
 | Terminals | any, including over ssh; a popup inside tmux with `trails keys` |
 | Systems | macOS and Linux; tmux 3.3 or later, fzf, jq |
@@ -92,7 +92,7 @@ checkout (acme) ▸ Start an agent: █   # enter: start · tab: toggle YOLO · 
   cursor · new trail
 ```
 
-Enter on **↩ resume old trails** opens the conversations that ended here, and Esc
+Enter on **↩ resume old trails** opens the trails that ended here, and Esc
 comes back:
 
 ```console
@@ -108,12 +108,12 @@ trails across its codebases. `trails ls -a` shows every directory:
 
 ```console
 ~ $ trails ls -a
-@checkout-3         ● needs you  claude · yolo  acme      ~/code/checkout              Add idempotency keys to payment retries
-#2 @checkout-7      ● your turn  claude         acme      ~/code/checkout              Fix the flaky cart-total test
-                    ● working    codex          acme      ~/code/checkout              Migrate orders to Postgres 17
-@storefront-2       ● working    claude         personal  ~/code/storefront            Lazy-load product images
-                    ○ lost       claude         acme      ~/code/checkout              Spike: replay Stripe webhooks
-                    ○ closed     claude · yolo  acme      ~/code/checkout      2d ago  Release notes for v2.3
+    ● needs you  claude · yolo  acme      ~/code/checkout              Add idempotency keys to payment retries
+#2  ● your turn  claude         acme      ~/code/checkout              Fix the flaky cart-total test
+#3  ● working    codex          acme      ~/code/checkout              Migrate orders to Postgres 17
+    ● working    claude         personal  ~/code/storefront            Lazy-load product images
+    ○ lost       claude         acme      ~/code/checkout              Spike: replay Stripe webhooks
+    ○ closed     claude · yolo  acme      ~/code/checkout      2d ago  Release notes for v2.3
 ```
 
 Because each agent runs inside tmux, it outlives the terminal that started it.
@@ -148,9 +148,16 @@ By hand: it's one POSIX `sh` script. Put [`bin/trails`](bin/trails) anywhere on
 your `PATH`.
 
 It needs `tmux` (3.3 or later), `fzf` and `jq`, plus at least one agent CLI on
-`PATH`. macOS ships `jq`; Homebrew installs all three. Reading recent opencode
-conversations uses `sqlite3`, which macOS ships with, and keeping the picker's
+`PATH`. macOS ships `jq`; Homebrew installs all three. Keeping the picker's
 preview current uses `curl`, without which it is a snapshot.
+
+Then give each agent you use the hooks that tell trails what it is doing
+([Hooks for each agent](#hooks-for-each-agent)). For Claude Code it is a plugin:
+
+```
+/plugin marketplace add gunasekar/trails
+/plugin install trails@trails
+```
 
 Recommended: [delta](https://github.com/dandavison/delta) (`brew install git-delta`),
 which `trails diff` uses to show changes side by side. Without it the diff is git's
@@ -189,8 +196,7 @@ The everyday loop, and every other way trails is used, are in
 | `trails map [N]` | several running agents side by side in one window: re-attach to the map already up, pick a set, or take the `N` that most want you (`map new` forces a fresh pick) |
 | `trails keys` | print tmux.conf lines that put the picker, the workspaces, every trail, a note and the diff in popups, bind the editor, a shell, the workspaces and the map, and list the workspaces in the status line; trails binds nothing itself |
 | `trails diff [DIR]` | the codebase's changes, untracked files too, side by side: in a popup from `prefix G`. See [The diff](#the-diff) |
-| `trails hooks [AGENT]` | whether each agent's hooks tell trails what it is doing; `AGENT`'s hook config, to paste where it reads hooks. See [Status](#status-from-the-agents-hooks) |
-| `trails state WORD` | for an agent's hooks: `working`, `waiting` or `idle` |
+| `trails state WORD [--id ID]` | for an agent's hooks: `working`, `waiting` or `idle`, and the conversation it is in. See [Status](#status-from-the-agents-hooks) |
 | `trails config` | open the config in `$EDITOR`, writing the built-ins first if there isn't one |
 | `trails help [keys]` | the commands, the picker's keys and the tmux ones (also `-h`, `--help`); `keys` for the keys alone, which `?` in the picker shows |
 
@@ -341,7 +347,7 @@ level, Esc goes up one, and ctrl-c quits
 **This codebase** (a shell in a repo, or an editor's terminal): **＋ new trail…**
 first, which lists the agents to start here, then its running and lost trails,
 its editor and shell windows (not in an editor's terminal, which wants trails
-only), then **↩ resume old trails**, which opens a second list of the conversations that
+only), then **↩ resume old trails**, which opens a second list of the trails that
 ended here (Esc goes back). The cursor starts on the trail that most wants you.
 Picking a running trail from a terminal of your own lands in the workspace on
 that trail's window; from an editor's terminal it attaches to the trail's session,
@@ -409,7 +415,6 @@ Every trail has two signals. The glyph says whether it is running (`●`) or not
 | `●` working | running, and it's busy | attach |
 | `○` lost | tmux died under it (a reboot, a crash, `kill-server`) | bring it back on its conversation |
 | `○` closed | it ended in the last 10 days; its conversation can be resumed | resume it, in the mode it last ran in |
-| `○` elsewhere | its conversation is open in a `claude` that trails didn't start | refuses, and says where it's open |
 
 ```mermaid
 stateDiagram-v2
@@ -433,35 +438,29 @@ stateDiagram-v2
 
 ### Status from the agent's hooks
 
-What a running trail is doing comes from the agent, in this order
-([ADR 18](docs/decisions/0018-status-from-the-agents-hooks.md)):
+What a running trail is doing, and which conversation it is in, comes from the
+agent's own hooks ([ADR 18](docs/decisions/0018-status-from-the-agents-hooks.md),
+[ADR 19](docs/decisions/0019-no-agents-files-read.md)). The agent runs
+`trails state working`, `waiting` or `idle`, with `--id` and its conversation where
+it can, and trails takes its word. Without hooks a trail is *unknown*: trails doesn't
+guess from the screen, and reads none of the agent's files.
 
-1. **Its hooks.** The agent runs `trails state working`, `waiting` or `idle` from
-   its own hooks, and trails takes its word.
-2. **Its own file**, for Claude, with nothing to set up. When its hooks and the
-   file both answer, the newer one wins.
-3. Otherwise *unknown*. trails doesn't guess from the screen.
-
-Setting the hooks up is yours, and short:
-
-```sh
-trails hooks            # each agent: hooked, or not set up
-trails hooks opencode   # its hook config, to paste where the table says
-```
-
-Paste it in beside any hooks already there. Each hook is silent and never fails a
-turn.
+Setting the hooks up is yours, and short: [each agent's hooks](#hooks-for-each-agent)
+are below, to paste beside any hooks already there. Each hook ends in
+`2>/dev/null || true`, so it is silent, never fails a turn, and does nothing outside
+tmux or where `trails` isn't on the hook's `PATH`.
 
 | Agent | Where | working | needs you | your turn |
 |---|---|---|---|---|
-| claude | `~/.claude/settings.json`, or the [Claude Code plugin](plugins/trails) | prompt sent, tool done | permission prompt, a question | session start, turn end |
+| claude | the [Claude Code plugin](plugins/trails), or `~/.claude/settings.json` | prompt sent, tool done | permission prompt, a question | session start, turn end |
 | codex | `~/.codex/hooks.json` (trust them with `/hooks` in codex) | prompt sent, tool done | permission request | session start, turn end |
 | gemini | `~/.gemini/settings.json` | before the agent, after a tool | notification | session start, after the agent |
 | copilot | `~/.copilot/hooks/trails.json` | prompt sent, tool done | (no hook) | session start, agent stop |
 | cursor | `~/.cursor/hooks.json` | prompt sent | (no hook) | stop |
 | opencode | `~/.config/opencode/plugins/trails.js` | busy, tool done | permission asked | idle |
 
-For Claude, the plugin is the shortest way:
+For Claude, the plugin is the shortest way, and it also tells trails which
+conversation Claude is in, so a trail follows it through `/resume` and `/clear`:
 
 ```
 /plugin marketplace add gunasekar/trails
@@ -469,9 +468,157 @@ For Claude, the plugin is the shortest way:
 ```
 
 An agent with no hook for a permission prompt reads as *working* through one. For an agent
-trails has no entry for, have its hooks run `trails state working` when a prompt is
-sent or a tool has run, `trails state waiting` when it asks you something, and
-`trails state idle` when a session starts and when a turn ends.
+not listed, have its hooks run `trails state working` when a prompt is sent or a tool
+has run, `trails state waiting` when it asks you something, and `trails state idle`
+when a session starts and when a turn ends, with `--id` and the conversation wherever
+the hook knows it, at least when a session starts. `--id` is what lets a restore bring
+back the conversation the agent is in now, and an agent that picks its own
+conversation ID (no `session.start`) be restored at all. Getting the ID out of the
+agent is the hook's job, in the agent's terms: trails takes what it is given.
+
+<a id="hooks-for-each-agent"></a>
+<details>
+<summary><b>Hooks for each agent</b>, to paste</summary>
+
+##### Claude Code
+
+The shortest way is the plugin in this repo, which holds exactly these hooks:
+
+```
+/plugin marketplace add gunasekar/trails
+/plugin install trails@trails
+```
+
+Or paste them into `~/.claude/settings.json`; use one or the other, or each hook
+runs twice. Claude reads hooks when a session starts, so running sessions need a
+restart.
+
+```json
+{
+  "hooks": {
+    "SessionStart": [{ "hooks": [{ "type": "command",
+      "command": "trails state idle --id \"$(jq -r '.session_id // empty')\" 2>/dev/null || true" }] }],
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "trails state working 2>/dev/null || true" }] }],
+    "PostToolUse": [{ "hooks": [{ "type": "command", "command": "trails state working 2>/dev/null || true" }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "trails state idle 2>/dev/null || true" }] }],
+    "Notification": [{ "matcher": "permission_prompt",
+      "hooks": [{ "type": "command", "command": "trails state waiting 2>/dev/null || true" }] }],
+    "PreToolUse": [{ "matcher": "AskUserQuestion",
+      "hooks": [{ "type": "command", "command": "trails state waiting 2>/dev/null || true" }] }]
+  }
+}
+```
+
+Claude passes each hook a JSON object on stdin, `session_id` among it, and runs
+`SessionStart` again after `/resume` and `/clear`: so the trail follows it to the
+conversation it moved to.
+
+##### Codex
+
+`~/.codex/hooks.json`. Codex runs a hook only once you have reviewed and trusted
+it: `/hooks` in codex.
+
+```json
+{
+  "hooks": {
+    "SessionStart": [{ "hooks": [{ "type": "command", "command": "trails state idle 2>/dev/null || true" }] }],
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "trails state working 2>/dev/null || true" }] }],
+    "PostToolUse": [{ "hooks": [{ "type": "command", "command": "trails state working 2>/dev/null || true" }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "trails state idle 2>/dev/null || true" }] }],
+    "PermissionRequest": [{ "hooks": [{ "type": "command", "command": "trails state waiting 2>/dev/null || true" }] }]
+  }
+}
+```
+
+Codex picks its own conversation IDs, so without `--id` a Codex trail is not
+restored after tmux dies. Add `--id` to the `SessionStart` hook once you have
+checked which field of its hook input holds the ID (not yet checked here).
+
+##### Gemini CLI
+
+`~/.gemini/settings.json`:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [{ "hooks": [{ "type": "command", "command": "trails state idle 2>/dev/null || true" }] }],
+    "BeforeAgent": [{ "hooks": [{ "type": "command", "command": "trails state working 2>/dev/null || true" }] }],
+    "AfterTool": [{ "hooks": [{ "type": "command", "command": "trails state working 2>/dev/null || true" }] }],
+    "Notification": [{ "hooks": [{ "type": "command", "command": "trails state waiting 2>/dev/null || true" }] }],
+    "AfterAgent": [{ "hooks": [{ "type": "command", "command": "trails state idle 2>/dev/null || true" }] }]
+  }
+}
+```
+
+##### GitHub Copilot CLI
+
+`~/.copilot/hooks/trails.json`. Copilot has no hook for a permission prompt: it
+reads as *working* until you answer.
+
+```json
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [{ "type": "command", "bash": "trails state idle 2>/dev/null || true" }],
+    "userPromptSubmitted": [{ "type": "command", "bash": "trails state working 2>/dev/null || true" }],
+    "postToolUse": [{ "type": "command", "bash": "trails state working 2>/dev/null || true" }],
+    "agentStop": [{ "type": "command", "bash": "trails state idle 2>/dev/null || true" }]
+  }
+}
+```
+
+##### Cursor
+
+`~/.cursor/hooks.json`. Cursor's CLI has been reported to skip `beforeSubmitPrompt`
+and `stop`, which its editor runs: check with `trails ls` after a turn. It has no
+hook for a permission prompt.
+
+```json
+{
+  "version": 1,
+  "hooks": {
+    "beforeSubmitPrompt": [{ "command": "trails state working 2>/dev/null || true" }],
+    "stop": [{ "command": "trails state idle 2>/dev/null || true" }]
+  }
+}
+```
+
+##### opencode
+
+A plugin, `~/.config/opencode/plugins/trails.js`:
+
+```js
+// trails: tell trails what this opencode is doing (trails state), from its own events.
+export const Trails = async ({ $ }) => {
+  const say = (word) => $`trails state ${word}`.quiet().nothrow()
+  return {
+    "tool.execute.after": async () => { await say("working") },
+    event: async ({ event }) => {
+      const t = event.type
+      if (t === "session.status") {
+        const s = event.properties?.status?.type
+        if (s === "busy") await say("working")
+        else if (s === "idle") await say("idle")
+      } else if (t === "session.idle") await say("idle")
+      else if (t === "permission.asked") await say("waiting")
+      else if (t === "permission.replied") await say("working")
+    },
+  }
+}
+```
+
+##### What has been checked
+
+| Agent | Events | Conversation ID |
+|---|---|---|
+| claude | against 2.1.309 installed, the plugin validated | `session_id` on stdin, in its docs |
+| codex | its docs only, not installed | not yet |
+| gemini | its docs only, not installed | not yet |
+| copilot | its docs only, not installed | not yet |
+| cursor | 2026.07.09 installed; reports say the CLI skips both | not yet |
+| opencode | 2.0.25 installed; event names in its binary | not yet |
+
+</details>
 
 | Key | Does |
 |---|---|
@@ -480,7 +627,7 @@ sent or a tool has run, `trails state waiting` when it asks you something, and
 | `ctrl-n` | in the agents list, name the trail you are about to start: type the name, then Enter. On the workspace picker, a new workspace |
 | `ctrl-e` | the editor for the row's codebase (`trails edit`) |
 | `ctrl-/` | show or hide the preview: the trail's screen, under the list and kept current, refreshed every second, scrolled to its latest output. A trail wider than the preview wraps in it; a narrower one keeps its width, as its agent drew it. Open by default when there are rows for it |
-| `ctrl-x` | end a running trail, close an editor or shell window, or forget a lost one |
+| `ctrl-x` | end a running trail, close an editor or shell window, or forget a lost one; in the old trails, forget a closed one |
 | `ctrl-a` | every running trail, in every workspace, on one screen (also `prefix A` from `trails keys`). Esc there comes back to where you were |
 | `?` | the keys: the tmux ones from `trails keys`, the picker's, and what the states mean, in a popup (in place when the picker is itself in one). `q` comes back. `prefix ?` shows the same |
 | `esc` | up a level: an old list or the agents back to where they came from, a codebase's screen to its workspace's, a workspace's to the workspaces, and the workspaces out. An editor's terminal quits from its codebase's screen |
@@ -507,21 +654,20 @@ Name a trail when you start it, and that one name is how everything refers to it
 ```console
 ~/code/checkout $ trails new payments
 ~/code/checkout $ trails ls
-@payments        ● working    claude · yolo  acme  ~/code/checkout
-#2 @checkout-7   ● your turn  claude         acme  ~/code/checkout  Fix the flaky cart-total test
+#payments  ● working    claude · yolo  acme  ~/code/checkout
+#2         ● your turn  claude         acme  ~/code/checkout  Fix the flaky cart-total test
 ```
 
 - **tmux** has its session as `acme/payments`, so `tmux a -t acme/payments` works,
   and its window in the workspace as `checkout·payments`.
 - **The picker and `trails ls`** show `#payments` where an unnamed trail shows `#2`.
-- **Claude** runs with `--name payments`, the name its peers use. In another
-  Claude session, "ask payments how the retries look" reaches it.
+- **The agent** gets the name too where its config says how (`session.name`):
+  Claude runs with `--name payments`.
 
 A name is letters, digits, `-` and `_`, not digits alone, not starting with `-`,
 not the codebase's name with a `-N` (which reads as an unnamed trail), and unused
-by any running or lost trail. A named Claude shows its name as its title instead of a summary of
-what it's doing. Resuming or restoring a named conversation brings its name back.
-Unnamed trails work as before, with a name Claude picks for itself.
+by any running or lost trail. Resuming or restoring a named trail brings its name
+back.
 
 ### The editor and a shell
 
@@ -630,45 +776,39 @@ Plain `trails ls` lists the directory you're in, the same trails as the picker.
 
 ```console
 $ trails ls -a
-@api-4             ● needs you  claude · yolo  acme      ~/code/api               Rework the retry budget
-#2 @dotfiles-9     ● your turn  claude         personal  ~/.dotfiles              Fix the flaky test
-                   ○ lost       claude · yolo  acme      ~/code/foundry           Improve observability
-                   ○ closed     claude · yolo  personal  ~/notes         2h ago   Weekly review
-@scratch-1         ○ elsewhere  claude         personal  ~/scratch       1d ago   Spike on caching  (open in claude, pid 812)
+    ● needs you  claude · yolo  acme      ~/code/api               Rework the retry budget
+#2  ● your turn  claude         personal  ~/.dotfiles              Fix the flaky test
+    ○ lost       claude · yolo  acme      ~/code/foundry           Improve observability
+    ○ closed     claude · yolo  personal  ~/notes         2h ago   Weekly review
 
 ● needs you  running, asking you something
 ● your turn  running, finished its turn
-● unknown    running, no status: set up its hooks (trails hooks)
 ○ lost       not running: tmux died · trails restore brings it back
 ○ closed     not running: it ended · resume it from its directory
-○ elsewhere  not running here: open in a claude trails did not start
 ```
 
 The first column names each running trail, so you can call it something:
-`#2` marks the second trail in the same codebase, `#name` a named trail, and
-`@name` the name a running Claude answers to: the one to give another Claude session
-when you want it to reach this one. The workspace column follows the agent. The
+`#2` marks the second trail in the same codebase, `#name` a named trail. The
+workspace column follows the agent. The
 dim legend covers the states on screen. Piped, `ls` prints one tab-separated line
 per row, in the same order, with `-` for an empty field:
 
 ```text
-life  state  session  agent  yolo  dir  id  when  pid  peer  workspace  title
+life  state  session  agent  yolo  dir  id  when  workspace  title
 ```
 
 | Field | Values |
 |---|---|
 | `life` | `running` (the trail is there) or `stopped` |
-| `state` | `needs-you`, `your-turn`, `working` (running) · `lost`, `closed`, `elsewhere` (stopped) |
-| `session` | what to attach to: the trail's session (`acme/checkout-2`); `-` for a conversation nothing is running |
+| `state` | `needs-you`, `your-turn`, `unknown`, `working` (running) · `lost`, `closed` (stopped) |
+| `session` | what to attach to: the trail's session (`acme/checkout-2`); `-` for a trail that ended |
 | `yolo` | `yolo` or `-` |
-| `when` | when an ended conversation was last active (Unix time), else `-` |
-| `pid` | the process holding an `elsewhere` one, else `-` |
-| `peer` | the name a running or `elsewhere` Claude answers to, for messaging it from another Claude session, else `-` |
-| `workspace` | the trail's workspace; for an ended conversation, the one its directory belongs to now |
+| `when` | when an ended trail ended (Unix time), else `-` |
+| `workspace` | the trail's workspace; for an ended one, the one its directory belongs to now |
 
 Any status bar, notifier or script can read it. The title stays last, so a reader that takes the last field keeps working as columns
 are added. Set `TRAILS_RECENT_MAX=0` for a poll that only wants running trails; it
-skips reading conversation history.
+skips reading the history.
 
 ### trails map
 
@@ -749,25 +889,25 @@ file in `$EDITOR`. Changing agents never needs a change to trails.
 | `diff` | *(optional)* what `trails diff` shows the changes with: a pager to pipe to, `{ "command": ..., "pipe": false }` for one that finds them itself, or `{ "command": ..., "gui": true }` for an app. See [The diff](#the-diff). |
 | `notes` | *(optional)* where a codebase's notes go: a path from the codebase's root, or `~`/absolute, with `{codebase}` for its name (`"~/notes/{codebase}.md"`). `.scratch/trails/notes.md` by default. See [Notes](#notes). |
 
-Only agents whose command is on `PATH` are offered. Recent conversations are
-read from claude's and opencode's own history, and are filed under the first
-agent that runs `claude` or `opencode`.
+Only agents whose command is on `PATH` are offered. Closed trails come from
+trails' own history of the trails it ran (the newest 100), not from the agents':
+a conversation started outside trails is the agent's own resume's to find.
 
 #### Restore
 
 To bring a trail back after tmux dies, trails needs the ID of the conversation
 it was in. `session.resume` says how to resume one (`{id}` marks where the ID
-goes), plus one of three ways to learn the ID:
+goes), and how trails learns the ID:
 
 | Key | trails gets the ID by | Example |
 |---|---|---|
 | `start` | choosing it, and starting the agent under it | `"start": "--session-id {id}", "id": "uuid"` |
 | `create` | running a command that prints a fresh one | `"create": "cursor-agent create-chat"` |
-| `find` | reading it back from the agent's own files (`claude`, `codex`) | `"find": "codex"` |
+| *(neither)* | the agent's hooks saying it: `trails state WORD --id ID` | codex |
 
-`id` is the shape `start` generates: `uuid`, or `ses_hex` for opencode. `find`
-also follows a conversation that changes inside the agent, such as `/resume` in
-claude.
+`id` is the shape `start` generates: `uuid`, or `ses_hex` for opencode. With hooks
+that pass `--id`, a trail also follows a conversation that changes inside the
+agent, such as `/resume` or `/clear` in claude.
 
 `session.name` is the flag that gives the agent a name of its own, `{name}` marking
 where it goes. Only a named trail passes it. The built-in claude has
@@ -780,8 +920,8 @@ The six most-used coding agents, with flags checked against each tool's latest
 
 | Agent | Runs | YOLO flag | Restore |
 |---|---|---|---|
-| claude | `claude` | `--dangerously-skip-permissions` | yes: chosen ID, and follows `/resume` |
-| codex | `codex` | `--dangerously-bypass-approvals-and-sandbox` | yes: read from `~/.codex/sessions`, once its first message is sent |
+| claude | `claude` | `--dangerously-skip-permissions` | yes: chosen ID, and follows `/resume` and `/clear` with its hooks |
+| codex | `codex` | `--dangerously-bypass-approvals-and-sandbox` | only with hooks that pass `--id`: it picks its own ID |
 | gemini | `gemini` | `--approval-mode yolo` | yes: chosen ID |
 | copilot | `copilot` | `--allow-all` | yes: chosen ID |
 | cursor | `cursor-agent` | `--force` | yes: `cursor-agent create-chat` |
@@ -844,20 +984,33 @@ everywhere else too.
 
 ### Upgrading to 1.6
 
-- **Status comes from the agent's hooks.** Claude needs nothing; for another
-  agent, `trails hooks AGENT` prints what to paste. trails no longer reads state
-  off the screen, so an agent without hooks shows *unknown*.
+- **Status comes from the agent's hooks.** trails no longer reads state off the
+  screen, so an agent without hooks shows *unknown*.
 - **Gone:** the SwiftBar menu-bar plugin and `trails swiftbar`, `trails open` and
   `trails end` (ctrl-x ends a trail; `trails restore` forgets records it can't
   bring back), and support for trails from 0.6 (`trails-<project>` sessions):
   end any still running before upgrading.
 
+### Upgrading to 1.7
+
+- **trails reads no agent's files** ([ADR 19](docs/decisions/0019-no-agents-files-read.md)).
+  Claude's status now comes from its hooks too: install the
+  [Claude Code plugin](plugins/trails), or paste its hooks from
+  [Hooks for each agent](#hooks-for-each-agent). Until then Claude trails read *unknown*.
+- **Resume old trails** lists trails' own history: the trails that ended from 1.7
+  on. Conversations from before, or started outside trails, are found by the
+  agent's own resume.
+- **Gone:** `trails hooks` (the snippets are in [Hooks for each agent](#hooks-for-each-agent)),
+  the *elsewhere* state, the `@name` badge, the `pid` and `peer` columns of
+  `trails ls`, and `session.find` in the config, which is ignored.
+- **Codex** trails are restored only with hooks that pass `--id`.
+
 ## How it works
 
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) covers how workspaces, trails and
 their windows map onto tmux, how trails are found and named, how *working*, *your
-turn* and *needs you* come from the agent's hooks and files, how trails
-survive tmux dying, where recent conversations come from, and how the map and the
+turn* and *needs you* come from the agent's hooks, how trails
+survive tmux dying, where the history of ended trails comes from, and how the map and the
 editor borrow a trail's session without owning it. Key design decisions are recorded in
 [docs/decisions/](docs/decisions/), and the 1.0 design with its principles in
 [docs/design/trails-1.0.md](docs/design/trails-1.0.md).

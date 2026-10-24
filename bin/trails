@@ -58,20 +58,66 @@
 # can't stop this run from attaching.
 unset LAUNCH_DETACHED
 
-# `trails state working|waiting|idle`: an agent's hooks telling trails what it is doing
-# (ADR 18). It marks the agent's own pane, which the hook inherits as TMUX_PANE, with the
-# word and when it was said, and classify reads both back. Here at the top, before anything
-# reads the config: it runs on every turn of every agent that has the hooks. Silent and 0
-# whatever happens, outside tmux or with a word it doesn't know included, since a hook's
-# output can land in the agent's transcript and a failing hook is reported on every turn.
+# `trails state working|waiting|idle [--id ID]`: an agent's hooks telling trails what it is
+# doing, and which conversation it is in (ADR 18, ADR 19). It marks the agent's own pane,
+# which the hook inherits as TMUX_PANE, with the word, which classify reads back; with
+# @trails_worked once it has said working, so a conversation that never got a turn stays out
+# of the history (hist_add); and with the conversation's ID when the hook passes one. How a
+# hook gets the ID out of its agent is the hook's business: trails takes it as given, and
+# reads nothing of the agent's.
+#
+# Here at the top, before anything reads the config: it runs on every turn of every agent
+# that has the hooks. Silent and 0 whatever happens, outside tmux or with a word it doesn't
+# know included, since a hook's output can land in the agent's transcript and a failing hook
+# is reported on every turn.
+#
+# An ID is taken only when it is one (id_ok's rule, spelled out here, before it is defined)
+# and only from the agent the trail runs, not one it started: a `claude -p` run from the
+# agent's own shell inherits the pane, and its hooks would move the trail onto a throwaway
+# conversation. Which is which, without knowing any agent: the trail's agent is the one
+# nearest the pane's process, so its hooks are the fewest processes down from it. The first
+# ID sets that depth (@trails_said_depth); one from deeper down is left out. A new ID moves
+# the trail's record at once, in the background (--said), rather than at the next listing,
+# which a reboot might come before.
 if [ "${1:-}" = state ]; then
   case ${2:-} in
     working | waiting | idle) ;;
     *) exit 0 ;;
   esac
-  [ -n "${TMUX:-}" ] && [ -n "${TMUX_PANE:-}" ] &&
-    tmux set-option -pq -t "$TMUX_PANE" @trails_state "$2" \; \
-      set-option -pq -t "$TMUX_PANE" @trails_state_at "$(date +%s)" >/dev/null 2>&1
+  [ -n "${TMUX:-}" ] && [ -n "${TMUX_PANE:-}" ] || exit 0
+  st_id=
+  [ "${3:-}" != --id ] || st_id=${4:-}
+  case $st_id in
+    [A-Za-z0-9]*) ;;
+    *) st_id= ;;
+  esac
+  case $st_id in
+    *[!A-Za-z0-9_.-]*) st_id= ;;
+    *) ;;
+  esac
+  st_word=$2
+  set -- set-option -pq -t "$TMUX_PANE" @trails_state "$st_word"
+  [ "$st_word" != working ] || set -- "$@" \; set-option -pq -t "$TMUX_PANE" @trails_worked 1
+  if [ -n "$st_id" ]; then
+    st_pane=$(tmux display-message -p -t "$TMUX_PANE" '#{pane_pid}|#{@trails_said_depth}|#{@trails_id}' 2>/dev/null)
+    st_root=${st_pane%%|*} st_rest=${st_pane#*|}
+    st_known=${st_rest%%|*} st_carried=${st_rest#*|}
+    st_p=$PPID st_d=0
+    while [ -n "$st_p" ] && [ "$st_p" != "$st_root" ] && [ "$st_p" -gt 1 ] 2>/dev/null && [ "$st_d" -lt 16 ]; do
+      st_p=$(ps -o ppid= -p "$st_p" 2>/dev/null | tr -d ' ')
+      st_d=$((st_d + 1))
+    done
+    if [ "$st_p" != "$st_root" ] || { [ -n "$st_known" ] && [ "$st_d" -gt "$st_known" ]; }; then
+      st_id=
+    else
+      set -- "$@" \; set-option -pq -t "$TMUX_PANE" @trails_said_depth "$st_d" \
+        \; set-option -pq -t "$TMUX_PANE" @trails_said_id "$st_id"
+    fi
+  fi
+  tmux "$@" >/dev/null 2>&1
+  if [ -n "$st_id" ] && [ "$st_id" != "$st_carried" ]; then
+    "$0" --said </dev/null >/dev/null 2>&1 &
+  fi
   exit 0
 fi
 
@@ -103,18 +149,18 @@ TRAILS_NAME=
 #   yolo      the flag that runs everything unconfirmed. Opt-in per launch with Tab, so a
 #             stray Enter is always the safe mode. Omit it for an agent that has none.
 #   session   what makes a session survive tmux (see "Surviving tmux"): `resume` picks a
-#             conversation back up, {id} is where the ID goes, and one of three says how
-#             trails learns the ID in the first place —
+#             conversation back up, {id} is where the ID goes, and how trails learns the ID
+#             in the first place —
 #               start   begin the conversation under an ID trails chooses; `id` is its shape,
 #                       "uuid" or "ses_hex" (ses_ + 32 hex, what opencode insists on)
 #               create  a command that prints a fresh ID (cursor-agent create-chat)
-#               find    a reader for the agent's own files, built in below: "claude" (also
-#                       follows /resume inside claude, and reads its working/waiting/idle
-#                       state, with no hooks needed), "codex"
-#             Without it the agent still runs, it just isn't brought back after a reboot.
+#             or neither, for an agent that picks its own: its hooks say it (trails state
+#             WORD --id ID), and say it again when the agent moves to another conversation.
+#             Without a way to the ID the agent still runs, it just isn't brought back after
+#             a reboot. trails reads none of an agent's own files (ADR 19).
 #             session.name is the flag that gives the agent a name of its own, {name} where it
-#             goes: claude's --name, which is the name other claude sessions message it by.
-#             Only a trail you name (trails new NAME, or ctrl-n in the picker) passes it.
+#             goes: claude's --name. Only a trail you name (trails new NAME, or ctrl-n in the
+#             picker) passes it.
 #   default_agent  listed first in the picker.
 #   mode           "default" (the agent's own, prompting mode) or "yolo": which a "+ new" row
 #                  starts in. Tab flips a row from it, so with "yolo" Tab is how you start one
@@ -136,8 +182,7 @@ TRAILS_NAME=
 # Choosing the conversation ID up front is the point of `session` — `--continue` means "the
 # latest in this directory", so trails-foo and trails-foo-2 would both resume the same one.
 #
-# Recent conversations (closed rows) are read from claude's and opencode's own stores, and filed under
-# the first agent that runs that command — the default agent, if it is one of them.
+# Ended trails (closed rows) come from trails' own history, not the agents' (see "History").
 CONFIG=${XDG_CONFIG_HOME:-$HOME/.config}/trails/config.json
 
 DEFAULT_CONFIG='{
@@ -148,14 +193,14 @@ DEFAULT_CONFIG='{
       "name": "claude",
       "program": "claude",
       "yolo": "--dangerously-skip-permissions",
-      "session": { "start": "--session-id {id}", "resume": "--resume {id}", "id": "uuid", "find": "claude",
+      "session": { "start": "--session-id {id}", "resume": "--resume {id}", "id": "uuid",
                    "name": "--name {name}" }
     },
     {
       "name": "codex",
       "program": "codex",
       "yolo": "--dangerously-bypass-approvals-and-sandbox",
-      "session": { "resume": "resume {id}", "find": "codex" }
+      "session": { "resume": "resume {id}" }
     },
     {
       "name": "gemini",
@@ -184,7 +229,7 @@ DEFAULT_CONFIG='{
   ]
 }'
 
-# The agents as one line each, name|command|args|yolo|start|resume|idform|create|find|naming,
+# The agents as one line each, name|command|args|yolo|start|resume|idform|create|naming,
 # default first.
 # A bar, not a tab: tab is whitespace to `read`, which would merge the empty fields most
 # agents have. jq does the JSON, because sed on hand-edited JSON is how a stray space in
@@ -217,7 +262,7 @@ load_agents() {
       else (.session | if type == "object" then . else {} end) as $s
       | [.name, (.program | words | .[0]), (.program | words | .[1:] | join(" ")),
             (.yolo | if type == "string" then . else "" end), ($s.start // ""), ($s.resume // ""),
-            ($s.id // ""), ($s.create // ""), ($s.find // ""), ($s.name // "")]
+            ($s.id // ""), ($s.create // ""), ($s.name // "")]
            | map(tostring | gsub("\\|"; "")) | join("|")
       end' 2>&1) || {
     echo "trails: can't read $src: $out" >&2
@@ -250,12 +295,6 @@ load_mode() {
       printf default
       ;;
   esac
-}
-
-# The first agent that runs command $1 (by basename): who recent conversations from that
-# agent's own store are filed under.
-store_agent() {
-  printf '%s\n' "$AGENTS" | awk -F'|' -v c="$1" '{ n = split($2, p, "/"); if (p[n] == c) { print $1; exit } }'
 }
 
 # Can agent $1 pick a conversation back up? It has a session.resume.
@@ -860,14 +899,10 @@ WS_TITLE='trails · #{host_short}'
 #
 # The agent says, through its hooks (ADR 18). Every agent worth running now runs a command
 # when a turn starts, when it ends, and most when it wants permission; `trails state` is that
-# command, and it marks the agent's pane with the word. `trails hooks AGENT` prints the hooks.
+# command, and it marks the agent's pane with the word. The README has each agent's hooks.
 # Setting them up is yours, as it is the agent's to call them: a hook knows the state, where
-# anything trails could look at, the screen included, only suggests it.
-#
-# Claude also writes its state down for itself (ADR 11): a status in
-# ~/.claude/sessions/<pid>.json, the file trails already reads for its conversation, so a
-# Claude trail answers with nothing set up. When its hooks and its file both answer, the
-# newer wins. An agent nothing speaks for is unknown.
+# anything trails could look at, the screen or the agent's own files, only suggests it
+# (ADR 19). An agent nothing speaks for is unknown.
 #
 # classify()'s words:
 #
@@ -899,106 +934,38 @@ RST=$(printf '\033[0m')
 # time anything asks — the picker, `trails ls`, a script polling `trails ls -a` — so the
 # record is as fresh as the last look, and a lost row can say what it was doing.
 #
-# The fields rec_note_id needs ride along, and ps is read once for the whole pass (PS_TREE,
-# see ps_tree), so the work per trail per poll is no tmux clients of its own. '|' and not TAB
-# between them: TAB is IFS whitespace, so `read` would merge an empty option into the next
-# field. The task stays last, since it is free text.
+# The fields rec_note_id needs ride along, so the work per trail per poll is no tmux clients
+# of its own. $US and not TAB between them: TAB is IFS whitespace, so `read` would merge an
+# empty option into the next field. The task stays last, since it is free text.
 sessions() {
-  PS_TREE=$(ps -A -o pid= -o ppid=)
   tmux list-windows -a -F \
-    "#{window_id}${US}#{session_name}${US}#{@trails_ws}${US}#{@trails_session}${US}#{@agent}${US}#{@trails_id}${US}#{@trails_dir}${US}#{pane_pid}${US}#{@trails_label}${US}#{@trails_name}${US}$TASK_FMT" 2>/dev/null |
-    while IFS="$US" read -r wid sname ws key label s_id dir pid clabel cname task; do
+    "#{window_id}${US}#{session_name}${US}#{@trails_ws}${US}#{@trails_session}${US}#{@agent}${US}#{@trails_id}${US}#{@trails_said_id}${US}#{@trails_dir}${US}#{@trails_label}${US}#{@trails_name}${US}$TASK_FMT" 2>/dev/null |
+    while IFS="$US" read -r wid sname ws key label s_id said_id dir clabel cname task; do
       # A window of your own, or a trail's window in its workspace: not a trail.
       [ -n "$ws" ] && [ "$sname" = "$key" ] && [ -n "$label" ] || continue
       rec_note_task "$key" "$task"
-      rec_note_id "$key" "$wid" "$label" "$s_id" "$dir" "$pid"
+      rec_note_id "$key" "$wid" "$label" "$s_id" "$said_id" "$dir"
       printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$wid" "$key" "$ws" "$label" "$dir" "$clabel" \
         "$(trail_badge "$key" "$clabel" "$cname")" "$task"
     done
-  PS_TREE=
 }
 
-# stdin: sessions()' rows. stdout: the same with a state in front and the peer before the
-# task — peer being the name the agent answers to (claude_peer_of), or - for an agent that
-# has none.
-#
-# Per trail, its hooks' word (`trails state` set @trails_state on its pane) or its own file's
-# (agent_state: claude's), the newer when both answer: a turn interrupted before its end hook
-# fired leaves the hook saying working while claude's file has moved on to idle. Else unknown.
-#
-# Pane pids, hook words and the process tree are read once for the pass, not per trail: a
-# script polling `trails ls -a` runs this every few seconds.
+# stdin: sessions()' rows. stdout: the same with a state in front: its hooks' word, which
+# `trails state` set as @trails_state on its pane, or unknown. One list-windows for the pass:
+# a script polling `trails ls -a` runs this every few seconds.
 classify() {
   rows=$(cat)
   [ -n "$rows" ] || return 0
-
-  PS_TREE=$(ps -A -o pid= -o ppid=)
-  # $US between the fields, not TAB, which read takes as whitespace: an agent with no
-  # conversation ID (no session block) has an empty @trails_id, and the fields after it
-  # would shift left into it.
-  panes=$(tmux list-windows -a -F "#{window_id}$US#{pane_pid}$US#{@trails_id}$US#{@trails_state}$US#{@trails_state_at}" 2>/dev/null)
-  known=$(printf '%s\n' "$rows" | while IFS="$TAB" read -r wid _key _ws label _dir _cb _badge _task; do
-    said "$wid" "$label"
-  done)
-  PS_TREE=
-
+  said=$(tmux list-windows -a -F "#{window_id}$TAB#{@trails_state}" 2>/dev/null)
   printf '%s\n' "$rows" | while IFS="$TAB" read -r wid key ws label dir cb badge task; do
-    k=$(printf '%s\n' "$known" | awk -F"$TAB" -v n="$wid" '$1 == n { print $2 "|" $3; exit }')
-    state=${k%%|*} peer=${k#*|}
+    state=$(printf '%s\n' "$said" | awk -F"$TAB" -v n="$wid" '$1 == n { print $2; exit }')
     case $state in
-      '' | -) state=unknown ;;
-      *) ;;
+      waiting) state=blocked ;;
+      working | idle) ;;
+      *) state=unknown ;;
     esac
-    [ -n "$peer" ] || peer=-
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$state" "$wid" "$key" "$ws" "$label" "$dir" "$cb" "$badge" "$peer" "$task"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$state" "$wid" "$key" "$ws" "$label" "$dir" "$cb" "$badge" "$task"
   done
-}
-
-# One trail's word from its hooks or its own file, for classify: "wid state peer",
-# tab-separated, state - with only a peer, or nothing when neither says. $1 is the trail's
-# window, $2 its agent label; $panes is classify's list-windows.
-said() {
-  m=$(printf '%s\n' "$panes" | awk -F"$US" -v n="$1" '$1 == n { print; exit }')
-  IFS="$US" read -r _ m_pid m_id h h_at <<EOF
-$m
-EOF
-  case $h in
-    waiting) h=blocked ;;
-    working | idle) ;;
-    *) h= ;;
-  esac
-  case $h_at in
-    '' | *[!0-9]*) h_at=0 ;;
-    *) ;;
-  esac
-  st='' st_at='' peer=''
-  finder=$(agent_row "${2%% *}" | awk -F'|' '{ print $9 }')
-  if [ -n "$finder" ]; then
-    st=$(agent_state "$finder" "$1" "$m_pid" "$m_id") || st=
-    st_at=${st#* } st=${st%% *}
-    case $st_at in
-      '' | *[!0-9]*) st_at=0 ;;
-      *) ;;
-    esac
-    [ "$finder" = claude ] && peer=$(claude_peer_of "$1" "$m_pid")
-  fi
-  # A tie goes to the file: both are whole seconds, and the file is the agent's own word.
-  if [ -n "$h" ] && { [ -z "$st" ] || [ "$h_at" -gt "$st_at" ]; }; then
-    st=$h
-  fi
-  [ -z "$st$peer" ] || printf '%s\t%s\t%s\n' "$1" "${st:--}" "${peer:--}"
-}
-
-# A running trail's badge in the picker, the names to call it by: its own badge ($1: #2 or
-# #<name>), then @<peer> for the name the agent answers to ($2, or -), unless that is the
-# same word. "-" for neither.
-badge_of() {
-  b=$1
-  [ "$b" = - ] && b=
-  if [ "$2" != - ] && [ "$b" != "#$2" ]; then
-    b="${b:+$b }@$2"
-  fi
-  printf '%s' "${b:--}"
 }
 
 # ─── Session states ───────────────────────────────────────────────────────────
@@ -1011,21 +978,19 @@ badge_of() {
 #
 # running:  needs you  the agent is asking you something (a permission prompt, a question)
 #           your turn  it finished its turn and is waiting on you
-#           unknown    nothing says: no hooks, and no file of its own
+#           unknown    nothing says: its hooks aren't set up
 #           working    it is getting on with it
 # stopped:  lost       tmux died under it (a reboot, a crash); `trails restore` brings it back
 #           closed     it ended, and its conversation can be resumed
-#           elsewhere  its conversation is open in a claude trails did not start
 #
 #   start/resume/restore ──▶ working ⇄ your turn ⇄ needs you ──(you quit)──▶ closed
 #                                         └──────────(tmux dies)──────────▶ lost
 STATES='needs-you|●|red|needs you|running, asking you something
 your-turn|●|yellow|your turn|running, finished its turn
-unknown|●|dim|unknown|running, no status: set up its hooks (trails hooks)
+unknown|●|dim|unknown|running, no status: set up its hooks (https://github.com/gunasekar/trails#hooks-for-each-agent)
 working|●|dim|working|running, busy
 lost|○|plain|lost|not running: tmux died · trails restore brings it back
-closed|○|dim|closed|not running: it ended · resume it from its directory
-elsewhere|○|dim|elsewhere|not running here: open in a claude trails did not start'
+closed|○|dim|closed|not running: it ended · resume it from its directory'
 
 # STATES on one line, `;` between states, for awk: macOS's awk refuses a -v value with a
 # newline in it. No state's text has a `;`.
@@ -1080,20 +1045,17 @@ rank_dot() {
 # directory's. "Here" is the exact directory, as the picker has it, so `trails` and
 # `trails ls` never disagree about what is here:
 #
-#   life  state  session  agent  yolo  dir  id  when  pid  peer  workspace  title
+#   life  state  session  agent  yolo  dir  id  when  workspace  title
 #
 #   life       running (the trail is there) or stopped (it isn't)
-#   state      a STATES id: needs-you, your-turn, unknown, working · lost, closed, elsewhere
+#   state      a STATES id: needs-you, your-turn, unknown, working · lost, closed
 #   session    what to attach to: the trail's session (lattiq/augur-2); - for a
-#              conversation nothing is running
+#              trail that ended
 #   yolo       yolo or -
-#   when       when an ended conversation was last active (Unix time), - otherwise
-#   pid        the process holding an "elsewhere" one, - otherwise
-#   peer       the name a claude answers to, what other claude sessions message it by:
-#              running and elsewhere rows, - otherwise and for other agents
-#   workspace  the trail's workspace; for an ended conversation, the one its directory
-#              belongs to now. Added before title, so a reader that
-#              splits on tabs must name it to keep title whole.
+#   when       when an ended trail ended (Unix time), - otherwise
+#   workspace  the trail's workspace; for an ended one, the one its directory belongs to
+#              now. Before title, so a reader that splits on tabs must name it to keep
+#              title whole.
 #
 # Never an empty field mid-row, for recent_rows' reason, and the title last since it is free
 # text. In STATES order, each state keeping its own: running trails most-wants-you first,
@@ -1109,33 +1071,27 @@ ls_rows() {
   live=$(sessions | classify)
   {
     meta=$(tmux list-windows -a -F "#{window_id}$TAB#{@trails_id}" 2>/dev/null)
-    [ -n "$live" ] && printf '%s\n' "$live" | while IFS="$TAB" read -r state wid key ws label dir _cb badge peer task; do
+    [ -n "$live" ] && printf '%s\n' "$live" | while IFS="$TAB" read -r state wid key ws label dir _cb badge task; do
       agent=${label%% *}
       yolo=-
       case $label in *"(YOLO)"*) yolo=yolo ;; *) ;; esac
       id=$(printf '%s\n' "$meta" | awk -F"$TAB" -v n="$wid" '$1 == n { print $2; exit }')
-      printf '%s\trunning\t%s\t%s\t%s\t%s\t%s\t%s\t-\t-\t%s\t%s\t%s\n' "$badge" \
-        "$(state_of "$state")" "$key" "$agent" "$yolo" "${dir:--}" "${id:--}" "$peer" "$ws" "${task:--}"
+      printf '%s\trunning\t%s\t%s\t%s\t%s\t%s\t%s\t-\t%s\t%s\n' "$badge" \
+        "$(state_of "$state")" "$key" "$agent" "$yolo" "${dir:--}" "${id:--}" "$ws" "${task:--}"
     done | awk -F"$TAB" -v states="$STATES_FLAT" "$STATES_AWK"'
       { n++; row[n] = $0; st[n] = $3 }
       END { for (r = 1; r <= ns; r++) for (i = 1; i <= n; i++) if (rank[st[i]] == r) print row[i] }'
     rec_dead | while read -r key; do
       yolo=$(rec_get "$key" yolo)
       ws=$(rec_get "$key" workspace)
-      printf '%s\tstopped\tlost\t%s\t%s\t%s\t%s\t%s\t-\t-\t-\t%s\t%s\n' "$(rec_badge "$key")" "$key" \
+      printf '%s\tstopped\tlost\t%s\t%s\t%s\t%s\t%s\t-\t%s\t%s\n' "$(rec_badge "$key")" "$key" \
         "$(rec_get "$key" agent)" "${yolo:--}" "$(rec_get "$key" dir)" "$(rec_get "$key" id)" \
         "${ws:--}" "$(t=$(rec_get "$key" task); printf '%s' "${t:--}")"
     done
   } | d=$1 awk -F"$TAB" 'ENVIRON["d"] == "" || $7 == ENVIRON["d"]'
-  recent_rows "$1" | while IFS="$TAB" read -r m agent dir id yolo pid title; do
-    state=closed peer=-
-    if [ "$pid" != - ]; then
-      state=elsewhere
-      peer=$(claude_peer_by_pid "$pid") || peer=
-      [ -n "$peer" ] || peer=-
-    fi
+  recent_rows "$1" | while IFS="$TAB" read -r m agent dir id yolo title; do
     ws=$(workspace_of "$dir") || ws=-
-    printf -- '-\tstopped\t%s\t-\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$state" "$agent" "$yolo" "$dir" "$id" "$m" "$pid" "$peer" "$ws" "${title:--}"
+    printf -- '-\tstopped\tclosed\t-\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$agent" "$yolo" "$dir" "$id" "$m" "$ws" "${title:--}"
   done
 }
 
@@ -1211,22 +1167,15 @@ list_sessions() {
       return int(d / 86400) "d ago"
     }
     {
-      n++; badge = $1; st[n] = $3; dir = $7; peer = $11; ws = $12; ti[n] = $13
+      n++; badge = $1; st[n] = $3; dir = $7; ws = $10; ti[n] = $11
       if (ti[n] == "-") ti[n] = ""
       ag[n] = $5 ($6 == "yolo" ? " · yolo" : ""); aw[n] = length($5 ($6 == "yolo" ? " - yolo" : ""))
       if (badge == "-") badge = ""
       # A named trail shows its name as its title, which the badge already says.
       if (badge != "" && ti[n] == substr(badge, 2)) ti[n] = ""
-      # @peer: the name the agent answers to, unless the #name already says it.
-      if (peer != "-") {
-        if (badge == "#" peer) badge = ""
-        badge = (badge != "" ? badge " " : "") "@" peer
-        if (ti[n] == peer) ti[n] = ""
-      }
       if (index(dir, home) == 1) dir = "~" substr(dir, length(home) + 1)
       c3[n] = dir; cb[n] = badge; cw[n] = ws == "-" ? "" : ws
       c4[n] = $9 != "-" ? ago($9) : ""
-      ti[n] = ti[n] ($3 == "elsewhere" ? "  (open in " $5 ", pid " $10 ")" : "")
       if (aw[n] > w2) w2 = aw[n]
       if (length(c3[n]) > w3) w3 = length(c3[n])
       if (length(cb[n]) > wb) wb = length(cb[n])
@@ -1267,16 +1216,16 @@ live_trails() {
       *) [ "$ws" = "$1" ] || continue ;;
     esac
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$wid" "$key" "$ws" "$label" "$dir" "$cb" "$badge" "$task"
-  done | classify | while IFS="$TAB" read -r state wid _key _ws label dir cb badge peer task; do
+  done | classify | while IFS="$TAB" read -r state wid _key _ws label dir cb badge task; do
     # launch() writes @agent as "claude (YOLO)" for an armed launch: the first word is the
     # agent, and the YOLO it ran with goes in its own field.
     agent=${label%% *}
     yolo=-
     case $label in *"(YOLO)"*) yolo=yolo ;; *) ;; esac
-    # A named claude shows its name as its title, which the badge already says.
-    { [ "$task" = "${badge#\#}" ] || [ "$task" = "$peer" ]; } && task=
+    # A named agent may show its name as its title, which the badge already says.
+    [ "$task" != "${badge#\#}" ] || task=
     printf '%s\tattach\t%s\t%s\t%s\t%s\t%s\t%s\t-\t%s\n' \
-      "$(state_of "$state")" "$wid" "$dir" "$cb" "$agent" "$yolo" "$(badge_of "$badge" "$peer")" "$task"
+      "$(state_of "$state")" "$wid" "$dir" "$cb" "$agent" "$yolo" "$badge" "$task"
   done
 }
 
@@ -1339,8 +1288,8 @@ next_session() {
 }
 
 # Is NAME, as a trail's name, in use: on a running trail's window, or a record (other than
-# $2's). Names are checked box-wide, not per workspace, because claude's peers are: two
-# claudes called payments would be one address.
+# $2's). Names are checked box-wide, not per workspace, because an agent given the name
+# (session.name) may take it as an address: two called payments would be one.
 trail_name_taken() {
   tmux list-windows -a -F '#{@trails_name}' 2>/dev/null | grep -qxF -e "$1" && return 0
   [ -d "$STATE_DIR" ] || return 1
@@ -1357,14 +1306,15 @@ trail_name_taken() {
 # nothing else ever reaps them. The target is a running row's window id, and the trail's
 # directory guards it: a "new  default" row would otherwise hand us the agent name.
 #
-# On a lost row it forgets instead: there is no process to kill, only the record that would
-# bring one back, and only a lost row of this directory or workspace, as the directory guards a
-# running one.
+# On a lost row it closes the trail instead: there is no process to kill, only the record that
+# would bring one back, and only a lost row of this directory or workspace, as the directory
+# guards a running one. On a closed row it forgets the trail from the history.
 #
-# A kill is on purpose, so it forgets the record too. The agent's wrapper would forget it
-# anyway were it allowed to finish, but killing the window hangs up on the wrapper along with
-# the agent — which is exactly what keeps a record alive when tmux dies — so it never gets to.
-# A trail's window goes alone, and its session, holding nothing else, goes with it.
+# A kill is on purpose, so it closes the record too, into the history. The agent's wrapper
+# would do that anyway were it allowed to finish, but killing the window hangs up on the
+# wrapper along with the agent — which is exactly what keeps a record alive when tmux dies —
+# so it never gets to. A trail's window goes alone, and its session, holding nothing else,
+# goes with it.
 kill_session() {
   ks_ws=
   case ${TRAILS_PICKER:-} in
@@ -1379,10 +1329,18 @@ kill_session() {
       [ "$(rec_get "$1" dir)" = "$PWD" ] || return 0
     fi
     rec_forget "$1"
+    [ -z "${TRAILS_RECENT_CACHE:-}" ] || recent_cache >"$TRAILS_RECENT_CACHE"
     return 0
   fi
   case $1 in
     @*) ;;
+    # A closed row: agent:id:dir. Its cache is rewritten, so the reload drops it.
+    *:*:/*)
+      ks_id=${1#*:}
+      hist_forget "${ks_id%%:*}"
+      [ -z "${TRAILS_RECENT_CACHE:-}" ] || recent_cache >"$TRAILS_RECENT_CACHE"
+      return 0
+      ;;
     *) return 0 ;;
   esac
   case $ks_ws in
@@ -1397,16 +1355,19 @@ kill_session() {
   fi
   # The agent's window, then its session: the window takes the session with it when it is
   # the only one, and the session call ends anything else that was made in it.
+  # Closed into the history first, while its pane can still say whether it was ever worked in.
   key=$(trail_key "$1")
+  rec_close "$key" "$1"
   window_release "$key"
   tmux kill-window -t "$1" 2>/dev/null
   tmux kill-session -t "=$key" 2>/dev/null
-  rec_forget "$key"
   # Recompute the cached running block so the reload that follows drops the killed row (and
   # re-reads the survivors' state). Guarded on the cache path so a bare `trails --kill x` (no
   # picker, path unset) skips it. This is the one reload that classifies again, and it should:
   # a kill is rare and wants fresh state — unlike a Tab, which only relabels.
   [ -n "$TRAILS_MENU_CACHE" ] && live_trails $ks_ws >"$TRAILS_MENU_CACHE"
+  # And the closed ones, which the ended trail just joined ("↩ resume old trails (N ended)").
+  [ -z "${TRAILS_RECENT_CACHE:-}" ] || recent_cache >"$TRAILS_RECENT_CACHE"
 }
 
 # tab: flip the highlighted row from the config's mode — arm it for YOLO, or under "mode":
@@ -1454,7 +1415,7 @@ agent_rows() {
 #   ''             this codebase: "＋ new trail…", which leads to its agents; then its running
 #                  and lost trails, then "↩ resume old trails" when there are ended
 #                  conversations to resume
-#   old            those ended conversations (closed, elsewhere), reached from that last row
+#   old            those ended trails (closed), reached from that last row
 #   workspace      a workspace: "＋ new trail…", which picks a codebase and leads to its
 #                  agents; then its trails across its codebases, with a codebase column;
 #                  then "↩ resume old trails"
@@ -1525,25 +1486,16 @@ print_menu() {
     done)
   fi
 
-  # Closed and elsewhere: recent conversations nothing is running, from the dispatch's cache
-  # (reading them costs ~150ms, which every Tab would pay). The target is agent:id:dir. One that
-  # last ran YOLO resumes YOLO, the way a lost one comes back in its recorded mode, unless
-  # Tab flips it back to prompting; Tab arms one that didn't ("armed" draws its yolo in
-  # yellow). One still open in a claude trails didn't start is shown so you know where it
-  # went, under a verb the dispatch refuses.
+  # Closed: trails that ended, from the history, through the dispatch's cache (read once,
+  # not on every Tab). The target is agent:id:dir. One that last ran YOLO resumes YOLO, the way
+  # a lost one comes back in its recorded mode, unless Tab flips it back to prompting; Tab arms
+  # one that didn't ("armed" draws its yolo in yellow).
   recent=
   if [ -n "$TRAILS_RECENT_CACHE" ] && [ -s "$TRAILS_RECENT_CACHE" ]; then
     now=$(date +%s)
-    recent=$(while IFS="$TAB" read -r m agent dir id yolo pid title; do
+    recent=$(while IFS="$TAB" read -r m agent dir id yolo title; do
       cb=$(label_of "$dir")
-      if [ "$pid" != - ]; then
-        peer=$(claude_peer_by_pid "$pid") || peer=
-        badge=-
-        [ -n "$peer" ] && badge="@$peer "
-        printf 'elsewhere\topen\t%s:%s:%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s  (open in %s, pid %s)\n' \
-          "$agent" "$id" "$dir" "$dir" "$cb" "$agent" "$yolo" "$badge" "$(ago "$m" "$now")" "$title" "$agent" "$pid"
-        continue
-      fi
+      [ "$title" != - ] || title=
       verb=resume
       if [ "$agent:$id:$dir" = "$armed" ]; then
         # Tab flips the row from its last mode, both ways: a yolo one back to prompting,
@@ -1581,7 +1533,7 @@ print_menu() {
   # off the widest window, the agent column measured on an ASCII stand-in: awk counts bytes, and
   # the · in "claude · yolo" is two of them. Each line comes out tagged M (main list: running
   # and lost, then the editor and shell windows, drawn with their kind where the state goes) or
-  # O (old list: closed and elsewhere).
+  # O (old list: closed).
   drawn=
   [ -n "$rows" ] && drawn=$(printf '%s\n' "$rows" | awk -F"$TAB" -v OFS="$TAB" -v states="$STATES_FLAT" \
     -v red="$RED" -v yel="$YEL" -v dim="$DIM" -v rst="$RST" -v inws="$in_ws$all" "$STATES_AWK"'
@@ -2055,7 +2007,7 @@ launch() {
   }
   # args is normally empty; the yolo flag is appended only when this launch was armed (see
   # mode below), and the session templates only matter to agents that can be restored.
-  IFS='|' read -r _ cmd args yolo start resume idform create find naming <<EOF
+  IFS='|' read -r _ cmd args yolo start resume idform create naming <<EOF
 $row
 EOF
 
@@ -2104,8 +2056,8 @@ EOF
   # The conversation ID: the one being resumed, or one this trail starts under so it can be
   # resumed later — chosen here (session.start), or asked of the agent (session.create, a
   # command that prints a fresh ID, then started on with session.resume). An agent that can
-  # only make its own IDs (session.find) starts with none: rec_note_id reads the ID back once
-  # the agent has written it, and writes the record then. No session block, no record.
+  # only make its own IDs starts with none: its hooks say the ID (trails state WORD --id ID),
+  # and rec_note_id writes the record then. No session block, no record.
   id=
   if [ -n "$3" ]; then
     id=$3
@@ -2146,10 +2098,9 @@ EOF
     exit 1
   fi
 
-  # Its name, if it has one: the one you gave, the one its record kept, the one its
-  # conversation carries (claude's --name, or a /rename inside it). Kept only if free — a lost #payments
-  # comes back as lattiq/payments, not lattiq/augur-2 — and a restore counts its own record
-  # as free.
+  # Its name, if it has one: the one you gave, the one its record kept, or for a closed
+  # trail resumed the one its history kept. Kept only if free — a lost #payments comes back as
+  # lattiq/payments, not lattiq/augur-2 — and a restore counts its own record as free.
   label=$(codebase_label "$PWD")
   name=
   if [ -z "$3" ] && [ -n "$TRAILS_NAME" ]; then
@@ -2157,9 +2108,9 @@ EOF
   elif [ -n "$4" ]; then
     name=$(rec_get "$4" name)
     [ -z "$name" ] || ! trail_name_taken "$name" "$4" || name=
-  elif [ -n "$3" ] && [ "$find" = claude ]; then
-    name=$(claude_name_of "$3")
-    [ -z "$name" ] || check_name "$name" 2>/dev/null || name=
+  elif [ -n "$3" ]; then
+    name=$(hist_get "$3" name)
+    [ -z "$name" ] || ! trail_name_taken "$name" || name=
   fi
 
   launch_lock
@@ -2282,6 +2233,9 @@ EOF
     \; set-option -w -t "$wid" @trails_name "$name" \
     \; set-option -w -t "$wid" @trails_since "$(date +%s)"
   [ -n "$id" ] && tmux set-option -w -t "$wid" @trails_id "$id"
+  # A conversation resumed has been worked in, so it goes back into the history when it ends,
+  # even if nothing is typed this time (see hist_add).
+  [ -z "$3" ] || tmux set-option -p -t "$wid" @trails_worked 1
   launch_unlock
   ensure_window "$wid" "$sess" "$ws" >/dev/null || {
     tmux kill-session -t "=$sess" 2>/dev/null
@@ -2311,6 +2265,9 @@ EOF
   # arrival still has it to try again from.
   tmux set-option -w -t "$wid" remain-on-exit off
   [ -n "$4" ] && [ "$4" != "$sess" ] && rec_forget "$4"
+  # A closed trail resumed is a running one again: out of the history, which holds only the
+  # ended ones. Only now, so a resume that died on arrival is still there to try again.
+  [ -z "$3" ] || hist_forget "$3"
 
   if [ -n "$LAUNCH_DETACHED" ]; then
     printf '%s\n' "$sess"
@@ -2401,7 +2358,7 @@ window_of() {
 # session is killed, while the window can still be found by the trail's key.
 window_release() {
   # The workspace is the key's first part, always: a trail may have no record (an agent
-  # without a session block, or codex before its rollout is found), and the record's
+  # without a session block, or one whose hooks have not said its ID yet), and the record's
   # workspace is this anyway.
   cr_win=$(window_of "$1" "${1%%/*}")
   [ -n "$cr_win" ] || return 0
@@ -2597,6 +2554,65 @@ rec_path() {
 rec_get() { sed -n "s/^$2=//p" "$(rec_path "$1")" 2>/dev/null | head -n 1; }
 rec_forget() { [ -n "$1" ] && rm -f "$(rec_path "$1")"; }
 
+# ─── History ─────────────────────────────────────────────────────────────────
+# The trails that ended, to resume: "resume old" lists them (recent_rows). A trail's record
+# moves here when its agent exits or you end it, named by its conversation ID, with when it
+# ended; one with no ID has nothing to resume, and is forgotten. trails' own account of what it
+# ran, not the agent's: it reads no agent's files (ADR 19), so a conversation started outside
+# trails is the agent's own resume's to find. The newest HIST_MAX are kept.
+HIST_DIR=${XDG_STATE_HOME:-$HOME/.local/state}/trails/history
+HIST_MAX=100
+
+# Is $1 a conversation ID trails takes: a letter or digit first (no ".", "..", or a "-x" an
+# agent would read as a flag), then letters, digits, _ . - only. It names a file in the
+# history and goes on an agent's command line.
+id_ok() {
+  case $1 in
+    [A-Za-z0-9]*) ;;
+    *) return 1 ;;
+  esac
+  case $1 in
+    *[!A-Za-z0-9_.-]*) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+hist_path() { printf '%s/%s' "$HIST_DIR" "$1"; }
+hist_get() { id_ok "$1" && sed -n "s/^$2=//p" "$(hist_path "$1")" 2>/dev/null | head -n 1; }
+hist_forget() { id_ok "$1" && rm -f "$(hist_path "$1")"; }
+
+# A copy of record $1 into the history, as ended now. Through a temp file and mv, as
+# rec_write. Nothing to resume adds nothing: a record with no conversation ID, or a
+# conversation that never got a turn — the agent's hooks spoke (@trails_state) but never said
+# working (@trails_worked), on pane or window $2 — which an agent refuses to resume. Without
+# $2, or with no hooks to tell, it is added.
+hist_add() {
+  ha_id=$(rec_get "$1" id)
+  id_ok "$ha_id" || return 0
+  if [ -n "${2:-}" ]; then
+    ha_said=$(tmux display-message -pt "$2" "#{@trails_state}${US}#{@trails_worked}" 2>/dev/null)
+    case $ha_said in
+      ?*"$US") return 0 ;;
+      *) ;;
+    esac
+  fi
+  mkdir -p "$HIST_DIR" || return 0
+  { grep -v '^ended=' "$(rec_path "$1")" && echo "ended=$(date +%s)"; } >"$(hist_path "$ha_id").tmp.$$" 2>/dev/null &&
+    mv -f "$(hist_path "$ha_id").tmp.$$" "$(hist_path "$ha_id")"
+  rm -f "$(hist_path "$ha_id").tmp.$$"
+  # Past HIST_MAX, the oldest go: by ended=, the time the file says, not its mtime. A tab
+  # between them, which no path in the state directory holds.
+  [ "$(find "$HIST_DIR" -type f ! -name '*.tmp.*' | wc -l)" -le "$HIST_MAX" ] ||
+    find "$HIST_DIR" -type f ! -name '*.tmp.*' -exec awk -v OFS="$TAB" '/^ended=/ { print substr($0, 7), FILENAME }' {} + |
+    sort -t "$TAB" -k1,1nr | sed -n "$((HIST_MAX + 1)),\$p" | cut -f2- |
+      while IFS= read -r f; do rm -f "$f"; done
+}
+
+# Record $1 into the history, then gone: a trail that ended. $2 its pane, for hist_add.
+rec_close() {
+  hist_add "$1" "${2:-}"
+  rec_forget "$1"
+}
+
 # Every record's key, one per line: WORKSPACE/NAME, a file one directory down.
 rec_keys() {
   [ -d "$STATE_DIR" ] || return 0
@@ -2640,130 +2656,43 @@ rec_rewrite() {
   rm -f "$rr.tmp.$$"
 }
 
-# The conversation a session's claude has open *now*, by claude's own account: a file per
-# running process, ~/.claude/sessions/<pid>.json, naming its sessionId. The pane's process is
-# the wrapper (see "Surviving tmux"), so the claude is its child; a session started before the
-# wrapper existed runs claude as the pane itself, hence both are tried. ps rather than pgrep -P,
-# which missed children here. $2 is the pane's pid when the caller already has it.
-claude_conv_of() {
-  f=$(claude_file_of "$1" "$2") || return 1
-  grep -o '"sessionId":"[^"]*"' "$f" | head -n 1 | json_field sessionId
-}
-
-# Session $1's pane pid: $2 when the caller already has it, else tmux's. Fails on anything
-# that isn't a pid.
-pane_pid_of() {
-  ppo=${2:-$(tmux display-message -pt "$1" '#{pane_pid}' 2>/dev/null)}
-  case $ppo in
-    '' | *[!0-9]*) return 1 ;;
-    *) printf '%s' "$ppo" ;;
-  esac
-}
-
-# The ~/.claude/sessions/<pid>.json of session $1's claude: the pane's process or its child.
-# Both readers above and below go through here, so they can't disagree about which claude
-# a session is.
-claude_file_of() {
-  pp=$(pane_pid_of "$1" "${2:-}") || return 1
-  for k in "$pp" $(ps_tree | awk -v p="$pp" '$2 == p { print $1 }'); do
-    f=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/sessions/$k.json
-    [ -f "$f" ] || continue
-    printf '%s\n' "$f"
-    return 0
-  done
-  return 1
-}
-
-# What session $1's claude says it is doing, as a classify() verdict. Claude keeps a
-# `status` in the same file, from its own state rather than its screen (ADR 11):
+# Follow a trail to the conversation its agent says it is in (`trails state WORD --id ID`,
+# which sets @trails_said_id on its pane). Two jobs, one mechanism:
 #
-#   busy      a turn or delegated work is running           working
-#   waiting   a dialog wants you: a permission prompt, a     blocked
-#             question, a sandbox request (waitingFor says which)
-#   idle      neither                                       idle
+#   the agent moves on: /resume or /clear inside claude switches the conversation, and a
+#   record left on the first would restore the wrong one after tmux dies. The one it left
+#   goes into the history, to resume like any ended trail.
 #
-# Any other value, or no field, is a claude this reader doesn't understand: it fails, and
-# classify goes by the hooks alone (unknown without them), so a release that renames the
-# field costs accuracy for that release, not the listing.
+#   an agent that picks its own ID (codex, gemini) has no record until it says the ID: launch()
+#   has nothing to write. This writes it, once the agent can be resumed at all.
 #
-# After the verdict, when it was set: statusUpdatedAt, in seconds, which classify weighs
-# against a hook's word (ADR 18). Nothing after it when the file has none.
-claude_state_of() {
-  f=$(claude_file_of "$1" "$2") || return 1
-  case $(grep -o '"status":"[^"]*"' "$f" | head -n 1 | json_field status) in
-    busy) cs=working ;;
-    waiting) cs=blocked ;;
-    idle) cs=idle ;;
-    *) return 1 ;;
-  esac
-  cs_at=$(grep -o '"statusUpdatedAt":[0-9]*' "$f" | head -n 1 | cut -d: -f2)
-  printf '%s %s\n' "$cs" "${cs_at%???}"
-}
-
-# The name session $1's claude answers to: what other claude sessions list it as and message
-# it by. --name or /rename set it; otherwise claude derives one (trails-20). Same file as
-# claude_state_of, which is why classify reads both in one pass.
-claude_peer_of() {
-  f=$(claude_file_of "$1" "$2") || return 1
-  claude_peer_in "$f"
-}
-claude_peer_in() { grep -o '"name":"[^"]*"' "$1" | head -n 1 | json_field name | json_text; }
-
-# The same for the claude running as pid $1, for a conversation open in a claude trails
-# didn't start (an elsewhere row).
-claude_peer_by_pid() {
-  f=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/sessions/$1.json
-  [ -f "$f" ] && claude_peer_in "$f"
-}
-
-# Session $2's state by reader $1 (an agent's session.find), when that reader can tell, and
-# when the agent last said so (Unix time, or nothing): "idle 1792738435". classify weighs it
-# against a hook's word, and falls back past it for an agent without a reader, or a reader
-# that can't answer. $3 is the pane's pid, $4 its @trails_id.
-agent_state() {
-  case $1 in
-    claude) claude_state_of "$2" "$3" ;;
-    *) return 1 ;;
-  esac
-}
-
-# Follow a session to the conversation it is actually in, for an agent whose config names a
-# session.find reader. Two jobs, one mechanism:
-#
-#   claude moves on: /resume or /clear inside it switches the conversation, and a record left
-#   on the first would restore the wrong one after tmux dies — and leave the real one looking
-#   like a stranger's (a ! row in `trails ls`).
-#
-#   codex and gemini can't start under an ID trails chooses, so launch() writes no record for
-#   them. Once the agent has written its conversation, this reads the ID back and writes it.
-#
-# Only while the session still carries the ID the record has (none, before the first write),
-# so a record is never rewritten from a session that isn't its own. Only sessions launch()
-# made, too: they carry @agent, and the agent's config row is what names the reader.
+# Only while the record still holds the ID the trail carries, so a record is never rewritten
+# from a session that isn't its own; and a record is made only for a trail that carries no ID
+# yet, so a pass that read the window just before its agent quit can't bring back the record
+# the quit just closed.
 #
 # id_label and id_agent and not label and agent: sh has no locals, and sessions() calls this
-# from inside its own read loop, then prints the label it read — which a plain `label=` here
-# overwrote with an empty one for any session without @agent.
+# from inside its own read loop, then prints the label it read.
 #
-#   rec_note_id KEY WID @agent @trails_id dir pane_pid
+#   rec_note_id KEY WID @agent @trails_id @trails_said_id dir
 #
 # All but the key come from sessions()' one list-windows, rather than a tmux client each per
 # trail per pass — and a script polling `trails ls -a` makes a pass every few seconds.
 rec_note_id() {
+  now=$5 carried=$4
+  [ -n "$now" ] && [ "$now" != "$carried" ] || return 0
   id_label=$3
   id_agent=${id_label%% *}
-  [ -n "$id_agent" ] || return 0
-  finder=$(agent_row "$id_agent" | awk -F'|' '{ print $9 }')
-  [ -n "$finder" ] || return 0
-  carried=$4
-  was=
-  [ -f "$(rec_path "$1")" ] && was=$(rec_get "$1" id)
-  [ "$carried" = "$was" ] || return 0
-  now=$(find_conv "$finder" "$1" "$2" "$6") || return 0
-  [ -n "$now" ] && [ "$now" != "$was" ] || return 0
+  resumable "$id_agent" || return 0
   if [ -f "$(rec_path "$1")" ]; then
+    [ "$(rec_get "$1" id)" = "$carried" ] || return 0
+    # The conversation left, into the history if it was ever worked in; the new one starts
+    # unworked.
+    hist_add "$1" "$2"
+    tmux set-option -pqu -t "$2" @trails_worked
     rec_rewrite "$1" '/^id=/ { print "id=" ENVIRON["RR_V"]; next } 1' "$now" || return 0
   else
+    [ -z "$carried" ] || return 0
     mode=
     case $id_label in *"(YOLO)"*) mode=yolo ;; *) ;; esac
     # A trail's first record, written once its agent has a conversation: the rest of what a
@@ -2772,99 +2701,9 @@ rec_note_id() {
     IFS="$US" read -r w_ws w_label w_name <<EOF
 $w
 EOF
-    rec_write "$1" "$id_agent" "$5" "$now" "$mode" "$w_ws" "$w_label" "$w_name"
+    rec_write "$1" "$id_agent" "$6" "$now" "$mode" "$w_ws" "$w_label" "$w_name"
   fi
   tmux set-option -w -t "$2" @trails_id "$now"
-}
-
-# The conversation trail $2 (window $3) has open, by reader $1 (an agent's session.find). $4
-# is its pane's pid, when the caller has it.
-find_conv() {
-  case $1 in
-    claude) claude_conv_of "$3" "$4" ;;
-    codex) codex_conv_of "$2" "$3" "$4" ;;
-    *) return 1 ;;
-  esac
-}
-
-# Every process as `pid ppid`. sessions() takes one snapshot for its whole pass into PS_TREE,
-# so a box with six agents runs ps once per poll rather than once per agent; anything else
-# asks ps directly.
-ps_tree() {
-  if [ -n "${PS_TREE:-}" ]; then
-    printf '%s\n' "$PS_TREE"
-  else
-    ps -A -o pid= -o ppid=
-  fi
-}
-
-# The pids under session $1's pane: the wrapper, the agent, and what the agent runs (an npm-
-# installed codex is a node shim in front of the real binary). Three levels is all of those.
-# $2 is the pane's pid when the caller already has it.
-pane_pids() {
-  pp=$(pane_pid_of "$1" "${2:-}") || return 1
-  ps_tree | awk -v p="$pp" '
-    { kid[$2] = kid[$2] " " $1 }
-    END {
-      print p; lvl = p
-      for (d = 0; d < 3; d++) {
-        next_lvl = ""; n = split(lvl, cur, " ")
-        for (i = 1; i <= n; i++) if (cur[i] in kid) { print substr(kid[cur[i]], 2); next_lvl = next_lvl kid[cur[i]] }
-        lvl = next_lvl
-      }
-    }' | tr ' ' '\n' | awk 'NF'
-}
-
-# The newest rollout under $1 for directory $2, written at or after $3, that no record other
-# than $4's claims ($5 is held_ids). A function, not inline in codex_conv_of's $( ... ): a case
-# pattern's ) inside a command substitution ends it early in bash 3.2, macOS's sh.
-codex_rollout_for() {
-  newest_first "$1" -mindepth 4 -maxdepth 4 -name 'rollout-*.jsonl' -mtime -2 |
-    while read -r m path; do
-      [ "$m" -ge "$3" ] || break
-      meta=$(head -n 1 "$path" | jq -r '.payload | "\(.id)\t\(.cwd)"' 2>/dev/null)
-      id=${meta%%"$TAB"*}
-      [ "${meta#*"$TAB"}" = "$2" ] || continue
-      case $5 in
-        *" $id "*) [ "$id" = "$4" ] || continue ;;
-        *) ;;
-      esac
-      printf '%s' "$path"
-      break
-    done
-}
-
-# codex's conversation for trail $1, window $2 ($3 its pane's pid). codex picks its own ID and writes it nowhere until the
-# first message: then $CODEX_HOME/sessions/YYYY/MM/DD/rollout-<time>-<uuid>.jsonl appears,
-# its first line a session_meta whose payload carries the id and the cwd
-# (codex-rs/rollout/src/recorder.rs). Two ways to find it, best first:
-#
-#   the rollout file the codex process holds open, by lsof — exact, if codex keeps it open;
-#   else the newest rollout for this directory started since the session was, that no other
-#   session's record claims — right unless two codex sessions in one directory both start
-#   talking between two listings.
-#
-# Files older than two days are skipped, and so is codex's later .jsonl.zst compression, which
-# only reaches files untouched for a week.
-codex_conv_of() {
-  root=${CODEX_HOME:-$HOME/.codex}/sessions
-  [ -d "$root" ] || return 1
-  f=
-  # One lsof for all of the pane's pids (-p takes a comma list), not one per pid: this runs
-  # every poll for as long as the trail lives, and each lsof costs hundreds of ms.
-  pids=$(pane_pids "$2" "$3" | paste -sd, -)
-  if [ -n "$pids" ] && command -v lsof >/dev/null 2>&1; then
-    f=$(lsof -p "$pids" -Fn 2>/dev/null | sed -n 's/^n//p' | grep '/rollout-[^/]*\.jsonl$' | head -n 1)
-  fi
-  if [ -z "$f" ]; then
-    dir=$(trail_dir "$2")
-    since=$(tmux display-message -pt "$2" '#{?@trails_since,#{@trails_since},#{session_created}}' 2>/dev/null)
-    own=$(rec_get "$1" id)
-    held=$(held_ids)
-    f=$(codex_rollout_for "$root" "$dir" "${since:-0}" "$own" "$held")
-  fi
-  [ -n "$f" ] || return 1
-  head -n 1 "$f" | jq -r '.payload.id // empty' 2>/dev/null
 }
 
 # Is this record's trail gone? Not "is a window of that name running": a name can be taken
@@ -2997,167 +2836,55 @@ restore_all() {
   done
 }
 
-# ─── Recent conversations ────────────────────────────────────────────────────
-# Records are no history: the wrapper forgets one the moment its agent exits, so they only
-# ever hold what is running or what tmux took down. Each CLI keeps a history anyway — it is
-# what its own --resume reads — so "what was I working on" is answered from there, read when
-# asked, rather than from a log of our own that would start empty and miss every agent
-# started without trails. Old and new conversations take the same path; nothing to import.
+# ─── Recent trails ───────────────────────────────────────────────────────────
+# "Resume old": the trails that ended, from the history (see "History"), newest first. Only
+# those of an agent that is installed and can resume, ended in the last RECENT_DAYS days,
+# RECENT_MAX of them; in directory $1, or every one when it is empty. A conversation a record
+# holds is left out, being a live or lost row already.
 #
-# The cost is bounded by the rows shown, not the history behind them: a RECENT_DAYS window
-# on mtime, newest first, and only as many files opened as it takes to fill RECENT_MAX rows.
+#   ended  agent  dir  id  yolo  title
 #
-# Only an agent with a session block can resume, and of those, the first to run each of
-# these two commands is the one whose store is read:
-#   claude    ~/.claude/projects/<cwd, non-alphanumerics as ->/<id>.jsonl, a JSON line per
-#             event. "entrypoint":"cli" keeps out conversations scripts ran through the SDK —
-#             most of the files there, measured. The title is the last ai-title line, the
-#             text the tmux title (and so a record's task) carries, else the last prompt for
-#             a conversation too short to have earned one. Neither: it never got a message,
-#             and claude refuses to resume it.
-#   opencode  its SQLite store's session table: top-level (a subagent run has a parent_id),
-#             not archived, and titled — "New session - <date>" is the placeholder until the
-#             first message.
-#
-# A conversation a record holds is left out, being a live or lost row already. One still open in
-# a claude that trails did not start (a plain `claude` in some terminal) is shown, marked !,
-# and Enter refuses it: resuming would put a second claude on the conversation, each adding
-# turns the other never sees. claude says which are open itself — a file per running process,
-# ~/.claude/sessions/<pid>.json, naming its sessionId — so "open" is that file's pid alive.
+# Never an empty field: TAB is IFS whitespace, and read would shift the rest left into it.
+# The title last, since it is free text.
 RECENT_DAYS=${TRAILS_RECENT_DAYS:-10}
 RECENT_MAX=${TRAILS_RECENT_MAX:-5}
 
-# find's matches as "mtime path", newest first, one stat for the lot. Asked rather than
-# guessed which stat this is: GNU reads BSD's -f as --file-system and answers something else.
-newest_first() {
-  if stat -c %Y / >/dev/null 2>&1; then
-    find "$@" -exec stat -c '%Y %n' {} + 2>/dev/null
-  else
-    find "$@" -exec stat -f '%m %N' {} + 2>/dev/null
-  fi | sort -rn
-}
-
-# One file's mtime, the same way.
-file_mtime() {
-  if stat -c %Y / >/dev/null 2>&1; then
-    stat -c %Y "$1" 2>/dev/null
-  else
-    stat -f %m "$1" 2>/dev/null
-  fi
-}
-
-# A string field off one JSON line, then made readable. sed rather than jq, which a fresh
-# Debian box lacks; these are flat lines read for display, not data to round-trip.
-json_field() { sed -En "s/.*\"$1\":\"(([^\"\\\\]|\\\\.)*)\".*/\1/p"; }
-json_text() { sed -e 's/\\[nt]/ /g' -e 's/\\"/"/g' -e 's/\\\\/\\/g'; }
-
-# Every conversation ID a record holds, space-separated and padded for a case match.
+# Every conversation ID a record holds, space-separated and padded for a match.
 held_ids() {
   printf ' %s ' "$(rec_keys | while read -r key; do rec_get "$key" id; done | tr '\n' ' ')"
 }
 
-# The pid of the running claude that has conversation $1 open, if any. A file whose pid is
-# gone is one claude did not get to clean up (a crash, a kill -9), and means nothing.
-claude_open_pid() {
-  for f in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/sessions/*.json; do
-    [ -f "$f" ] || continue
-    grep -qF "\"sessionId\":\"$1\"" "$f" || continue
-    pid=${f##*/}
-    pid=${pid%.json}
-    kill -0 "$pid" 2>/dev/null && printf '%s' "$pid" && return 0
-  done
-  return 1
-}
-
-# The rows below are all one shape, TSV: mtime, agent, dir, id, yolo, pid, title. yolo is
-# "yolo" or "-", pid the process still holding the conversation open or "-", and the title
-# goes last. Never an empty field mid-row: tab is whitespace to `read`, so two tabs in a row
-# collapse into one and every field after shifts left. $1 is the directory to keep, or empty
-# for every one.
-#
-# yolo is claude's own record of the last turn's permission mode: "bypassPermissions" is what
-# --dangerously-skip-permissions runs as. opencode keeps nothing like it, so its rows say "-".
-#
-# Scoped, it opens the one folder claude files that directory under and checks each file's
-# own cwd, since the folder name is lossy (/a.b and /a-b share one).
-# The name a claude conversation was given, by --name or /rename: its last custom-title.
-claude_name_in() {
-  grep -F '"type":"custom-title"' "$1" | tail -n 1 | json_field customTitle | json_text
-}
-
-# The same for conversation $1, wherever its transcript is.
-claude_name_of() {
-  for f in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/projects/*/"$1".jsonl; do
-    [ -f "$f" ] && claude_name_in "$f" && return 0
-  done
-  return 1
-}
-
-claude_recent() {
-  root=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects
-  if [ -n "$1" ]; then
-    where=$root/$(printf '%s' "$1" | sed 's/[^A-Za-z0-9]/-/g') depth=1
-  else
-    where=$root depth=2
-  fi
-  [ -d "$where" ] || return 0
-  held=$(held_ids)
-  n=0
-  newest_first "$where" -mindepth "$depth" -maxdepth "$depth" -name '*.jsonl' -mtime "-$RECENT_DAYS" |
-    while read -r m f; do
-      id=${f##*/}
-      id=${id%.jsonl}
-      case $held in *" $id "*) continue ;; *) ;; esac
-      [ "$(grep -m1 -o '"entrypoint":"[^"]*"' "$f")" = '"entrypoint":"cli"' ] || continue
-      dir=$(grep -m1 -o '"cwd":"[^"]*"' "$f" | json_field cwd)
-      [ -z "$1" ] || [ "$dir" = "$1" ] || continue
-      title=$(grep -F '"type":"ai-title"' "$f" | tail -n 1 | json_field aiTitle | json_text)
-      [ -n "$title" ] ||
-        title=$(grep -F '"type":"last-prompt"' "$f" | tail -n 1 | json_field lastPrompt | json_text | cut -c1-80)
-      # A named conversation (--name, /rename) gets no ai-title, since its name is its title.
-      # Lead with the name, the handle you'd resume it by, then what it was last asked.
-      name=$(claude_name_in "$f")
-      [ -n "$name" ] && title="#$name${title:+ · $title}"
-      [ -n "$title" ] || continue
-      yolo=-
-      [ "$(grep -o '"permissionMode":"[^"]*"' "$f" | tail -n 1)" = '"permissionMode":"bypassPermissions"' ] && yolo=yolo
-      pid=$(claude_open_pid "$id") || pid=-
-      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$m" "$2" "$dir" "$id" "$yolo" "$pid" "$title"
-      n=$((n + 1))
-      [ "$n" -lt "$RECENT_MAX" ] || break
-    done
-}
-
-# Read-only, so a running opencode holding the database is never in the way.
-opencode_recent() {
-  db=${XDG_DATA_HOME:-$HOME/.local/share}/opencode/opencode.db
-  [ -f "$db" ] && command -v sqlite3 >/dev/null 2>&1 || return 0
-  since=$((($(date +%s) - RECENT_DAYS * 86400) * 1000))
-  where=
-  [ -n "$1" ] && where="AND directory = '$(printf '%s' "$1" | sed "s/'/''/g")'"
-  sqlite3 -readonly -separator "$TAB" "$db" "
-    SELECT time_updated / 1000, '$2', directory, id, '-', '-',
-           replace(replace(title, char(9), ' '), char(10), ' ')
-    FROM session
-    WHERE parent_id IS NULL AND time_archived IS NULL AND time_updated >= $since
-      AND title NOT LIKE 'New session - %' $where
-    ORDER BY time_updated DESC" 2>/dev/null |
-    awk -F"$TAB" -v held="$(held_ids)" -v max="$RECENT_MAX" \
-      'index(held, " " $4 " ") == 0 { print; if (++n >= max) exit }'
-}
-
-# Both stores, newest first, RECENT_MAX in all. Each source stops at RECENT_MAX of its own,
-# which is enough: the overall newest five are among the union of each one's newest five.
 # TRAILS_RECENT_MAX=0 turns it off, for a caller that only wants what is running.
 recent_rows() {
   [ "$RECENT_MAX" -gt 0 ] 2>/dev/null || return 0
-  avail=" $(available_agents | tr '\n' ' ') "
-  cp=$(store_agent claude)
-  op=$(store_agent opencode)
-  {
-    resumable "$cp" && case $avail in *" $cp "*) claude_recent "$1" "$cp" ;; *) ;; esac
-    resumable "$op" && case $avail in *" $op "*) opencode_recent "$1" "$op" ;; *) ;; esac
-  } | sort -t "$TAB" -k1,1nr | head -n "$RECENT_MAX"
+  [ -d "$HIST_DIR" ] || return 0
+  rr_ok=" $(available_agents | while read -r a; do resumable "$a" && printf '%s ' "$a"; done)"
+  find "$HIST_DIR" -type f ! -name '*.tmp.*' -exec awk -v OFS="$TAB" -v d="$1" \
+    -v since="$(($(date +%s) - RECENT_DAYS * 86400))" -v ok="$rr_ok" -v held="$(held_ids)" '
+    function row() {
+      if (f == "" || v["ended"] + 0 < since || v["id"] == "") return
+      if (d != "" && v["dir"] != d) return
+      if (index(ok, " " v["agent"] " ") == 0 || index(held, " " v["id"] " ") != 0) return
+      t = v["task"]; gsub(/\t/, " ", t)
+      print v["ended"], v["agent"], v["dir"], v["id"], (v["yolo"] == "yolo" ? "yolo" : "-"), (t == "" ? "-" : t)
+    }
+    FNR == 1 { row(); f = FILENAME; delete v }
+    { k = substr($0, 1, index($0, "=") - 1); v[k] = substr($0, index($0, "=") + 1) }
+    END { row() }' {} + 2>/dev/null | sort -t "$TAB" -k1,1nr | head -n "$RECENT_MAX"
+}
+
+# The closed rows for the picker's screen (TRAILS_PICKER): none on the workspaces, agents and
+# every-trail screens; on a workspace's, those whose directory it claims; else this directory's.
+# Read once into the picker's cache, and again after ctrl-x forgets one.
+recent_cache() {
+  case ${TRAILS_PICKER:-} in
+    ws | agents | all) ;;
+    workspace*) recent_rows '' | while IFS="$TAB" read -r m agent dir rest; do
+      [ "$(workspace_of "$dir" 2>/dev/null)" = "$TRAILS_WS" ] &&
+        printf '%s\t%s\t%s\t%s\n' "$m" "$agent" "$dir" "$rest"
+    done ;;
+    *) recent_rows "$PWD" ;;
+  esac
 }
 
 # mtime, now → "5m ago", "3h ago", "2d ago".
@@ -3703,164 +3430,6 @@ diff_cmd() {
   diff_show "$dir"
 }
 
-# ─── Hooks ───────────────────────────────────────────────────────────────────
-# An agent's hooks are how it tells trails what it is doing (ADR 18): each calls
-# `trails state WORD` at the moments its state changes. Setting them up is yours; this
-# prints them for the agents trails knows, and says where they go.
-#
-#   trails hooks                each agent in the config: whether its hooks are set up
-#   trails hooks AGENT          the hook config for AGENT, to paste where it reads hooks
-#
-# The words, per agent: working when a prompt is sent or a tool has run (the second is what
-# clears waiting once a permission is granted), waiting when it asks you something, idle when
-# its session starts and when a turn ends. The hook command calls trails by name and never
-# fails, so a trails off the hook's PATH costs the status, not an error on every turn.
-hook_say() { printf 'trails state %s 2>/dev/null || true' "$1"; }
-
-# Where agent program $1's hooks go and what to know about them: sets hk_file and hk_note.
-# Fails for a program trails has no hooks for. No jq: `trails hooks` asks it of every agent.
-hook_where() {
-  hk_note=
-  case $1 in
-    claude)
-      hk_file=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json
-      hk_note="Claude reads hooks when a session starts: running ones need a restart. The same hooks ship as a Claude Code plugin: /plugin marketplace add gunasekar/trails, then /plugin install trails@trails; use one or the other."
-      ;;
-    codex)
-      hk_file=${CODEX_HOME:-$HOME/.codex}/hooks.json
-      hk_note="Codex runs a hook only once you have reviewed and trusted it: /hooks in codex."
-      ;;
-    gemini) hk_file=$HOME/.gemini/settings.json ;;
-    copilot)
-      hk_file=$HOME/.copilot/hooks/trails.json
-      hk_note="Copilot has no hook for a permission prompt: it reads as working until answered."
-      ;;
-    cursor-agent)
-      hk_file=$HOME/.cursor/hooks.json
-      hk_note="Cursor's CLI has been reported to skip beforeSubmitPrompt and stop, which its editor runs: check with trails ls after a turn. It has no hook for a permission prompt."
-      ;;
-    opencode) hk_file=${XDG_CONFIG_HOME:-$HOME/.config}/opencode/plugins/trails.js ;;
-    *) return 1 ;;
-  esac
-}
-
-# The hooks for agent program $1, printed; hook_where says where they go. Fails for a program trails has no hooks for.
-hook_spec() {
-  hk_wk=$(hook_say working) hk_wt=$(hook_say waiting) hk_id=$(hook_say idle)
-  # The jq programs below are single-quoted on purpose: their $names are jq's, not the shell's.
-  case $1 in
-    claude | codex)
-      if [ "$1" = claude ]; then
-        # shellcheck disable=SC2016
-        hk_ask='{ "Notification": [{ "matcher": "permission_prompt", "hooks": $wt }],
-                  "PreToolUse": [{ "matcher": "AskUserQuestion", "hooks": $wt }] }'
-      else
-        # shellcheck disable=SC2016
-        hk_ask='{ "PermissionRequest": [{ "hooks": $wt }] }'
-      fi
-      jq -n --arg wk "$hk_wk" --arg wt "$hk_wt" --arg id "$hk_id" '
-        def h($c): [{ "type": "command", "command": $c }];
-        (h($wk)) as $wk | (h($wt)) as $wt | (h($id)) as $id
-        | { "hooks": ({ "SessionStart": [{ "hooks": $id }],
-                        "UserPromptSubmit": [{ "hooks": $wk }],
-                        "PostToolUse": [{ "hooks": $wk }],
-                        "Stop": [{ "hooks": $id }] } + '"$hk_ask"') }'
-      ;;
-    gemini)
-      jq -n --arg wk "$hk_wk" --arg wt "$hk_wt" --arg id "$hk_id" '
-        def h($c): [{ "hooks": [{ "type": "command", "command": $c }] }];
-        { "hooks": { "SessionStart": h($id), "BeforeAgent": h($wk), "AfterTool": h($wk),
-                     "Notification": h($wt), "AfterAgent": h($id) } }'
-      ;;
-    copilot)
-      jq -n --arg wk "$hk_wk" --arg id "$hk_id" '
-        def h($c): [{ "type": "command", "bash": $c }];
-        { "version": 1,
-          "hooks": { "sessionStart": h($id), "userPromptSubmitted": h($wk), "postToolUse": h($wk),
-                     "agentStop": h($id) } }'
-      ;;
-    cursor-agent)
-      jq -n --arg wk "$hk_wk" --arg id "$hk_id" '
-        { "version": 1,
-          "hooks": { "beforeSubmitPrompt": [{ "command": $wk }], "stop": [{ "command": $id }] } }'
-      ;;
-    opencode)
-      cat <<'JS'
-// trails: tell trails what this opencode is doing (trails state), from its own events.
-export const Trails = async ({ $ }) => {
-  const say = (word) => $`trails state ${word}`.quiet().nothrow()
-  return {
-    "tool.execute.after": async () => { await say("working") },
-    event: async ({ event }) => {
-      const t = event.type
-      if (t === "session.status") {
-        const s = event.properties?.status?.type
-        if (s === "busy") await say("working")
-        else if (s === "idle") await say("idle")
-      } else if (t === "session.idle") await say("idle")
-      else if (t === "permission.asked") await say("waiting")
-      else if (t === "permission.replied") await say("working")
-    },
-  }
-}
-JS
-      ;;
-    *) return 1 ;;
-  esac
-}
-
-# The agent program behind name $1: a config agent's program, else $1 itself.
-hook_program() {
-  hp=$(agent_row "$1" | awk -F'|' '{ print $2 }')
-  basename "${hp:-$1}"
-}
-
-# Whether file $1 holds trails' hooks.
-hooked() { [ -f "$1" ] && grep -q 'trails state' "$1"; }
-
-# Whether the Claude Code plugin with them is installed, which is as good.
-claude_plugin_hooked() {
-  grep -q '"trails@trails"' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/installed_plugins.json" 2>/dev/null
-}
-
-hooks_cmd() {
-  if [ -z "${1:-}" ]; then
-    printf '%s\n' "$AGENTS" | while IFS='|' read -r name prog _rest; do
-      [ -n "$name" ] || continue
-      p=$(basename "$prog")
-      if ! hook_where "$p"; then
-        st="no hooks   trails knows none for $p; see trails help"
-      elif hooked "$hk_file"; then
-        st="hooked     $(tilde_path "$hk_file")"
-      elif [ "$p" = claude ] && claude_plugin_hooked; then
-        st="hooked     the Claude Code plugin (trails@trails)"
-      else
-        st="not set up trails hooks $name"
-      fi
-      # Claude's own state file speaks for it with no hooks at all (said).
-      [ "$p" != claude ] || st="$st  (its own file speaks without them)"
-      printf '%-10s %s\n' "$name" "$st"
-    done
-    return 0
-  fi
-  prog=$(hook_program "$1")
-  hook_where "$prog" || {
-    echo "trails: no hooks for $1 that trails knows: have its hooks run" >&2
-    echo "        trails state working | waiting | idle   (see trails help)" >&2
-    return 1
-  }
-  [ -z "${2:-}" ] || {
-    echo "trails: hooks takes an agent, and prints its hooks to paste" >&2
-    return 1
-  }
-  hook_spec "$prog"
-  if [ "$prog" = claude ] && claude_plugin_hooked; then
-    echo "# the Claude Code plugin (trails@trails) has these already: pasting them too would run each twice" >&2
-  else
-    echo "# into $(tilde_path "$hk_file"), merged with any hooks already there${hk_note:+ — $hk_note}" >&2
-  fi
-}
-
 # ─── Keys ────────────────────────────────────────────────────────────────────
 # trails binds nothing (principle 2 of the design). `trails keys` prints lines for a
 # tmux.conf, to paste or ignore, or to load whole with the one run-shell line it opens with:
@@ -4139,10 +3708,8 @@ map_agent() { tmux display-message -pt "$1" '#{@agent}' 2>/dev/null; }
 # Each row shows its trail's key — lattiq/augur-2 — since box-wide the codebase and the
 # workspace are what tell trails apart.
 map_menu() {
-  sessions | classify | while IFS="$TAB" read -r state _wid key _ws label _dir _cb badge peer task; do
+  sessions | classify | while IFS="$TAB" read -r state _wid key _ws label _dir _cb _badge task; do
     rank_dot "$state"
-    [ "$peer" = - ] || [ "$badge" = "#$peer" ] || label="$label @$peer"
-    [ "$task" = "$peer" ] && task=
     [ -n "$task" ] && task="  $task"
     # Sort key up front, stripped after — leaving the key, then what fzf draws.
     printf '%s\t%s\t%s● %-9s%s  %s · %s%s\n' \
@@ -4469,8 +4036,8 @@ map() {
 # the whole box, so it works from anywhere, and the fzf internals run from a picker that has
 # already passed through here.
 # A name for a new trail, checked before anything starts: it names the trail's session
-# (<workspace>/<name>) and becomes the agent's own name (claude's --name, what its peers
-# message it by), so it must be a word both take, and free. Letters, digits, - and _: tmux
+# (<workspace>/<name>) and becomes the agent's own name where its config gives it a flag for
+# one (session.name), so it must be a word both take, and free. Letters, digits, - and _: tmux
 # refuses . and :, and a space would need quoting at every `tmux a -t`. Not digits alone,
 # which would read as the #2 badge of an unnamed trail. Free means no trail and no record
 # hold it (trail_name_taken), so a lost trail keeps its name until it is restored or forgotten.
@@ -4606,7 +4173,8 @@ trails", which lists the ones that ended (esc comes back):
                     name, then enter (on the workspace picker: a new workspace)
   ctrl-e            the editor for the row's codebase (trails edit)
   ctrl-/            show or hide the preview: the trail's screen as it is now
-  ctrl-x            end a running trail, or forget a lost one
+  ctrl-x            end a running trail, or forget a lost one; in the old trails,
+                    forget a closed one
   ctrl-a            every running trail, in every workspace (prefix A opens it too);
                     esc there comes back
   ?                 these keys; q comes back
@@ -4617,11 +4185,10 @@ trails", which lists the ones that ended (esc comes back):
 States — ● running, ○ not:
   ● needs you       asking you something
   ● your turn       finished its turn, waiting on you
-  ● unknown         nothing says: set up its hooks (trails hooks)
+  ● unknown         nothing says: set up its hooks, https://github.com/gunasekar/trails#hooks-for-each-agent
   ● working         busy
   ○ lost            tmux died under it; enter (or trails restore) brings it back
   ○ closed          it ended; enter resumes its conversation, in the mode it last ran in
-  ○ elsewhere       open in a claude trails didn't start; enter says where
 
 EOF
 }
@@ -4637,8 +4204,8 @@ usage: trails [command]
                     you can start; a workspace's trails, from a shell in its session; or
                     the workspaces, from ~
   new NAME [AGENT]  start a trail named NAME: its session is <workspace>/NAME, and
-                    the agent takes the name where it can (claude's peers message it
-                    as NAME); -y for YOLO
+                    the agent takes the name too where its config says how
+                    (session.name); -y for YOLO
   ls [-a | DIR]     this directory's trails, running or not; DIR's, or -a for
                     every directory — a table, or TSV when piped
   map here          prefix M: to the map; with none up, or on it, pick up to four
@@ -4669,9 +4236,9 @@ usage: trails [command]
                     workspaces in the status line
   diff [DIR]        this codebase's changes, untracked files too, side by side: prefix G,
                     in a popup; the config's "diff" says what shows them
-  hooks [AGENT]     whether each agent's hooks tell trails its state; AGENT's hook
-                    config, to paste where it reads hooks
-  state WORD        for an agent's hooks: working, waiting or idle
+  state WORD [--id ID]
+                    for an agent's hooks: working, waiting or idle, and the
+                    conversation it is in (https://github.com/gunasekar/trails#hooks-for-each-agent)
   config            the agents file: written from the built-ins the first
                     time, then opened in $EDITOR (~/.config/trails/config.json)
   help [keys]       this; keys, the keys alone (? in the picker)
@@ -4782,11 +4349,6 @@ case $1 in
     keys
     exit 0
     ;;
-  hooks)
-    shift
-    hooks_cmd "$@"
-    exit
-    ;;
   diff)
     if [ "${2:-}" = --show ]; then
       diff_show "${3:-}" popup
@@ -4828,10 +4390,17 @@ case $1 in
     esac
     TRAILS_PICKER=ws
     ;;
-  # Called by the wrapper launch() puts around every agent, when the agent exits.
+  # Called by the wrapper launch() puts around every agent, when the agent exits: the trail
+  # goes into the history, to resume.
+  # From `trails state --id`, in the background, when a hook says a conversation the trail
+  # doesn't carry yet: a pass over the trails moves its record (rec_note_id).
+  --said)
+    sessions >/dev/null
+    exit 0
+    ;;
   --forget)
     window_release "$2"
-    rec_forget "$2"
+    rec_close "$2" "${TMUX_PANE:-}"
     exit 0
     ;;
   # prefix ? and ? in the picker: the keys, in a popup the size of them, on the terminal that
@@ -4978,14 +4547,7 @@ export TRAILS_RESTORE_OK
 
 # Closed rows need no tmux: resuming bare is still resuming. A workspace's are the box's
 # recent conversations whose directory it claims.
-case ${TRAILS_PICKER:-} in
-  ws | agents | all) : >"$TRAILS_RECENT_CACHE" ;;
-  workspace*) recent_rows '' | while IFS="$TAB" read -r m agent dir rest; do
-    [ "$(workspace_of "$dir" 2>/dev/null)" = "$TRAILS_WS" ] &&
-      printf '%s\t%s\t%s\t%s\n' "$m" "$agent" "$dir" "$rest"
-  done >"$TRAILS_RECENT_CACHE" ;;
-  *) recent_rows "$PWD" >"$TRAILS_RECENT_CACHE" ;;
-esac
+recent_cache >"$TRAILS_RECENT_CACHE"
 
 MENU=$(print_menu) || exit 1
 [ -n "$MENU" ] || [ "${TRAILS_PICKER:-}" != all ] || {
@@ -5058,9 +4620,11 @@ want=$(printf '%s\n' "$MENU" | awk -F"$TAB" '
   !i && index(s, "● your turn") { i = NR }
   END { print b ? b : i }')
 case ${TRAILS_PICKER:-} in
+  # ctrl-x forgets a closed trail: out of the history, and the list reloaded without it.
   old | workspace-old)
     set -- "$@" --prompt='Resume a trail: ' \
-      "$(hint_opt "# enter: resume · tab: toggle YOLO · ctrl-e: editor · ctrl-/: preview · ?: keys · esc: back")"
+      "$(hint_opt "# enter: resume · tab: toggle YOLO · ctrl-e: editor · ctrl-/: preview · ctrl-x: forget · ?: keys · esc: back")" \
+      --bind="ctrl-x:execute-silent($0 --kill {2})+reload($0 --print-menu)"
     ;;
   ws)
     # ctrl-n names a new workspace: the name is the query, as a trail's is below.
@@ -5235,7 +4799,7 @@ fi
 case $target in
   *:/*)
     case $choice in
-      resume* | open*)
+      resume*)
         t_dir=${target#*:}
         t_dir=${t_dir#*:}
         ;;
@@ -5301,12 +4865,6 @@ case $choice in
   restore*)
     new=$(cd "$(rec_get "$target" dir)" && restore_one "$target") || exit 1
     attach_key "$new"
-    ;;
-  # A closed row whose conversation a claude outside trails still has open. Say where, start nothing.
-  open*)
-    pid=$(claude_open_pid "${target#*:}")
-    echo "trails: that conversation is still open in ${target%%:*}${pid:+ (pid $pid)} — switch to it there, or quit it first" >&2
-    exit 1
     ;;
   # Before yolo*, which "resume-yolo" does not match but reads as if it might. A fresh trail
   # on the old conversation, recorded under its ID like any launch, so tmux dying can't lose it.

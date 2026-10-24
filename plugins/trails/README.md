@@ -17,10 +17,14 @@ Each hook runs `trails state working | waiting | idle`:
 | a prompt is sent, a tool has run (`UserPromptSubmit`, `PostToolUse`) | working |
 | a permission prompt, a question (`Notification` `permission_prompt`, `PreToolUse` `AskUserQuestion`) | waiting: needs you |
 
-They are the hooks `trails hooks claude` prints for `~/.claude/settings.json`; use
-the plugin or paste those, not both. Each is silent, never fails a turn, and does nothing outside tmux or
-when `trails` isn't on the hook's `PATH`.
+The `SessionStart` hook also passes the conversation Claude is in (`--id`, from the
+`session_id` Claude gives each hook), so a trail follows Claude through `/resume`
+and `/clear`, and a restore brings back the conversation you were in.
 
-Claude also keeps its own state in a file trails reads, so trails knows Claude's
-state without these hooks. With them, the hook's word and the file's are weighed,
-the newer winning.
+They are the hooks [the README](../../README.md#hooks-for-each-agent) gives for
+`~/.claude/settings.json`; use the plugin or paste those, not both. Each is silent,
+never fails a turn, and does nothing outside tmux or when `trails` isn't on the
+hook's `PATH`.
+
+trails reads none of Claude's files, so without these hooks a Claude trail's state
+is *unknown*.

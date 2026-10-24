@@ -173,14 +173,14 @@ assert_eq "$(wins)" "other·ed proj·payments " "no second editor window"
 
 # The agent exits with the editor and the shell beside it: the session goes, and the trail's window keeps
 # them as the codebase's editor window — named for the editor, marked, no longer a trail's window, not
-# a trail. The record goes with the trail.
+# a trail. The record goes, and since the agent never had a turn, not into the history.
 type_in default/payments exit
 wait_for 5 no_session default/payments || fail "the session outlived its agent"
 wait_for 5 sh -c "[ \"\$(tmux display-message -pt '$win' '#{window_name}')\" = 'proj·ed' ]" || fail "the trail's window was not released: $(tmux display-message -pt "$win" '#{window_name} #{@trails_window} #{@trails_tool}')"
 assert_eq "$(tmux display-message -pt "$win" '#{@trails_tool}|#{@trails_window}|#{@trails_dir}')" "editor||$PROJ" "a tool window now"
 wait_for 5 sh -c "[ \"\$(tmux list-panes -t '$win' | wc -l | tr -d ' ')\" = 2 ]" || fail "the agent pane lingers"
 assert_eq "$(panes)" "editor shell " "the editor and the shell stay"
-assert_eq "$(cd "$PROJ" && "$TRAILS" ls | wc -l | tr -d ' ')" 0 "not a trail"
+assert_eq "$(cd "$PROJ" && "$TRAILS" ls | wc -l | tr -d ' ')" 0 "not a trail, nor in the history: it never had a turn"
 assert_no_file "$STATE/default/payments" "the record went"
 
 # trails edit finds that window for the codebase, and a new trail there gets a trail's window of its own.

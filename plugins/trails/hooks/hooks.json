@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "trails state idle 2>/dev/null || true"
+            "command": "trails state idle --id \"$(jq -r '.session_id // empty')\" 2>/dev/null || true"
           }
         ]
       }

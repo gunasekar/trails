@@ -3,11 +3,10 @@
 #
 #   trails   its config, records and caches go to a throwaway XDG tree, and tmux to its own
 #            server (TMUX_TMPDIR) — the machine's sessions are never seen or touched
-#   claude   the real one, with the real HOME, since its login lives there; the conversation it
-#            records under ~/.claude/projects is removed by demo_done. trails itself reads a
-#            sandboxed claude history (CLAUDE_CONFIG_DIR) holding only the demo's two ended
-#            conversations — otherwise `trails ls -a` would list every project on the machine —
-#            and a wrapper drops that setting before running the real claude
+#   claude   the real one, with the real HOME, since its login lives there, and the repo's
+#            plugin hooks (--settings), so its trails say what they are doing; the
+#            conversation it records under ~/.claude/projects is removed by demo_done. The two
+#            ended trails "resume old trails" lists are seeded into trails' own history
 #   projects ~/code/checkout, plus any in DEMO_EXTRA (storefront, notify, api), the acme
 #            workspace's, and any in DEMO_PERSONAL (blog) under ~/src, the personal workspace's,
 #            so paths read as they would for anyone; created here and removed by demo_done,
@@ -46,11 +45,10 @@ unset TMUX TMUX_PANE XDG_DATA_HOME
 # Recorded from inside another claude (or anything else that sets them), these would tell the
 # demo's claude it is a child of that one. It should start as the top-level session it shows.
 for v in $(env | grep -o -E '^CLAUDE[A-Z_]*='); do unset "${v%=}"; done
-export CLAUDE_CONFIG_DIR="$demo/claude"
-demo_history="$CLAUDE_CONFIG_DIR/projects/${history##*/}"
+demo_history="$XDG_STATE_HOME/trails/history"
 mkdir -p "$project/payments" "$TMUX_TMPDIR" "$demo/bin" "$XDG_CONFIG_HOME/trails" "$demo_history"
 ln -s "$here/agent" "$demo/bin/codex"
-printf '#!/bin/sh\nunset CLAUDE_CONFIG_DIR\nexec "%s" "$@"\n' "$real_claude" >"$demo/bin/claude"
+printf '#!/bin/sh\nexec "%s" --settings "%s" "$@"\n' "$real_claude" "$here/../../plugins/trails/hooks/hooks.json" >"$demo/bin/claude"
 chmod +x "$demo/bin/claude"
 real_tmux=$(command -v tmux)
 printf '#!/bin/sh\nexec "%s" -f "%s" "$@"\n' "$real_tmux" "$demo/tmux.conf" >"$demo/bin/tmux"
@@ -98,7 +96,7 @@ cat >"$XDG_CONFIG_HOME/trails/config.json" <<JSON
   "mode": "yolo",
   "agents": [
     { "name": "claude", "program": "$demo/bin/claude", "yolo": "--dangerously-skip-permissions",
-      "session": { "start": "--session-id {id}", "resume": "--resume {id}", "id": "uuid", "find": "claude" } },
+      "session": { "start": "--session-id {id}", "resume": "--resume {id}", "id": "uuid" } },
     { "name": "codex", "program": "$demo/bin/codex", "yolo": "--dangerously-bypass-approvals-and-sandbox" }
   ],
   "workspaces": {
@@ -108,14 +106,13 @@ cat >"$XDG_CONFIG_HOME/trails/config.json" <<JSON
 }
 JSON
 
-# Two conversations that ended here, in claude's own history format, for "resume old trails".
+# Two trails that ended here, in trails' own history, for "resume old trails".
 n=0
 for title in "Release notes for v2.3" "Tighten the refund window"; do
   n=$((n + 1))
   id=00000000-0000-4000-8000-00000000000$n
-  printf '{"type":"user","entrypoint":"cli","cwd":"%s","sessionId":"%s"}\n{"type":"ai-title","aiTitle":"%s","sessionId":"%s"}\n' \
-    "$project" "$id" "$title" "$id" >"$demo_history/$id.jsonl"
-  touch -t "$(date -v-"$((n * 2))"d +%Y%m%d%H%M)" "$demo_history/$id.jsonl"
+  printf 'agent=claude\ndir=%s\nid=%s\nyolo=%s\ntask=%s\nworkspace=acme\nlabel=checkout\nname=\nserver=default\nended=%s\n' \
+    "$project" "$id" "$([ "$n" = 1 ] && echo yolo)" "$title" "$(($(date +%s) - n * 2 * 86400))" >"$demo_history/$id"
 done
 
 # Something for claude to work on, and to have open in the Neovim demo: a package that builds

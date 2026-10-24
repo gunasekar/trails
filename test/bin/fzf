@@ -38,6 +38,11 @@ for a in "$@"; do
         *) ;;
       esac
       ;;
+    # ctrl-x, as the picker binds it: run on the picked row, its {2} the row's second field.
+    --bind=ctrl-x:execute-silent\(*)
+      xcmd=${a#--bind=ctrl-x:execute-silent(}
+      xcmd=${xcmd%%)+*}
+      ;;
     --bind=ctrl-n:execute-silent\(*)
       case ",$keys," in
         *,ctrl-n,*)
@@ -94,6 +99,15 @@ pick=$(printf '%s\n' "$rows" | while IFS= read -r row; do
   fi
 done)
 [ -n "$pick" ] || exit 130
+# $FZF_KEYS naming ctrl-x: the bound command runs on the picked row, and fzf is left as Esc
+# would leave it. Without a ctrl-x binding on this screen, nothing runs.
+case ",$keys," in
+  *,ctrl-x,*)
+    [ -z "${xcmd:-}" ] || sh -c "$(printf '%s' "$xcmd" | sed "s|{2}|'$(printf '%s' "$pick" | cut -f2)'|")"
+    exit 130
+    ;;
+  *) ;;
+esac
 # --expect prints the key that ended fzf after the query: $FZF_KEY, or an empty line for Enter.
 [ -n "$query" ] && printf '%s\n' "${FZF_QUERY:-}"
 [ -n "$expect" ] && printf '%s\n' "$expect_key"
