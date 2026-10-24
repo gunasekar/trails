@@ -593,17 +593,18 @@ the title last so a reader that takes the last field keeps working as columns ar
 added:
 
 ```text
-life  state  session  agent  yolo  dir  id  when  workspace  title
+life  state  session  agent  yolo  dir  id  when  workspace  trail  title
 ```
 
 | Field | Values |
 |---|---|
 | `life` | `running` or `stopped` |
 | `state` | `needs-you`, `your-turn`, `unknown`, `working` · `lost`, `closed` |
-| `session` | the trail's session (`acme/checkout-2`), `-` for one that ended |
+| `session` | the trail's session (`acme/checkout-2`); for a lost one, the session it had; `-` for one that ended |
 | `yolo` | `yolo` or `-` |
 | `when` | when an ended trail ended (Unix time), else `-` |
 | `workspace` | the trail's workspace |
+| `trail` | its trail ID (`t3f9a0c1e`), the same through a restore; `-` for one that ended |
 
 `TRAILS_RECENT_MAX=0` skips the history, for a poll that wants running trails only.
 

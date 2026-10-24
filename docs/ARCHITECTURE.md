@@ -109,7 +109,8 @@ session, so nothing is parsed back out of a name:
 | `@trails_id` | the conversation it is in (see Surviving tmux) |
 | `@trails_dir` | the directory, verbatim from `$PWD` at launch |
 | `@trails_ws` | its workspace |
-| `@trails_session` | its session's name, also its record's key |
+| `@trails_session` | its session's name, its address in tmux |
+| `@trails_trail` | its trail ID, its record's name (ADR 20) |
 | `@trails_label` | the codebase label |
 | `@trails_name` | the name you gave it, if any |
 | `@trails_since` | when it started, Unix time |
@@ -226,8 +227,9 @@ no backslash, so `\037` there can only be the separator. A `read` with that IFS 
 command substitution of its own: its IFS would split the substitution's words.
 
 A key trails is handed (by the picker, the map) is checked by `key_ok`: a
-`WORKSPACE/NAME`, and nothing with `..` or a leading `/`. `rec_path` keeps a record's path inside its
-directory whatever it is given.
+`WORKSPACE/NAME`, and nothing with `..` or a leading `/`. A record is named by a trail
+ID, `t` and eight hex digits (`tid_ok`), and `rec_path` finds nothing for anything
+else, so no argument reaches outside the records' directory.
 
 ## Agents
 
@@ -355,11 +357,11 @@ Every agent lives inside the tmux server, so a reboot, a crash or
 keeps its transcripts. What dies is the knowledge of which conversation belonged
 to which trail.
 
-So `trails` writes that down outside tmux, one file per trail, keyed by its
-session's name, one directory down:
+So `trails` writes that down outside tmux, one file per trail, named by the trail's
+ID under its codebase's folder ([ADR 20](decisions/0020-a-trail-has-an-id-of-its-own.md)):
 
 ```text
-~/.local/state/trails/sessions/lattiq/augur-2
+~/.local/state/trails/sessions/code-augur/t3f9a0c1e
 agent=claude
 dir=/Users/me/code/augur
 id=15fcb95c-19cc-49dc-a7fc-7a7dd032e5c9
@@ -369,7 +371,26 @@ workspace=lattiq
 label=augur
 name=
 server=default
+trail=t3f9a0c1e
+session=lattiq/augur-2
 ```
+
+**A trail's ID is its own.** `launch` makes it (`new_tid`, from a UUID) and puts it on
+the trail's window as `@trails_trail`; a restore keeps it, a resume from the history
+makes a new one. The folder is `path_key` of the codebase root, the checklist's name
+for it, and is for reading: `rec_path` finds a record by its ID alone
+(`sessions/*/<id>`), and nothing depends on where it sits. The session, `session=`,
+is the trail's address in tmux and may change under it: a restore that finds its
+session taken lands on the next `-N`, and only that line changes. Asking which
+record runs as a session (`rec_of_session`, `session_taken`) greps `session=`.
+
+**Records from before 1.8** were `sessions/<workspace>/<name>` with no `trail=`.
+`rec_migrate`, first thing in any run that reads records, gives each an ID and files
+it under its codebase, once (a `.migrating` folder keeps two runs from doing it at
+the same time). A trail still running from before has no `@trails_trail`: the next
+`sessions` pass gives its window its record's ID, and until then `rec_is_dead`
+matches it as 1.7 did, by session and conversation. The wrapper of such a trail calls
+`--forget SESSION`, and its record is found by `session=`.
 
 **A record belongs to one tmux server**, the socket's name (`default`, or what `-L`
 named). A record counts as lost, and is restored, only on its own server: on any
@@ -400,9 +421,9 @@ partway through `kill-server`, and `pane-exited` reports the wrong session name.
 So the agent runs under a small `sh` wrapper:
 
 ```sh
-self=$1 name=$2 resume=$3; shift 3; trap : INT QUIT; t0=$(date +%s); "$@"; s=$?
+self=$1 tid=$2 sess=$3 resume=$4; shift 4; trap : INT QUIT; t0=$(date +%s); "$@"; s=$?
   [ -n "$resume" ] && [ "$s" -ne 0 ] && [ $(($(date +%s) - t0)) -lt 20 ] ||
-    "$self" --forget "$name"
+    "$self" --forget "$tid" "$sess"
   exit $s
 ```
 
@@ -416,10 +437,9 @@ agent can take longer than the launch check to start and then refuse the resume
 the record then would lose the only pointer to the conversation, so the trail
 comes back as lost, to retry or forget.
 
-**A record is dead** when no window carries its key (`@trails_session`) together
-with its ID as `@trails_id`, not when no session
-has its name. Otherwise a session you created by hand under the same name would
-hide it. The trail's window killed is nothing to a record: the trail lives in its
+**A record is dead** when no window carries its trail ID (`@trails_trail`), not when
+no session has its name. Otherwise a session you created by hand under the same name
+would hide it. The trail's window killed is nothing to a record: the trail lives in its
 session. A
 dead record also keeps its name reserved, so a fresh agent lands on `-2` and
 can't overwrite it.
@@ -427,7 +447,8 @@ can't overwrite it.
 `trails restore` brings back every dead record, detached, in its own directory,
 into the workspace the config gives that directory now (the record's workspace
 only when no entry claims it), rebuilding its session and its window and keeping the
-name. If claude refuses the ID (`No conversation found`, an agent you
+name, and its ID: the record stays where it is, and only `session=` changes when the
+session it had is taken. If claude refuses the ID (`No conversation found`, an agent you
 never typed into), it starts fresh in its place. If the agent can't start at all,
 the record is put back for next time. Companions are not restored.
 
@@ -533,7 +554,7 @@ counts.
 |---|---|---|
 | `new` / `yolo` | agent, or `agent:dir` on a workspace's screen | launch a fresh agent, with the YOLO flag for `yolo` |
 | `attach` | window id | `attach_to`: the workspace on the trail's window, or its session |
-| `restore` | record key | `restore_one` in the record's directory, then attach |
+| `restore` | trail ID | `restore_one` in the record's directory, then attach |
 | `resume` / `resume-yolo` | `agent:id:dir` | launch with the resume flag and that ID in that directory, recorded like any launch; `resume-yolo` when it last ran YOLO (unless Tab flipped it back) or Tab armed it |
 | `tool` | window id | an editor or shell window: switch or attach to it |
 | `browse` | | `pick_codebase`: the workspace's codebase tree (`codebase_tree`), walking the file system from a `browse:DIR` row (`walk_dir`), then the agents screen |

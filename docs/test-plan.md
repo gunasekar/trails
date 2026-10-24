@@ -31,7 +31,7 @@ covered yet.
 | 4 | New trail in another codebase | A `t-screens` |
 | 5 | Move between trails and workspaces | A `t-screens`, `t-inside`, `t-grouped` |
 | 6 | Editor and shell beside the agent | A `t-tools` · M3 |
-| 7 | Come back after a break, restore after tmux dies | A `t-restore`, `t-autorestore` · M4 |
+| 7 | Come back after a break, restore after tmux dies | A `t-restore`, `t-autorestore`, `t-upgrade` · M4 |
 | 8 | Finish, or resume old work | A `t-launch`, `t-picker` (ctrl-x) · M5 (resume) |
 
 ### Everything else

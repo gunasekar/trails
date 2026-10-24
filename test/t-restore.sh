@@ -13,8 +13,10 @@ id2=$(tmux display-message -pt default/fast '#{@trails_id}')
 
 tmux kill-server
 sleep 0.3
-assert_file "$STATE/default/payments" "record survives"
-assert_file "$STATE/default/fast" "record survives"
+assert_file "$(trec default/payments)" "record survives"
+assert_file "$(trec default/fast)" "record survives"
+pay_file=$(trec default/payments)
+pay_tid=$(sed -n 's/^trail=//p' "$pay_file")
 
 # fast's conversation is gone from the agent's store, so its resume will be refused.
 rm -f "$HOME/.agent/$id2"
@@ -28,14 +30,16 @@ wait_for 5 screen_has default/payments 'agent id=' || fail "payments never came 
 assert_match "$(screen default/payments)" "id=$id1 name= resume=1" "resumed on its conversation"
 assert_eq "$(tmux display-message -pt default/payments '#{@trails_id}')" "$id1" "@trails_id kept"
 assert_eq "$(tmux display-message -pt default/payments '#{@trails_name}')" payments "its name kept"
-assert_eq "$(sed -n 's/^id=//p' "$STATE/default/payments")" "$id1" "record id kept"
+assert_eq "$(sed -n 's/^id=//p' "$(trec default/payments)")" "$id1" "record id kept"
+assert_eq "$(tmux display-message -pt default/payments '#{@trails_trail}')" "$pay_tid" "the same trail: its ID kept"
+assert_eq "$(trec default/payments)" "$pay_file" "its record where it was"
 assert_eq "$(tmux list-windows -t default -F '#{window_name}' | sort | tr '\n' ' ')" "proj·fast proj·payments " "both windows, in the workspace"
 
 wait_for 5 screen_has default/fast 'agent id=' || fail "fast never came back"
 assert_match "$(screen default/fast)" 'resume=0' "fast started fresh"
 newid=$(tmux display-message -pt default/fast '#{@trails_id}')
 [ "$newid" != "$id2" ] || fail "fast should have a new id"
-assert_eq "$(sed -n 's/^id=//p' "$STATE/default/fast")" "$newid" "record follows the new id"
+assert_eq "$(sed -n 's/^id=//p' "$(trec default/fast)")" "$newid" "record follows the new id"
 
 # Nothing left to restore.
 assert_eq "$(cd "$T" && "$TRAILS" restore 2>&1)" "trails: nothing to restore" "idempotent"
@@ -61,5 +65,22 @@ printf 'id=conv-2\n' >"$STATE/default/broken"
 out=$(cd "$T" && "$TRAILS" restore 2>&1)
 assert_match "$out" "forgot default/gone — $T/nowhere is gone \(conversation conv-1 stays in the history of stub\)" "a gone directory, said so"
 assert_match "$out" "forgot default/broken — its record was unreadable" "an unreadable record, said so"
-assert_no_file "$STATE/default/gone" "the gone one forgotten"
-assert_no_file "$STATE/default/broken" "the broken one forgotten"
+assert_no_file "$(trec default/gone)" "the gone one forgotten"
+assert_no_file "$(trec default/broken)" "the broken one forgotten"
+
+# A lost trail whose session something else took after the reboot (a tmux session of your
+# own by that name) comes back as the next -N, and is the same trail: its ID, and its record,
+# unmoved, with session= rewritten.
+FZF_PICK='' trails_bg new solo
+wait_for 5 screen_has default/solo 'agent id=' || fail "solo never started"
+solo_tid=$(tmux display-message -pt default/solo '#{@trails_trail}')
+solo_file=$(trec default/solo)
+tmux kill-server
+sleep 0.3
+tmux new-session -d -s default/solo sh
+out=$(cd "$T" && "$TRAILS" restore 2>&1)
+assert_match "$out" "restored default/solo as default/solo-2" "back under the next -N"
+wait_for 5 screen_has default/solo-2 'agent id=' || fail "solo-2 never came up"
+assert_eq "$(tmux display-message -pt default/solo-2 '#{@trails_trail}')" "$solo_tid" "the same trail"
+assert_file "$solo_file" "its record where it was"
+assert_eq "$(sed -n 's/^session=//p' "$solo_file")" default/solo-2 "its session rewritten"

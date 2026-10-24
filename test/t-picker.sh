@@ -65,7 +65,7 @@ wid2=$(tmux display-message -pt default/proj-2 '#{window_id}')
 (cd "$PROJ" && "$TRAILS" --kill "$wid2")
 wait_for 3 no_session default/proj-2 || fail "ctrl-x left the session"
 wait_for 5 sh -c "[ \"\$(tmux list-windows -t default -F '#{window_name}' | sort | tr '\n' ' ')\" = 'proj proj·billing ' ]" || fail "the trail's window stayed: $(tmux list-windows -t default -F '#{window_name}' | tr '\n' ' ')"
-assert_no_file "$STATE/default/proj-2" "the record went"
+assert_no_file "$(trec default/proj-2)" "the record went"
 
 # Esc starts nothing. The test's own driver terminals come and go (the one attached to the
 # trail ctrl-x just ended closes in its own time), so only the rest are compared.

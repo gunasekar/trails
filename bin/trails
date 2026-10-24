@@ -967,12 +967,18 @@ RST=$(printf '\033[0m')
 # empty option into the next field. The task stays last, since it is free text.
 sessions() {
   tmux list-windows -a -F \
-    "#{window_id}${US}#{session_name}${US}#{@trails_ws}${US}#{@trails_session}${US}#{@agent}${US}#{@trails_id}${US}#{@trails_said_id}${US}#{@trails_dir}${US}#{@trails_label}${US}#{@trails_name}${US}$TASK_FMT" 2>/dev/null |
-    while IFS="$US" read -r wid sname ws key label s_id said_id dir clabel cname task; do
+    "#{window_id}${US}#{session_name}${US}#{@trails_ws}${US}#{@trails_session}${US}#{@trails_trail}${US}#{@agent}${US}#{@trails_id}${US}#{@trails_said_id}${US}#{@trails_dir}${US}#{@trails_label}${US}#{@trails_name}${US}$TASK_FMT" 2>/dev/null |
+    while IFS="$US" read -r wid sname ws key tid label s_id said_id dir clabel cname task; do
       # A window of your own, or a trail's window in its workspace: not a trail.
       [ -n "$ws" ] && [ "$sname" = "$key" ] && [ -n "$label" ] || continue
-      rec_note_task "$key" "$task"
-      rec_note_id "$key" "$wid" "$label" "$s_id" "$said_id" "$dir"
+      # A trail started before 1.8 has no ID on its window: its record's, or a new one.
+      if [ -z "$tid" ]; then
+        tid=$(rec_of_session "$key")
+        [ -n "$tid" ] || tid=$(new_tid)
+        tmux set-option -w -t "$wid" @trails_trail "$tid" 2>/dev/null
+      fi
+      rec_note_task "$tid" "$task"
+      rec_note_id "$tid" "$wid" "$label" "$s_id" "$said_id" "$dir" "$key"
       printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$wid" "$key" "$ws" "$label" "$dir" "$clabel" \
         "$(trail_badge "$key" "$clabel" "$cname")" "$task"
     done
@@ -1073,12 +1079,13 @@ rank_dot() {
 # directory's. "Here" is the exact directory, as the picker has it, so `trails` and
 # `trails ls` never disagree about what is here:
 #
-#   life  state  session  agent  yolo  dir  id  when  workspace  title
+#   life  state  session  agent  yolo  dir  id  when  workspace  trail  title
 #
 #   life       running (the trail is there) or stopped (it isn't)
 #   state      a STATES id: needs-you, your-turn, unknown, working · lost, closed
-#   session    what to attach to: the trail's session (lattiq/augur-2); - for a
-#              trail that ended
+#   session    what to attach to: the trail's session (lattiq/augur-2); for a lost one the
+#              session it had; - for a trail that ended
+#   trail      its trail ID (t3f9a0c1e), - for one that ended
 #   yolo       yolo or -
 #   when       when an ended trail ended (Unix time), - otherwise
 #   workspace  the trail's workspace; for an ended one, the one its directory belongs to
@@ -1098,28 +1105,30 @@ rank_dot() {
 ls_rows() {
   live=$(sessions | classify)
   {
-    meta=$(tmux list-windows -a -F "#{window_id}$TAB#{@trails_id}" 2>/dev/null)
+    meta=$(tmux list-windows -a -F "#{window_id}$TAB#{@trails_id}$TAB#{@trails_trail}" 2>/dev/null)
     [ -n "$live" ] && printf '%s\n' "$live" | while IFS="$TAB" read -r state wid key ws label dir _cb badge task; do
       agent=${label%% *}
       yolo=-
       case $label in *"(YOLO)"*) yolo=yolo ;; *) ;; esac
       id=$(printf '%s\n' "$meta" | awk -F"$TAB" -v n="$wid" '$1 == n { print $2; exit }')
-      printf '%s\trunning\t%s\t%s\t%s\t%s\t%s\t%s\t-\t%s\t%s\n' "$badge" \
-        "$(state_of "$state")" "$key" "$agent" "$yolo" "${dir:--}" "${id:--}" "$ws" "${task:--}"
+      tid=$(printf '%s\n' "$meta" | awk -F"$TAB" -v n="$wid" '$1 == n { print $3; exit }')
+      printf '%s\trunning\t%s\t%s\t%s\t%s\t%s\t%s\t-\t%s\t%s\t%s\n' "$badge" \
+        "$(state_of "$state")" "$key" "$agent" "$yolo" "${dir:--}" "${id:--}" "$ws" "${tid:--}" "${task:--}"
     done | awk -F"$TAB" -v states="$STATES_FLAT" "$STATES_AWK"'
       { n++; row[n] = $0; st[n] = $3 }
       END { for (r = 1; r <= ns; r++) for (i = 1; i <= n; i++) if (rank[st[i]] == r) print row[i] }'
     rec_dead | while read -r key; do
       yolo=$(rec_get "$key" yolo)
       ws=$(rec_get "$key" workspace)
-      printf '%s\tstopped\tlost\t%s\t%s\t%s\t%s\t%s\t-\t%s\t%s\n' "$(rec_badge "$key")" "$key" \
+      ls_was=$(rec_get "$key" session)
+      printf '%s\tstopped\tlost\t%s\t%s\t%s\t%s\t%s\t-\t%s\t%s\t%s\n' "$(rec_badge "$key")" "${ls_was:--}" \
         "$(rec_get "$key" agent)" "${yolo:--}" "$(rec_get "$key" dir)" "$(rec_get "$key" id)" \
-        "${ws:--}" "$(t=$(rec_get "$key" task); printf '%s' "${t:--}")"
+        "${ws:--}" "$key" "$(t=$(rec_get "$key" task); printf '%s' "${t:--}")"
     done
   } | d=$1 awk -F"$TAB" 'ENVIRON["d"] == "" || $7 == ENVIRON["d"]'
   recent_rows "$1" | while IFS="$TAB" read -r m agent dir id yolo title; do
     ws=$(workspace_of "$dir") || ws=-
-    printf -- '-\tstopped\tclosed\t-\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$agent" "$yolo" "$dir" "$id" "$m" "$ws" "${title:--}"
+    printf -- '-\tstopped\tclosed\t-\t%s\t%s\t%s\t%s\t%s\t%s\t-\t%s\n' "$agent" "$yolo" "$dir" "$id" "$m" "$ws" "${title:--}"
   done
 }
 
@@ -1195,7 +1204,7 @@ list_sessions() {
       return int(d / 86400) "d ago"
     }
     {
-      n++; badge = $1; st[n] = $3; dir = $7; ws = $10; ti[n] = $11
+      n++; badge = $1; st[n] = $3; dir = $7; ws = $10; ti[n] = $12
       if (ti[n] == "-") ti[n] = ""
       ag[n] = $5 ($6 == "yolo" ? " · yolo" : ""); aw[n] = length($5 ($6 == "yolo" ? " - yolo" : ""))
       if (badge == "-") badge = ""
@@ -1279,10 +1288,11 @@ most_wants() {
 }
 
 # A record's workspace and codebase, for the picker's lost rows: what the record kept, else
-# its key's workspace and its directory's label.
+# its session's workspace and its directory's label.
 rec_ws() {
   rw=$(rec_get "$1" workspace)
-  printf '%s' "${rw:-${1%%/*}}"
+  [ -n "$rw" ] || rw=$(rec_get "$1" session)
+  printf '%s' "${rw%%/*}"
 }
 rec_codebase() {
   rc=$(rec_get "$1" label)
@@ -1293,12 +1303,14 @@ rec_codebase() {
 # Taken means running, or recorded: a trail that died with tmux keeps its session's name
 # reserved until it is restored or forgotten. Otherwise a fresh agent started in that
 # codebase after a reboot would land on the dead one's name and its new record would
-# overwrite the old — the one pointer to the conversation you meant to come back to. $2 is a
-# record key to disregard: a restore may keep its own old name.
+# overwrite the old — the one pointer to the conversation you meant to come back to. $2 is the
+# trail ID of a record to disregard: a restore may keep its own old name.
 session_taken() {
   tmux has-session -t "=$1" 2>/dev/null && return 0
   tmux list-windows -a -F '#{@trails_session}' 2>/dev/null | grep -qxF "$1" && return 0
-  [ "$1" != "${2:-}" ] && [ -f "$(rec_path "$1")" ]
+  [ -d "$STATE_DIR" ] || return 1
+  grep -rlxF -e "session=$1" "$STATE_DIR" 2>/dev/null | grep '/t[0-9a-f]\{8\}$' |
+    grep -qvxF "$(rec_path "${2:-}")"
 }
 
 # The first free session name for an unnamed trail of codebase $2 in workspace $1: ws/label,
@@ -1386,7 +1398,7 @@ kill_session() {
   # the only one, and the session call ends anything else that was made in it.
   # Closed into the history first, while its pane can still say whether it was ever worked in.
   key=$(trail_key "$1")
-  rec_close "$key" "$1"
+  rec_close "$(tmux display-message -pt "$1" '#{@trails_trail}' 2>/dev/null)" "$1"
   window_release "$key"
   tmux kill-window -t "$1" 2>/dev/null
   tmux kill-session -t "=$key" 2>/dev/null
@@ -2111,7 +2123,7 @@ EOF
   # says so, since the config is the user's to change.
   ws=$(workspace_of "$PWD") || ws=
   if [ -z "$ws" ]; then
-    [ -n "$4" ] && ws=$(rec_get "$4" workspace)
+    [ -n "$4" ] && ws=$(rec_ws "$4")
     [ -n "$ws" ] || ws=${TRAILS_WS:-}
     [ -n "$ws" ] || {
       ws=default
@@ -2144,19 +2156,24 @@ EOF
     [ -z "$name" ] || { ! trail_name_taken "$name" && ! session_taken "$ws/$name"; } || name=
   fi
 
+  # A restore ($4, the trail's ID) comes back as the same trail, under the session it had.
+  tid=${4:-$(new_tid)}
+  was=
+  [ -z "$4" ] || was=$(rec_get "$4" session)
+
   launch_lock
   # Brought back already, on this conversation, by another restore while this one waited.
-  if [ -n "$4" ] && [ -n "$3" ] && [ "$(tmux display-message -pt "=$4:" '#{@trails_id}' 2>/dev/null)" = "$3" ]; then
+  if [ -n "$was" ] && [ -n "$3" ] && [ "$(tmux display-message -pt "=$was:" '#{@trails_id}' 2>/dev/null)" = "$3" ]; then
     launch_unlock
-    echo "trails: $4 is back already" >&2
+    echo "trails: $was is back already" >&2
     exit 3
   fi
 
-  # Its session, and so its key: ws/name for a named trail, else ws/label, or ws/label-N for the
-  # Nth unnamed one here. A restore asks for its old name back, and gets it unless something
-  # has since taken it — a fresh agent you started in that codebase after the reboot, say —
-  # or its workspace has changed under it; then it lands on the next free -N like any second
-  # trail would, and the old record goes with it below.
+  # Its session: ws/name for a named trail, else ws/label, or ws/label-N for the Nth unnamed
+  # one here. A restore asks for its old session back, and gets it unless something has since
+  # taken it — a fresh agent you started in that codebase after the reboot, say — or its
+  # workspace has changed under it; then it lands on the next free -N like any second trail
+  # would. Its record stays where it is, under its ID: only its session= changes.
   if [ -n "$name" ]; then
     sess=$ws/$name
     if session_taken "$sess" "$4"; then
@@ -2169,8 +2186,8 @@ EOF
       }
       sess=$(next_session "$ws" "$name" "$4")
     fi
-  elif [ -n "$4" ] && [ "${4%%/*}" = "$ws" ] && ! session_taken "$4" "$4"; then
-    sess=$4
+  elif [ -n "$was" ] && [ "${was%%/*}" = "$ws" ] && ! session_taken "$was" "$4"; then
+    sess=$was
   else
     sess=$(next_session "$ws" "$label" "$4")
   fi
@@ -2187,13 +2204,12 @@ EOF
   # what clears it, and that only works if the record is already there when the agent exits.
   # An agent that dies at 1.6s would otherwise outrun its own record and leave a lost row for a
   # trail that never was.
-  # What the key's record said before, put back if the session can't be made: two trails
-  # started at once can pick one name, and the one tmux turns away must not leave its record
-  # over the one that runs.
+  # A restored trail's record as it was, put back if the session can't be made; a new trail's
+  # goes with it.
   rec_prev=
   if [ -n "$id" ]; then
-    rec_prev=$(cat "$(rec_path "$sess")" 2>/dev/null)
-    rec_write "$sess" "$1" "$PWD" "$id" "$2" "$ws" "$label" "$name"
+    [ -z "$4" ] || rec_prev=$(cat "$(rec_path "$tid")" 2>/dev/null)
+    rec_write "$tid" "$sess" "$1" "$PWD" "$id" "$2" "$ws" "$label" "$name"
   fi
 
   # The agent's window is made as its session: a session of its own named after the trail,
@@ -2231,16 +2247,16 @@ EOF
   # untouched by anything the user renames or re-numbers.
   # shellcheck disable=SC2086
   wid=$(tmux_door new-session -d -s "$sess" -n "$win" -c "$PWD" -P -F '#{window_id}' \
-    sh -c "$WRAP" trails-wrap "$SELF" "$sess" "${3:+resume}" "$cmd" $args \
+    sh -c "$WRAP" trails-wrap "$SELF" "$tid" "$sess" "${3:+resume}" "$cmd" $args \
     \; set-option -w -t "=$sess:=$win" remain-on-exit on \
     \; set-option -qw -t "=$sess:=$win" remain-on-exit-format '' \
     \; set-option -t "=$sess:" status off \
     \; set-option -t "=$sess:" set-titles on \
     \; set-option -t "=$sess:" set-titles-string "$TRAIL_TITLE") || {
     if [ -n "$rec_prev" ]; then
-      printf '%s\n' "$rec_prev" >"$(rec_path "$sess")"
+      printf '%s\n' "$rec_prev" >"$(rec_path "$tid")"
     else
-      rec_forget "$sess"
+      rec_forget "$tid"
     fi
     exit 3
   }
@@ -2248,7 +2264,7 @@ EOF
     @*) ;;
     *)
       echo "trails: tmux gave no window back for $1" >&2
-      rec_forget "$sess"
+      rec_forget "$tid"
       exit 1
       ;;
   esac
@@ -2260,6 +2276,7 @@ EOF
     \; set-option -w -t "$wid" @trails_dir "$PWD" \
     \; set-option -w -t "$wid" @trails_ws "$ws" \
     \; set-option -w -t "$wid" @trails_session "$sess" \
+    \; set-option -w -t "$wid" @trails_trail "$tid" \
     \; set-option -w -t "$wid" @trails_label "$label" \
     \; set-option -w -t "$wid" @trails_name "$name" \
     \; set-option -w -t "$wid" @trails_program "$(basename "$cmd")" \
@@ -2271,7 +2288,7 @@ EOF
   launch_unlock
   ensure_window "$wid" "$sess" "$ws" >/dev/null || {
     tmux kill-session -t "=$sess" 2>/dev/null
-    rec_forget "$sess"
+    rec_forget "$tid"
     exit 1
   }
 
@@ -2288,18 +2305,15 @@ EOF
     echo "trails: $1 exited immediately (status $(tmux display-message -pt "$wid" '#{pane_dead_status}' 2>/dev/null))" >&2
     tmux capture-pane -pS- -t "$wid" 2>/dev/null | awk 'NF' | tail -n 15 >&2
     tmux kill-session -t "=$sess" 2>/dev/null
-    rec_forget "$sess"
+    rec_forget "$tid"
     # The wrapper put it in the history as it went; a fresh one that never ran has nothing
     # to resume. A resume keeps its entry, to try again.
     [ -n "$3" ] || [ -z "$id" ] || hist_forget "$id"
     exit 1
   fi
   # Survived, so back to the default: quitting the agent should close the window, not
-  # leave a dead pane the picker would keep listing. And the old record, if the trail came
-  # back under a new key, has done its job: forgotten only now, so a restore that died on
-  # arrival still has it to try again from.
+  # leave a dead pane the picker would keep listing.
   tmux set-option -w -t "$wid" remain-on-exit off
-  [ -n "$4" ] && [ "$4" != "$sess" ] && rec_forget "$4"
   # A closed trail resumed is a running one again: out of the history, which holds only the
   # ended ones. Only now, so a resume that died on arrival is still there to try again.
   [ -z "$3" ] || hist_forget "$3"
@@ -2560,9 +2574,9 @@ esac
 
 RESUME_GRACE=20
 # shellcheck disable=SC2016 # expanded by the wrapper's sh, not here
-WRAP='self=$1 name=$2 resume=$3; shift 3; trap : INT QUIT; t0=$(date +%s); "$@"; s=$?
+WRAP='self=$1 tid=$2 sess=$3 resume=$4; shift 4; trap : INT QUIT; t0=$(date +%s); "$@"; s=$?
   [ -n "$resume" ] && [ "$s" -ne 0 ] && [ $(($(date +%s) - t0)) -lt '$RESUME_GRACE' ] ||
-    "$self" --forget "$name"
+    "$self" --forget "$tid" "$sess"
   exit $s'
 
 # A conversation ID in the shape the agent's session.id asks for.
@@ -2578,13 +2592,70 @@ new_id() {
   esac
 }
 
-# Never outside the records' directory, whatever the key: one with .. or a leading / names no
-# record.
-rec_path() {
+# A trail's ID: t and eight hex digits, made at launch and kept until the trail ends, a restore
+# included (ADR 20). Its record is sessions/<codebase>/<ID>, the codebase as path_key names it,
+# the checklist's name for it under "data"; the folder is for reading, and nothing depends on
+# it: a record is found by its ID alone. Not the conversation ID, which a /clear changes, nor
+# the tmux address (lattiq/augur-2), which a restore may change and a later trail may reuse.
+tid_ok() {
   case $1 in
-    /* | *..*) printf '%s/.no-such-record' "$STATE_DIR" ;;
-    *) printf '%s/%s' "$STATE_DIR" "$1" ;;
+    t[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) return 0 ;;
+    *) return 1 ;;
   esac
+}
+new_tid() {
+  while :; do
+    nt=t$(new_id uuid | tr -d - | cut -c1-8)
+    [ "$(rec_path "$nt")" = "$STATE_DIR/.no-such-record" ] && break
+  done
+  printf '%s' "$nt"
+}
+
+# Record $1's file, wherever its codebase's folder is; nothing outside the records' directory,
+# whatever $1 is.
+rec_path() {
+  if tid_ok "$1"; then
+    for rp in "$STATE_DIR"/*/"$1"; do
+      [ -f "$rp" ] && {
+        printf '%s' "$rp"
+        return 0
+      }
+    done
+  fi
+  printf '%s/.no-such-record' "$STATE_DIR"
+}
+# Where record $1, of a trail in directory $2, goes when it is first written.
+rec_home() { printf '%s/%s/%s' "$STATE_DIR" "$(path_key "$(codebase_root "$2")")" "$1"; }
+
+# The record whose trail runs, or last ran, as tmux session $1.
+rec_of_session() {
+  [ -d "$STATE_DIR" ] || return 0
+  grep -rlxF -e "session=$1" "$STATE_DIR" 2>/dev/null | grep '/t[0-9a-f]\{8\}$' | head -n 1 | xargs basename 2>/dev/null
+}
+
+# Records from before 1.8, sessions/<workspace>/<name> and no trail=, each given an ID and
+# filed under its codebase, once. A run that finds another migrating leaves it to that one.
+# A record that can't be moved stays where it is, said once, and goes unread.
+rec_migrate() {
+  [ -d "$STATE_DIR" ] || return 0
+  rm_old=$(find "$STATE_DIR" -mindepth 2 -maxdepth 2 -type f ! -name '*.tmp.*' -exec grep -L '^trail=' {} + 2>/dev/null)
+  [ -n "$rm_old" ] || return 0
+  mkdir "$STATE_DIR/.migrating" 2>/dev/null || return 0
+  printf '%s\n' "$rm_old" | while IFS= read -r rm_f; do
+    rm_sess=${rm_f#"$STATE_DIR"/}
+    rm_dir=$(sed -n 's/^dir=//p' "$rm_f" | head -n 1)
+    rm_tid=$(new_tid)
+    rm_to=$(rec_home "$rm_tid" "${rm_dir:-/}")
+    if mkdir -p "$(dirname "$rm_to")" 2>/dev/null &&
+      { cat "$rm_f" && printf 'trail=%s\nsession=%s\n' "$rm_tid" "$rm_sess"; } >"$rm_to.tmp.$$" 2>/dev/null &&
+      mv -f "$rm_to.tmp.$$" "$rm_to" && rm -f "$rm_f"; then
+      rmdir "$(dirname "$rm_f")" 2>/dev/null
+    else
+      rm -f "$rm_to.tmp.$$"
+      echo "trails: could not move the record $rm_f to 1.8's layout; it is left there, unread" >&2
+    fi
+  done
+  rmdir "$STATE_DIR/.migrating" 2>/dev/null
 }
 rec_get() { sed -n "s/^$2=//p" "$(rec_path "$1")" 2>/dev/null | head -n 1; }
 rec_forget() { [ -n "$1" ] && rm -f "$(rec_path "$1")"; }
@@ -2648,25 +2719,29 @@ rec_close() {
   rec_forget "$1"
 }
 
-# Every record's key, one per line: WORKSPACE/NAME, a file one directory down.
+# Every record's trail ID, one per line.
 rec_keys() {
   [ -d "$STATE_DIR" ] || return 0
-  find "$STATE_DIR" -mindepth 2 -maxdepth 2 -type f ! -name '*.tmp' ! -name '*.tmp.*' 2>/dev/null |
-    sed "s|^$STATE_DIR/||"
+  find "$STATE_DIR" -mindepth 2 -maxdepth 2 -type f -name 't????????' 2>/dev/null |
+    sed 's|.*/||' | while read -r rk; do tid_ok "$rk" && printf '%s\n' "$rk"; done
 }
 
-# key agent dir id yolo [workspace label name]. Through a temp file and mv, so a reader never
-# sees half a record. It keeps the tmux server the trail runs on too (tmux_server).
+# tid session agent dir id yolo [workspace label name]. Over the record where it is, else in
+# its codebase's folder; through a temp file and mv, so a reader never sees half a record. It
+# keeps the tmux server the trail runs on too (tmux_server).
 rec_write() {
-  mkdir -p "$(dirname "$(rec_path "$1")")" || return 0
-  printf 'agent=%s\ndir=%s\nid=%s\nyolo=%s\ntask=\nworkspace=%s\nlabel=%s\nname=%s\nserver=%s\n' \
-    "$2" "$3" "$4" "$5" "${6:-}" "${7:-}" "${8:-}" "$(tmux_server)" >"$(rec_path "$1").tmp.$$" &&
-    mv -f "$(rec_path "$1").tmp.$$" "$(rec_path "$1")"
-  rm -f "$(rec_path "$1").tmp.$$"
+  tid_ok "$1" || return 0
+  rw_to=$(rec_path "$1")
+  [ "$rw_to" != "$STATE_DIR/.no-such-record" ] || rw_to=$(rec_home "$1" "$4")
+  mkdir -p "$(dirname "$rw_to")" || return 0
+  printf 'agent=%s\ndir=%s\nid=%s\nyolo=%s\ntask=\nworkspace=%s\nlabel=%s\nname=%s\nserver=%s\ntrail=%s\nsession=%s\n' \
+    "$3" "$4" "$5" "$6" "${7:-}" "${8:-}" "${9:-}" "$(tmux_server)" "$1" "$2" >"$rw_to.tmp.$$" &&
+    mv -f "$rw_to.tmp.$$" "$rw_to"
+  rm -f "$rw_to.tmp.$$"
 }
 
 # The badge a record's trail would wear (trail_badge), from what the record kept.
-rec_badge() { trail_badge "$1" "$(rec_codebase "$1")" "$(rec_get "$1" name)"; }
+rec_badge() { trail_badge "$(rec_get "$1" session)" "$(rec_codebase "$1")" "$(rec_get "$1" name)"; }
 
 # Called for every live session on every sessions() pass, so it touches the disk only when a
 # record exists and its task actually changed.
@@ -2709,7 +2784,7 @@ rec_rewrite() {
 # id_label and id_agent and not label and agent: sh has no locals, and sessions() calls this
 # from inside its own read loop, then prints the label it read.
 #
-#   rec_note_id KEY WID @agent @trails_id @trails_said_id dir
+#   rec_note_id TID WID @agent @trails_id @trails_said_id dir session
 #
 # All but the key come from sessions()' one list-windows, rather than a tmux client each per
 # trail per pass — and a script polling `trails ls -a` makes a pass every few seconds.
@@ -2735,16 +2810,17 @@ rec_note_id() {
     IFS="$US" read -r w_ws w_label w_name <<EOF
 $w
 EOF
-    rec_write "$1" "$id_agent" "$6" "$now" "$mode" "$w_ws" "$w_label" "$w_name"
+    rec_write "$1" "$7" "$id_agent" "$6" "$now" "$mode" "$w_ws" "$w_label" "$w_name"
   fi
   tmux set-option -w -t "$2" @trails_id "$now"
 }
 
 # Is this record's trail gone? Not "is a window of that name running": a name can be taken
 # by something else (a `tmux new -s lattiq/augur` of your own), and that would hide the dead
-# record from every lost row and from restore. launch() stamps each trail with its
-# conversation ID as @trails_id, and a record is alive only while a window carrying its key
-# carries its ID too. The key is on the window for a trail (@trails_session).
+# record from every lost row and from restore. launch() stamps each trail's window with its
+# trail ID (@trails_trail), and a record is alive only while a window carries it. A window
+# from before 1.8, not yet given one by sessions(), matches as 1.7 did: its session and its
+# conversation.
 #
 # Only a record of this tmux server: on another (`tmux -L other`, a test's), every trail of
 # the first would look dead, and restoring them there would run each conversation twice.
@@ -2754,8 +2830,9 @@ rec_is_dead() {
   [ -f "$(rec_path "$1")" ] || return 1
   rid_srv=$(rec_get "$1" server)
   [ "${rid_srv:-default}" = "$(tmux_server)" ] || return 1
-  rid_alive=${ALIVE:-$(tmux list-windows -a -F "#{@trails_session}${US}#{@trails_id}" 2>/dev/null)}
-  ! printf '%s\n' "$rid_alive" | grep -qxF "$1$US$(rec_get "$1" id)"
+  rid_alive=${ALIVE:-$(tmux list-windows -a -F "#{@trails_trail}${US}#{@trails_session}${US}#{@trails_id}" 2>/dev/null)}
+  ! printf '%s\n' "$rid_alive" | grep -q "^$1$US" &&
+    ! printf '%s\n' "$rid_alive" | grep -qxF "$US$(rec_get "$1" session)$US$(rec_get "$1" id)"
 }
 
 # The tmux server this run talks to, by its socket's name: the one in $TMUX inside tmux (a
@@ -2771,7 +2848,7 @@ tmux_server() {
 
 # Every record whose trail is not running: what died with tmux. Keys only.
 rec_dead() {
-  ALIVE=$(tmux list-windows -a -F "#{@trails_session}${US}#{@trails_id}" 2>/dev/null)
+  ALIVE=$(tmux list-windows -a -F "#{@trails_trail}${US}#{@trails_session}${US}#{@trails_id}" 2>/dev/null)
   rec_keys | while read -r key; do
     rec_is_dead "$key" && printf '%s\n' "$key"
   done
@@ -2790,7 +2867,9 @@ restore_one() {
   agent=$(rec_get "$1" agent)
   id=$(rec_get "$1" id)
   mode=$(rec_get "$1" yolo)
-  saved=$(cat "$(rec_path "$1")")
+  ro_was=$(rec_get "$1" session)
+  ro_file=$(rec_path "$1")
+  saved=$(cat "$ro_file")
 
   # Subshells because launch() exits on failure, which would take the fallback with it.
   #
@@ -2805,23 +2884,22 @@ restore_one() {
   )
   ro_rc=$?
   [ "$ro_rc" -eq 0 ] && return 0
-  # Turned away by tmux (status 3) with the trail running under its key: another restore
+  # Turned away by tmux (status 3) with the trail running under its session: another restore
   # brought it back a moment ago. Starting it fresh would be a second agent in its place.
-  if [ "$ro_rc" -eq 3 ] && [ -n "$(agent_wid "$1")" ]; then
-    echo "trails: $1 is back already" >&2
+  if [ "$ro_rc" -eq 3 ] && [ -n "$(agent_wid "$ro_was")" ]; then
+    echo "trails: $ro_was is back already" >&2
     return 0
   fi
-  # A trail that comes back under its old key overwrites its record on the way in, and a
-  # launch that dies on arrival forgets what it wrote — so the record is put back between
-  # the attempts, since the second reads its name and workspace from it.
-  mkdir -p "$(dirname "$(rec_path "$1")")" && printf '%s\n' "$saved" >"$(rec_path "$1")"
-  echo "trails: nothing to resume for $1 — starting $agent fresh in its place" >&2
+  # A launch that dies on arrival forgets the record it wrote, so it is put back between the
+  # attempts, where it was: the second reads its name and workspace from it.
+  mkdir -p "$(dirname "$ro_file")" && printf '%s\n' "$saved" >"$ro_file"
+  echo "trails: nothing to resume for $ro_was — starting $agent fresh in its place" >&2
   (
     LAUNCH_DETACHED=1
     launch "$agent" "$mode" "" "$1"
   ) && return 0
-  mkdir -p "$(dirname "$(rec_path "$1")")" && printf '%s\n' "$saved" >"$(rec_path "$1")"
-  echo "trails: could not bring $1 back — its record is kept, try again once $agent starts" >&2
+  mkdir -p "$(dirname "$ro_file")" && printf '%s\n' "$saved" >"$ro_file"
+  echo "trails: could not bring $ro_was back — its record is kept, try again once $agent starts" >&2
   return 1
 }
 
@@ -2848,24 +2926,25 @@ restore_all() {
   # the next one.
   for key in $keys; do
     dir=$(rec_get "$key" dir) ra_agent=$(rec_get "$key" agent) ra_id=$(rec_get "$key" id)
+    ra_was=$(rec_get "$key" session)
     # One that can never come back is forgotten, and said so: ctrl-x on a lost row only works
     # from its own directory, which may be the one that's gone. The conversation stays in the
     # agent's own history; only the pointer to it goes.
     if [ -z "$dir" ] || [ -z "$ra_agent" ]; then
       rec_forget "$key"
-      echo "trails: forgot $key — its record was unreadable" >&2
+      echo "trails: forgot ${ra_was:-$key} — its record was unreadable" >&2
       continue
     fi
     if [ ! -d "$dir" ]; then
       rec_forget "$key"
-      echo "trails: forgot $key — $dir is gone${ra_id:+ (conversation $ra_id stays in the history of $ra_agent)}" >&2
+      echo "trails: forgot ${ra_was:-$key} — $dir is gone${ra_id:+ (conversation $ra_id stays in the history of $ra_agent)}" >&2
       continue
     fi
     new=$(cd "$dir" && restore_one "$key") || continue
-    if [ "$new" = "$key" ]; then
-      echo "restored $key"
+    if [ "$new" = "$ra_was" ]; then
+      echo "restored $new"
     else
-      echo "restored $key as $new"
+      echo "restored $ra_was as $new"
     fi
   done
 }
@@ -4597,6 +4676,12 @@ case $1 in
   '' | ws | --print-menu) MODE=$(load_mode) ;;
   *) ;; # only the picker draws "+ new" rows
 esac
+# Records from before 1.8 move to its layout, once (rec_migrate): first thing for anything that
+# reads them. Not for what never does; the wrapper's --forget sees to its own.
+case $1 in
+  help | -h | --help | config | keys | --keys | note | checklist | diff | --layout | --peek | --forget) ;;
+  *) rec_migrate ;;
+esac
 
 case $1 in
   help | -h | --help)
@@ -4696,9 +4781,19 @@ case $1 in
     sessions >/dev/null
     exit 0
     ;;
+  # The wrapper's, as the agent exits: --forget TID SESSION. A wrapper from before 1.8 passes
+  # the session alone, and its record is found by it.
   --forget)
-    window_release "$2"
-    rec_close "$2" "${TMUX_PANE:-}"
+    case $2 in
+      */*)
+        fg_sess=$2
+        rec_migrate
+        fg_tid=$(rec_of_session "$fg_sess")
+        ;;
+      *) fg_tid=$2 fg_sess=${3:-$(rec_get "$2" session)} ;;
+    esac
+    [ -z "$fg_sess" ] || window_release "$fg_sess"
+    [ -z "$fg_tid" ] || rec_close "$fg_tid" "${TMUX_PANE:-}"
     exit 0
     ;;
   # prefix ? and ? in the picker: the keys, in a popup the size of them, on the terminal that

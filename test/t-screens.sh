@@ -28,7 +28,8 @@ wait_for 5 test -s "$T/d1" || fail "the workspace picker never reached fzf"
 assert_eq "$(dumped "$T/d1" 1 | cut -f1,2 | tr '\t\n' '  ')" "workspace lattiq workspace personal " "the workspaces"
 assert_match "$(dumped "$T/d1" 1 | head -n 1 | cut -f3)" '^lattiq +nothing running$' "drawn"
 
-# Two lost trails in a workspace list it once (rec_ws prints no newline of its own).
+# Two lost trails in a workspace list it once (rec_ws prints no newline of its own). Written
+# as 1.7 wrote them, so the run moves them to 1.8's layout first (rec_migrate).
 mkdir -p "$STATE/personal"
 printf 'agent=stub\ndir=%s\nid=a\nyolo=\ntask=\nworkspace=personal\nlabel=x\nname=\n' "$T/.dotfiles" >"$STATE/personal/x"
 printf 'agent=stub\ndir=%s\nid=b\nyolo=\ntask=\nworkspace=personal\nlabel=y\nname=\n' "$T/.dotfiles" >"$STATE/personal/y"
@@ -36,7 +37,7 @@ rm -f "$T/d1b"
 DRIVER_DIR=$T FZF_PICK='' FZF_DUMP=$T/d1b driver "$TRAILS"
 wait_for 5 test -s "$T/d1b" || fail "the workspace picker never reached fzf"
 assert_eq "$(dumped "$T/d1b" 1 | cut -f2 | tr '\n' ' ')" "lattiq personal " "each workspace once"
-rm -rf "$STATE/personal"
+rm -f "$(trec personal/x)" "$(trec personal/y)"
 
 # A trail in augur: lattiq now shows it, and is marked as where you were.
 DRIVER_DIR=$T/work/lattiq/augur driver "$TRAILS" new api

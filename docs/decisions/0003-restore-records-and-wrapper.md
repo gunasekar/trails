@@ -1,7 +1,9 @@
 # 3. Records and a wrapper to survive tmux dying
 
 - Status: accepted, amended by [ADR 19](0019-no-agents-files-read.md): the conversation a
-  trail moved to comes from its hooks' `--id`; no agent's file is read
+  trail moved to comes from its hooks' `--id`; no agent's file is read. And by
+  [ADR 20](0020-a-trail-has-an-id-of-its-own.md): a record is named by its trail's ID,
+  under its codebase, not by its session
 - Date: 2026-10
 
 ## Context

@@ -9,7 +9,7 @@ wait_for 5 screen_has default/payments 'agent id=' || fail "payments never start
 id=$(tmux display-message -pt default/payments '#{@trails_id}')
 tmux kill-server
 sleep 0.3
-assert_file "$STATE/default/payments" "the record survives"
+assert_file "$(trec default/payments)" "the record survives"
 
 # The line, as `trails keys` prints it, uncommented into a tmux.conf.
 line=$("$TRAILS" keys | sed -n 's/^# \(run-shell -b .* restore .*\)$/\1/p')

@@ -62,7 +62,7 @@ wait_for 5 sh -c "[ \"\$(tmux show-options -pqv -t '$pane' @trails_said_id)\" = 
 type_in default/payments "nested idle --id 99999999-0000-0000-0000-000000000000"
 sleep 1
 assert_eq "$(tmux show-options -pqv -t "$pane" @trails_said_id)" "$carried" "a nested agent's ID, left out"
-assert_eq "$(sed -n 's/^id=//p' "$STATE/default/payments")" "$carried" "and the record kept"
+assert_eq "$(sed -n 's/^id=//p' "$(trec default/payments)")" "$carried" "and the record kept"
 
 # Another program's hooks, though in the trail's pane (a claude -p run from a gemini, say): not
 # the trail's agent (@trails_program, from launch), so neither their word nor their ID counts.
@@ -77,13 +77,13 @@ assert_eq "$(tmux show-options -pqv -t "$pane" @trails_said_id)" "$carried" "and
 # The agent moves to another conversation (a /clear, a /resume): the record follows it, and
 # the one it left goes into the history, to resume.
 HIST=$XDG_STATE_HOME/trails/history
-old=$(sed -n 's/^id=//p' "$STATE/default/payments")
+old=$(sed -n 's/^id=//p' "$(trec default/payments)")
 new=11111111-2222-3333-4444-555555555555
 : >"$HOME/.agent/$new" # as the agent would keep it, so it can be resumed
 type_in default/payments "hook idle --id $new"
 # At once, not at the next listing: nothing lists the trails here.
-wait_for 5 grep -qx "id=$new" "$STATE/default/payments" ||
-  fail "the record did not follow the agent: $(cat "$STATE/default/payments")"
+wait_for 5 grep -qx "id=$new" "$(trec default/payments)" ||
+  fail "the record did not follow the agent: $(cat "$(trec default/payments)")"
 # The window is told after the record is written, so it is waited for too.
 wait_for 5 sh -c "[ \"\$(tmux display-message -pt default/payments '#{@trails_id}')\" = '$new' ]" ||
   fail "the trail does not carry it: $(tmux display-message -pt default/payments '#{@trails_id}')"
@@ -94,15 +94,15 @@ assert_eq "$(cd "$PROJ" && "$TRAILS" ls | awk -F'\t' '$2 == "closed" { print $7 
 # first: a conversation that never had one stays out (see t-tools).
 type_in default/payments "hook working"
 type_in default/payments "title Fix the retry budget"
-wait_for 5 sh -c "'$TRAILS' ls -a >/dev/null; grep -qx 'task=Fix the retry budget' '$STATE/default/payments'" ||
+wait_for 5 sh -c "'$TRAILS' ls -a >/dev/null; grep -qx 'task=Fix the retry budget' \"\$(trec default/payments)\"" ||
   fail "the task never reached the record"
 tmux new-session -d -s hold # the server outlives the trail's session
 type_in default/payments exit
 wait_for 5 no_session default/payments || fail "the trail outlived its agent"
-assert_no_file "$STATE/default/payments" "no record: it ended"
+assert_no_file "$(trec default/payments)" "no record: it ended"
 assert_match "$(cat "$HIST/$new")" "ended=[0-9]+" "in the history, ended"
 closed=$(cd "$PROJ" && "$TRAILS" ls | awk -F'\t' '$7 == "'"$new"'"')
-assert_match "$closed" "^stopped	closed	-	stub	-	$PROJ	$new	[0-9]+	default	Fix the retry budget$" "a closed row, its task its title"
+assert_match "$closed" "^stopped	closed	-	stub	-	$PROJ	$new	[0-9]+	default	-	Fix the retry budget$" "a closed row, its task its title"
 
 # ctrl-x on a closed row, in the picker's old trails, forgets it; and the picker's list of
 # them is read again, so the reload drops it.
@@ -163,10 +163,10 @@ cat >"$XDG_CONFIG_HOME/trails/config.json" <<CFG
 CFG
 trails_bg new mine
 wait_for 5 screen_has default/mine 'agent' || fail "the agent never started"
-assert_no_file "$STATE/default/mine" "no record before its ID is known"
+assert_no_file "$(trec default/mine)" "no record before its ID is known"
 own=22222222-3333-4444-5555-666666666666
 type_in default/mine "hook idle --id $own"
-wait_for 5 sh -c "'$TRAILS' ls -a >/dev/null; grep -qx 'id=$own' '$STATE/default/mine' 2>/dev/null" ||
+wait_for 5 sh -c "'$TRAILS' ls -a >/dev/null; grep -qx 'id=$own' \"\$(trec default/mine)\" 2>/dev/null" ||
   fail "no record once the hook said the ID"
 tmux kill-session -t '=default/mine'
 

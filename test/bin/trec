@@ -1,0 +1,8 @@
+#!/bin/sh
+# The record file of the trail that runs, or last ran, as tmux session $1 (WORKSPACE/NAME), for
+# a test to read: records are filed by trail ID under their codebase (ADR 20), so a test finds
+# one by its session= line. A path that doesn't exist when there is none, so a test that reads
+# it fails on the read and one that asserts no file passes.
+STATE=${XDG_STATE_HOME:?}/trails/sessions
+f=$(grep -rlxF -e "session=$1" "$STATE" 2>/dev/null | grep '/t[0-9a-f]\{8\}$' | head -n 1)
+printf '%s\n' "${f:-$STATE/.none/$1}"

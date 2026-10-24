@@ -44,11 +44,11 @@ assert_match "$(nm proj-5)" "reads as an unnamed trail" "a name like an unnamed 
 wait_for 10 screen_has default/twin 'agent id=' || fail "twin never started"
 sleep 2
 assert_eq "$(tmux list-sessions -F '#S' | grep -c '^default/twin')" 1 "one twin, not two"
-assert_eq "$(sed -n 's/^id=//p' "$STATE/default/twin")" "$(tmux show-options -wqv -t '=default/twin:' @trails_id)" "its record is the running one's"
+assert_eq "$(sed -n 's/^id=//p' "$(trec default/twin)")" "$(tmux show-options -wqv -t '=default/twin:' @trails_id)" "its record is the running one's"
 # Two restores at once bring a trail back once, on its own conversation.
 DRIVER_DIR=$PROJ driver "$TRAILS" new pay
 wait_for 5 screen_has default/pay 'agent id=' || fail "pay never started"
-pay_id=$(sed -n 's/^id=//p' "$STATE/default/pay")
+pay_id=$(sed -n 's/^id=//p' "$(trec default/pay)")
 tmux kill-server
 wait_for 5 sh -c '! tmux ls >/dev/null 2>&1' || fail "the server stayed up"
 (cd "$T" && "$TRAILS" restore >/dev/null 2>&1 &)
@@ -56,7 +56,7 @@ wait_for 5 sh -c '! tmux ls >/dev/null 2>&1' || fail "the server stayed up"
 wait_for 10 has_session default/pay || fail "pay never came back"
 sleep 3
 assert_eq "$(tmux list-sessions -F '#S' | grep -cE "^default/(pay|proj)$")" 1 "pay back once, no fresh duplicate"
-assert_eq "$(sed -n 's/^id=//p' "$STATE/default/pay")" "$pay_id" "on its own conversation"
+assert_eq "$(sed -n 's/^id=//p' "$(trec default/pay)")" "$pay_id" "on its own conversation"
 
 # ── A folder name with a | ─────────────────────────────────────────────────────────────
 mkdir -p "$T/a|b"

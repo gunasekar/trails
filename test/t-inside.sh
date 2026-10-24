@@ -63,4 +63,4 @@ tmux new-session -d -s acme -c "$T/acme" sh
 out=$(cd "$T/acme" && "$TRAILS" new x 2>&1)
 assert_match "$out" 'a tmux session named "acme" exists and isn.t a trails workspace' "refused"
 assert_eq "$(tmux list-windows -t acme -F '#{window_name}' | wc -l | tr -d ' ')" 1 "nothing added to it"
-assert_no_file "$STATE/acme/x" "no record"
+assert_no_file "$(trec acme/x)" "no record"

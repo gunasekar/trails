@@ -54,8 +54,13 @@ wait_for 5 sh -c "tmux list-clients -F '#{session_name}' | grep -qx default" || 
 client=$(tmux list-clients -F '#{client_name} #{session_name}' | awk '$2 == "default" { print $1; exit }')
 assert_eq "$(client_at "$client" '#{session_name} #{window_id}')" "default $win" "attached to the workspace, on the trail's window"
 
-rec=$STATE/default/payments
+# The record: filed by the trail's ID, under its codebase (path_key, from $HOME), with the ID
+# and the session it runs as; the window carries the same ID.
+rec=$(trec default/payments)
 assert_file "$rec" "the record"
+assert_match "$rec" "/sessions/proj/t[0-9a-f]{8}\$" "filed by ID under its codebase"
+assert_eq "$(sed -n 's/^trail=//p' "$rec")" "$(opts '#{@trails_trail}')" "the window carries its ID"
+assert_eq "$(sed -n 's/^session=//p' "$rec")" default/payments "record session"
 assert_eq "$(sed -n 's/^agent=//p' "$rec")" stub "record agent"
 assert_eq "$(sed -n 's/^dir=//p' "$rec")" "$PROJ" "record dir"
 assert_eq "$(sed -n 's/^id=//p' "$rec")" "$id" "record id"
@@ -72,7 +77,7 @@ trails_bg new fast other -y
 wait_for 5 screen_has default/fast 'agent (other)' || fail "the other agent never started"
 assert_match "$(screen default/fast)" 'yolo=1' "yolo flag passed"
 assert_eq "$(tmux display-message -pt default/fast '#{@agent}')" "other (YOLO)" "@agent with YOLO"
-assert_eq "$(sed -n 's/^yolo=//p' "$STATE/default/fast")" yolo "record yolo"
+assert_eq "$(sed -n 's/^yolo=//p' "$(trec default/fast)")" yolo "record yolo"
 wait_for 5 sh -c "[ \"\$(tmux list-windows -t default -F '#{window_name}' | sort | tr '\n' ' ')\" = 'proj·fast proj·payments ' ]" || fail "two windows: $(tmux list-windows -t default -F '#{window_name}' | tr '\n' ' ')"
 
 # Quitting forgets: the session goes, the trail's window's client with it and so the trail's window, and the record.
@@ -80,7 +85,7 @@ type_in default/payments exit
 wait_for 5 no_session default/payments || fail "the session outlived its agent"
 wait_for 2 test ! -e "$rec" || fail "record outlived its agent"
 wait_for 5 sh -c "[ \"\$(tmux list-windows -t default -F '#{window_name}')\" = 'proj·fast' ]" || fail "the trail's window outlived its agent, or the other went: $(tmux list-windows -t default -F '#{window_name}' | tr '\n' ' ')"
-assert_file "$STATE/default/fast" "the other record stays"
+assert_file "$(trec default/fast)" "the other record stays"
 
 # The last trail out takes the workspace session with it: nothing is left behind.
 type_in default/fast exit
@@ -95,7 +100,7 @@ CFG
 DRIVER_DIR=$T/work/lattiq/augur driver "$TRAILS" new api
 wait_for 5 screen_has lattiq/api 'agent id=' || fail "no trail in lattiq"
 wait_for 5 sh -c "[ \"\$(tmux list-windows -t lattiq -F '#{window_name}')\" = 'augur·api' ]" || fail "no window in lattiq"
-assert_file "$STATE/lattiq/api" "the record under the workspace"
+assert_file "$(trec lattiq/api)" "the record under the workspace"
 
 # A directory no workspace claims runs in default, and says so. (Run off a terminal, the
 # attach at the end fails; the trail is up by then.)

@@ -7,18 +7,20 @@ t_setup
 trails_bg new payments
 wait_for 5 screen_has default/payments 'agent id=' || fail "agent never started"
 id=$(tmux display-message -pt default/payments '#{@trails_id}')
+tid=$(tmux display-message -pt default/payments '#{@trails_trail}')
 
 row=$(cd "$PROJ" && "$TRAILS" ls | cat)
 assert_eq "$(printf '%s\n' "$row" | wc -l | tr -d ' ')" 1 "one row here"
-assert_eq "$(printf '%s\n' "$row" | awk -F'\t' '{ print NF }')" 10 "ten fields"
-assert_eq "$(printf '%s\n' "$row" | cut -f1,3,4,5,6,7,8,9)" \
-  "running	default/payments	stub	-	$PROJ	$id	-	default" "the fixed fields"
+assert_eq "$(printf '%s\n' "$row" | awk -F'\t' '{ print NF }')" 11 "eleven fields"
+assert_eq "$(printf '%s\n' "$row" | cut -f1,3,4,5,6,7,8,9,10)" \
+  "running	default/payments	stub	-	$PROJ	$id	-	default	$tid" "the fixed fields, the trail's ID before the title"
+assert_match "$tid" '^t[0-9a-f]{8}$' "a trail ID"
 assert_match "$(printf '%s\n' "$row" | cut -f2)" '^(your-turn|working)$' "a state"
-assert_eq "$(printf '%s\n' "$row" | cut -f10)" "payments ready" "the title"
+assert_eq "$(printf '%s\n' "$row" | cut -f11)" "payments ready" "the title"
 
 # The title follows the pane title.
 type_in default/payments 'title Fix the retry budget'
-wait_for 3 sh -c "cd '$PROJ' && '$TRAILS' ls | cut -f10 | grep -q 'Fix the retry budget'" ||
+wait_for 3 sh -c "cd '$PROJ' && '$TRAILS' ls | cut -f11 | grep -q 'Fix the retry budget'" ||
   fail "the title never updated"
 
 # On a terminal, a table: the badge leads, the workspace follows the agent.
@@ -36,5 +38,5 @@ assert_eq "$(cd "$T/elsewhere" && "$TRAILS" ls "$PROJ" | cut -f3)" default/payme
 # Lost after the server dies: the record stays and ls says so, workspace and all.
 tmux kill-server
 sleep 0.3
-assert_file "$STATE/default/payments" "record survives kill-server"
-assert_eq "$(cd "$PROJ" && "$TRAILS" ls | cut -f1,2,3,9)" "stopped	lost	default/payments	default" "lost row"
+assert_file "$(trec default/payments)" "record survives kill-server"
+assert_eq "$(cd "$PROJ" && "$TRAILS" ls | cut -f1,2,3,9,10)" "stopped	lost	default/payments	default	$tid" "lost row: the session it had, and the same trail"

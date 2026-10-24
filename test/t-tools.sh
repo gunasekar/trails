@@ -182,7 +182,7 @@ assert_eq "$(tmux display-message -pt "$win" '#{@trails_tool}|#{@trails_window}|
 wait_for 5 sh -c "[ \"\$(tmux list-panes -t '$win' | wc -l | tr -d ' ')\" = 2 ]" || fail "the agent pane lingers"
 assert_eq "$(panes)" "editor shell " "the editor and the shell stay"
 assert_eq "$(cd "$PROJ" && "$TRAILS" ls | wc -l | tr -d ' ')" 0 "not a trail, nor in the history: it never had a turn"
-assert_no_file "$STATE/default/payments" "the record went"
+assert_no_file "$(trec default/payments)" "the record went"
 
 # trails edit finds that window for the codebase, and a new trail there gets a trail's window of its own.
 tmux switch-client -c "$client" -t "=default:$mine"

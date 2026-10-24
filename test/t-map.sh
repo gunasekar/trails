@@ -53,7 +53,7 @@ awid=$(tmux list-windows -a -F '#{window_id} #{@trails_session}' | awk '$2 == "d
 wait_for 3 no_session default/payments || fail "the session survived"
 wait_for 5 sh -c "[ \"\$(tmux display-message -pt '$pw' '#{window_name} #{@trails_tool} #{window_panes}')\" = 'proj·shell shell 1' ]" || fail "the trail's window was not released: $(tmux display-message -pt "$pw" '#{window_name} #{@trails_window} #{@trails_tool} #{window_panes}')"
 assert_eq "$(tmux list-windows -t default -F '#{window_name}' | sort | tr '\n' ' ')" "other·ledger proj·shell " "the windows"
-assert_no_file "$STATE/default/payments" "the record went"
+assert_no_file "$(trec default/payments)" "the record went"
 
 # trails keys prints bindings, and changes nothing.
 before=$(tmux list-keys | wc -l)
