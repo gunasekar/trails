@@ -26,8 +26,11 @@ t_setup() {
   XDG_CONFIG_HOME=$T/.config
   XDG_STATE_HOME=$T/.local/state
   TMUX_TMPDIR=$T
+  # The picker's temp folders, and its clearing of day-old ones, in the test's own.
+  TMPDIR=$T/tmp
+  mkdir -p "$TMPDIR"
   PATH=$REPO/test/bin:$PATH
-  export HOME XDG_CONFIG_HOME XDG_STATE_HOME TMUX_TMPDIR PATH
+  export HOME XDG_CONFIG_HOME XDG_STATE_HOME TMUX_TMPDIR TMPDIR PATH
   unset TMUX TMUX_PANE TERM_PROGRAM NVIM ZED_TERM TRAILS_ATTACH TRAILS_CLIENT
   # A UTF-8 locale for the tmux server the first driver starts, as a terminal has. With none
   # (CI's runner) tmux 3.4 rewrites what it can't print as _ (the · in a window's name, the

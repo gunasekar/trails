@@ -14,8 +14,15 @@ menu() {
   sed 's/\x1b\[[0-9;]*m//g' "$T/menu" | grep -v '^--- '
 }
 
+# A picker killed outright leaves its temp folder behind: the next one clears those a day old,
+# and leaves a younger one, which may be a picker still open.
+mkdir "$TMPDIR/trails.oldone" "$TMPDIR/trails.recent"
+touch -t 202001010000 "$TMPDIR/trails.oldone"
+
 # Nothing running: "＋ new trail…" alone.
 rows=$(menu)
+[ -e "$TMPDIR/trails.oldone" ] && fail "a day-old picker folder was left"
+[ -d "$TMPDIR/trails.recent" ] || fail "a younger picker folder was cleared"
 assert_eq "$(printf '%s\n' "$rows" | cut -f1 | tr '\n' ' ')" "agents " "only the way to a new trail"
 assert_eq "$(printf '%s\n' "$rows" | head -n 1 | cut -f3)" '＋ new trail…' "the drawn row"
 

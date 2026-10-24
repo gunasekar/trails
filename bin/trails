@@ -4949,6 +4949,12 @@ trap 'rm -rf "$TRAILS_TMP"' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+# What a picker killed outright left behind (SIGKILL, a crash: no trap runs), and an fzf
+# probe's socket likewise: anything of trails' a day old in the temp directory has no picker
+# left to own it. Yours only, where /tmp is shared.
+find "${TMPDIR:-/tmp}" -maxdepth 1 -user "$(id -u)" \( -type d -name 'trails.??????' -o -type s -name 'trails-probe-*.sock' \) \
+  -mtime +0 -exec rm -rf {} + 2>/dev/null
+
 # Classify the running trails once, up front — the only place that pays classify's settle
 # sleep on the picker's happy path. Empty (not absent) with no tmux to look in.
 : >"$TRAILS_MENU_CACHE"

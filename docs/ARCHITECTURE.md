@@ -558,6 +558,11 @@ because every Tab and ctrl-x reloads the menu. Recent rows are cached the same
 way; on the workspace picker the cache holds every trail classified, for the
 counts.
 
+Each picker run has a temp folder of its own, `$TMPDIR/trails.XXXXXX`, removed when it
+exits, ctrl-c included. A picker killed outright (SIGKILL, a crash) runs no trap, so
+each picker also clears the user's `trails.*` folders and fzf probe sockets more than a
+day old.
+
 | Verb | Target | Enter does |
 |---|---|---|
 | `new` / `yolo` | agent, or `agent:dir` on a workspace's screen | launch a fresh agent, with the YOLO flag for `yolo` |

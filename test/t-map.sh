@@ -20,6 +20,11 @@ wait_for 5 sh -c "[ \"\$(tmux list-panes -t trails_map | wc -l | tr -d ' ')\" = 
 wait_for 5 sh -c "tmux list-clients -F '#{session_name}' | grep -qx default/ledger && tmux list-clients -F '#{session_name}' | grep -qx default/payments" ||
   fail "the windows are not clients of the sessions: $(tmux list-clients -F '#{session_name}')"
 assert_eq "$(tmux display-message -pt 'trails_map:0.0' '#{@dir}')" other "pane 0 is the one that wants you"
+# Its border names the trail, with no set-titles in tmux.conf (this server has none): trails
+# turns titles on in the sessions it makes, so a pane's title is the trail's, not the host's.
+assert_eq "$(tmux show -gv set-titles)" off "no set-titles of the user's"
+wait_for 5 sh -c "tmux display -pt trails_map:0.0 '#{pane_title}' | grep -qx 'stub · ledger ready'" ||
+  fail "the border reads $(tmux display -pt trails_map:0.0 '#{pane_title}'), not the trail"
 
 # A killed trail's window changes nothing for the map: the trail lives in its session.
 tmux kill-session -t trails_map

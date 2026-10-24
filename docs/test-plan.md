@@ -171,5 +171,3 @@ Data loss first.
 | A worktree whose own path a catch-all glob (`~/*`) claims goes there, not to its main checkout's workspace | rare, and which should win is a design call |
 | Without `data`, a git worktree's checklist is its own, not the main checkout's (with `data`, it is the main checkout's) | the repository's top is where it lives, by design |
 | A trail session renamed by hand drops out of the lists | renaming trails' sessions is outside what trails supports |
-| Map pane borders read the host name without a `set-titles` in tmux.conf | cosmetic |
-| A temp directory left by a picker killed with SIGKILL | KILL can't be trapped |
