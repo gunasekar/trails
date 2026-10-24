@@ -759,13 +759,18 @@ in. Each codebase has a checklist, a Markdown file that any editor opens:
 ```
 
 `prefix N` (from `trails keys`) opens it in a popup: a line to type a new item on,
-and the items under it, open ones first.
+the items under it, open ones first, one line each, and under them the item the
+cursor is on, whole, with the lines under it.
 
 ```text
 Checklist for checkout ▸ type a new item · ↑↓ to one: space ticks it, enter copies it · ctrl-e: edit · esc: close
-▌ ☐ Ask it to make the retry budget per merchant
+▌ ☐ Ask it to make the retry budget per merchant, so one merchant's outage doesn't…
   ☐ Check the refund window against the spec
   ☑ Fix the flaky cart-total test
+──────────────────────────────────────────────────────────────────────────────────
+Ask it to make the retry budget per merchant, so one merchant's outage doesn't
+↳ spend every other merchant's retries.
+Keep the global cap as a ceiling.
 ```
 
 No shortcuts to learn, only whether you have typed anything:

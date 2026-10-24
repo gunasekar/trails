@@ -80,6 +80,9 @@ assert_eq "$(cd "$T" && "$TRAILS" checklist --count "$T")" "" "no count where th
 line=$(grep -n '^- \[ \] Refactor X' "$NOTES" | cut -d: -f1)
 tmux run-shell "'$TRAILS' checklist --copy '$NOTES' $line"
 assert_eq "$(tmux show-buffer)" "$(printf 'Refactor X\n\nKeep the API\n\nAdd tests')" "its paragraphs kept"
+# The pane under the list shows the item whole, as it is copied; over an empty list, nothing.
+assert_eq "$("$TRAILS" checklist --text "$NOTES" "$line")" "$(printf 'Refactor X\n\nKeep the API\n\nAdd tests')" "the item whole, in the pane"
+assert_eq "$("$TRAILS" checklist --text "$NOTES" '')" "" "nothing for no row"
 
 # A checklist that is a link (into a synced folder, say) stays one when an item is ticked.
 mkdir -p "$PROJ/linked/.trails" "$T/vault"

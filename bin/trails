@@ -776,10 +776,10 @@ client_outer() {
 # which nobody sees.
 [ -z "${TRAILS_CLIENT:-}" ] || unset TMUX_PANE
 # Not for what runs in no terminal and shows nothing: the status line's checklist count, on
-# every redraw, the list's own reloads, the hooks' --said, the wrapper's --forget.
+# every redraw, the list's own reloads and item pane, the hooks' --said, the wrapper's --forget.
 CLIENT=${TRAILS_CLIENT:-}
 case "${1:-} ${2:-}" in
-  "checklist --count" | "checklist --rows" | "checklist --toggle" | "--said "* | "--forget "*) LIGHT=1 ;;
+  "checklist --count" | "checklist --rows" | "checklist --toggle" | "checklist --text" | "--said "* | "--forget "*) LIGHT=1 ;;
   *) LIGHT= ;;
 esac
 if [ -z "$CLIENT" ] && [ -n "$TMUX" ] && [ -z "$LIGHT" ]; then
@@ -3464,6 +3464,11 @@ checklist_ui() {
   # The keys as ghost text in the empty input line, gone once you type; a header on an fzf
   # without it.
   if fzf_ok ghost; then cu_hint="--ghost=$cu_hint"; else cu_hint="--header=$cu_hint"; fi
+  # A row is one line, cut to the popup's width; the pane under the list has the item under the
+  # cursor whole, wrapped, with the lines under it. Nothing over an empty list, whose {1} is empty.
+  cu_pane="$cu_self checklist --text $cu_f {1}"
+  cu_wrap=wrap
+  fzf_ok wrapword && cu_wrap=wrap-word
   # Enter prints what was typed and the row under the cursor, even over an empty list; an fzf
   # without accept-or-print-query does as much with accept, which --print-query makes print the
   # query too, and an empty list's no-match exits 1, as an abort does not.
@@ -3472,6 +3477,7 @@ checklist_ui() {
   cu_out=$(checklist_rows "$cu_file" |
     SHELL=/bin/sh fzf --disabled --print-query --expect=ctrl-e --reverse --ansi --no-sort --no-separator --no-info \
       --delimiter="$TAB" --with-nth=2.. --prompt="Checklist for $cu_label ▸ " "$cu_hint" \
+      --preview="$cu_pane" --preview-window="down,50%,$cu_wrap,border-top" \
       --bind="enter:$cu_enter" --bind="$cu_tick_key") ||
     [ $? -eq 1 ] || return 0
   cu_query=$(printf '%s\n' "$cu_out" | sed -n 1p)
@@ -3516,7 +3522,7 @@ note_cmd() {
   return 0
 }
 
-# `trails checklist [DIR]`, and the list's own actions: --rows, --toggle and --copy FILE LINE,
+# `trails checklist [DIR]`, and the list's own actions: --rows, --toggle, --copy and --text FILE LINE,
 # --count DIR for the status line, --edit DIR.
 checklist_cmd() {
   case ${1:-} in
@@ -3526,6 +3532,7 @@ checklist_cmd() {
       [ -z "$TMUX" ] || tmux refresh-client -S 2>/dev/null
       ;;
     --copy) checklist_copy "$2" "$3" ;;
+    --text) [ -z "${3:-}" ] || checklist_text "$2" "$3" ;;
     --count) checklist_count "${2:-}" ;;
     --edit) checklist_open "${2:-$(note_where)}" ;;
     -*)
@@ -4393,8 +4400,8 @@ In tmux, from trails keys (prefix, then):
   A                 every running trail, in every workspace
   e                 the editor beside the agent; again, back
   `                 a shell along the bottom; again, back
-  N                 this codebase's checklist: type a new item, or move to one;
-                    space ticks it, enter copies it
+  N                 this codebase's checklist: type a new item, or move to one to
+                    read it whole; space ticks it, enter copies it
   ( )               the previous and next workspace
   M                 the map: up to four trails side by side
   G                 this codebase's changes, side by side (trails diff)

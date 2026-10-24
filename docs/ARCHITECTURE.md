@@ -678,6 +678,10 @@ number and its text, open ones first. The keys depend only on the input line:
   `put( )`, a space. An older fzf ticks on Tab.
 - ctrl-e opens the file, in a popup of its own from `prefix N`'s.
 
+A row is the item's first line, cut to the popup's width. fzf's preview, under
+the list, is the row's item whole (`checklist --text FILE LINE`, `checklist_text`,
+what a copy takes), wrapped at words where fzf can (`wrap-word`).
+
 The bindings' commands run with `SHELL=/bin/sh`: fzf runs them through `$SHELL`,
 and a login shell's zsh reads a path's `=` and `~` its own way.
 
