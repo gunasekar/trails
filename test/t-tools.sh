@@ -29,22 +29,23 @@ geom_is() { [ "$(geom "$1")" = "$2" ]; }
 W=$(tmux display-message -pt "$win" '#{window_width}')
 H=$(tmux display-message -pt "$win" '#{window_height}')
 
-# trails shell, with only the agent there: a shell pane along the bottom of the trail's window, full
-# width, a quarter high, in the codebase; the client is taken to it. The trail's session is untouched:
+# trails shell, with only the agent there: a shell pane on the right of the trail's window, 40%
+# wide, full height, in the codebase; the client is taken to it. The trail's session is untouched:
 # one window, one pane.
 type_in "$mine" "$TRAILS shell"
 wait_for 5 sh -c "[ \"\$(tmux list-panes -t '$win' | wc -l | tr -d ' ')\" = 2 ]" || fail "no shell pane in the trail's window"
 assert_eq "$(panes)" "agent shell " "the panes, marked"
 spane=$(tmux list-panes -t "$win" -F '#{pane_id} #{@trails_pane}' | awk '$2 == "shell" { print $1 }')
 assert_eq "$(tmux display-message -pt "$spane" '#{pane_current_path}')" "$PROJ" "a shell in the codebase"
-wait_for 5 geom_is "$spane" "0 $((H - H / 4)) $W $((H / 4))" || fail "the shell: along the bottom, full width, a quarter high: got $(geom "$spane")"
+SW=$((W * 40 / 100))
+wait_for 5 geom_is "$spane" "$((W - SW)) 0 $SW $H" || fail "the shell: right, 40% wide, full height: got $(geom "$spane")"
 wait_for 5 on_window || fail "the client was not taken to the trail's window"
 assert_eq "$(client_at "$client" '#{pane_id}')" "$spane" "on the shell"
 assert_eq "$(tmux list-panes -t default/payments | wc -l | tr -d ' ')" 1 "the session still shows the agent alone"
 assert_eq "$(wins)" "proj·payments " "no shell window"
 
-# trails edit: the editor takes the left 60%, the session the right 40%, and the shell moves
-# under the editor, a quarter high.
+# trails edit: the session keeps the left 40%, the editor takes the right 60%, and the shell
+# moves under the editor, a quarter high.
 tmux switch-client -c "$client" -t "=default:$mine"
 sleep 0.3
 type_in "$mine" "$TRAILS edit"
@@ -54,9 +55,9 @@ epane=$(tmux list-panes -t "$win" -F '#{pane_id} #{@trails_pane}' | awk '$2 == "
 vpane=$(tmux list-panes -t "$win" -F '#{pane_id} #{@trails_pane}' | awk '$2 == "agent" { print $1 }')
 wait_for 5 screen_has "$epane" "ed in $PROJ" || fail "the editor is not in the codebase: $(screen "$epane" | grep -v '^$' | head -2)"
 EW=$((W * 60 / 100))
-wait_for 5 geom_is "$epane" "0 0 $EW $((H - H / 4 - 1))" || fail "the editor: left, 60% wide, above the shell: got $(geom "$epane")"
-assert_eq "$(geom "$spane")" "0 $((H - H / 4)) $EW $((H / 4))" "the shell: under the editor only"
-assert_eq "$(geom "$vpane")" "$((EW + 1)) 0 $((W - EW - 1)) $H" "the session: right 40%, full height"
+wait_for 5 geom_is "$epane" "$((W - EW)) 0 $EW $((H - H / 4 - 1))" || fail "the editor: right, 60% wide, above the shell: got $(geom "$epane")"
+assert_eq "$(geom "$spane")" "$((W - EW)) $((H - H / 4)) $EW $((H / 4))" "the shell: under the editor only"
+assert_eq "$(geom "$vpane")" "0 0 $((W - EW - 1)) $H" "the session: left 40%, full height"
 wait_for 5 at_pane "$epane" || fail "the client was not taken to the editor"
 
 # Again, from another window: selected, not duplicated, laid out the same.
@@ -71,7 +72,7 @@ sleep 0.3
 type_in "$mine" "$TRAILS shell"
 sleep 1.5
 assert_eq "$(panes)" "agent editor shell " "still one shell"
-wait_for 5 geom_is "$spane" "0 $((H - H / 4)) $EW $((H / 4))" || fail "the shell stays under the editor: got $(geom "$spane")"
+wait_for 5 geom_is "$spane" "$((W - EW)) $((H - H / 4)) $EW $((H / 4))" || fail "the shell stays under the editor: got $(geom "$spane")"
 
 # From the shell pane itself, trails shell goes back to the pane you came from.
 tmux select-pane -t "$epane"
@@ -81,10 +82,10 @@ type_in "$spane" "$TRAILS shell"
 wait_for 5 at_pane "$epane" || fail "the toggle did not go back: on $(client_at "$client" '#{pane_id}')"
 assert_eq "$(panes)" "agent editor shell " "nothing closed"
 
-# The editor quits: its pane goes, and the shell goes back along the bottom, full width.
+# The editor quits: its pane goes, and the shell goes back to its column on the right.
 type_in "$epane" exit
 wait_for 5 sh -c "[ \"\$(tmux list-panes -t '$win' | wc -l | tr -d ' ')\" = 2 ]" || fail "the editor's pane outlived the editor"
-wait_for 5 geom_is "$spane" "0 $((H - H / 4)) $W $((H / 4))" || fail "the shell kept its column: $(geom "$spane")"
+wait_for 5 geom_is "$spane" "$((W - SW)) 0 $SW $H" || fail "the shell kept the editor's column: $(geom "$spane")"
 
 # And the editor again, for what follows.
 tmux switch-client -c "$client" -t "=default:$mine"
@@ -109,7 +110,7 @@ driver_attached || fail "edit after the detach never attached"
 wait_for 5 sh -c "[ \"\$(tmux list-panes -t '$win' | wc -l | tr -d ' ')\" = 3 ]" || fail "the agent pane was not given back: panes $(tmux list-panes -t "$win" -F '#{pane_id}=#{@trails_pane}:#{pane_current_command}' | tr '\n' ' '); clients $(tmux list-clients -F '#{client_name}:#{session_name}' | tr '\n' ' ')"
 assert_eq "$(panes)" "agent editor shell " "the panes, marked, again"
 apane=$(tmux list-panes -t "$win" -F '#{pane_id} #{@trails_pane}' | awk '$2 == "agent" { print $1 }')
-wait_for 5 geom_is "$apane" "$((EW + 1)) 0 $((W - EW - 1)) $H" || fail "the agent pane: right 40%, full height: got $(geom "$apane")"
+wait_for 5 geom_is "$apane" "0 0 $((W - EW - 1)) $H" || fail "the agent pane: left 40%, full height: got $(geom "$apane")"
 wait_for 5 sh -c "tmux list-clients -F '#{session_name}' | grep -qx default/payments" || fail "the new pane is not a client of the session"
 assert_eq "$(tmux display-message -pt "$apane" '#{@ag} #{@dir}')" "stub proj" "stamped"
 

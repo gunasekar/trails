@@ -779,7 +779,7 @@ client_outer() {
 # every redraw, the list's own reloads and item pane, the hooks' --said, the wrapper's --forget.
 CLIENT=${TRAILS_CLIENT:-}
 case "${1:-} ${2:-}" in
-  "checklist --count" | "checklist --rows" | "checklist --toggle" | "checklist --text" | "--said "* | "--forget "*) LIGHT=1 ;;
+  "checklist --count" | "checklist --rows" | "checklist --toggle" | "checklist --text" | "checklist --enter" | "--said "* | "--forget "*) LIGHT=1 ;;
   *) LIGHT= ;;
 esac
 if [ -z "$CLIENT" ] && [ -n "$TMUX" ] && [ -z "$LIGHT" ]; then
@@ -2424,10 +2424,10 @@ tool_remark() {
 }
 
 # Where the panes of window $1 go, from which of them it has (by @trails_pane). The agent
-# alone fills it. With an editor pane, the editor takes the left 60% and the agent the right
-# 40%, and a shell sits under the editor only, a quarter of the window high. With no editor
-# pane, the shell runs along the bottom, full width, a quarter high. A window the agent has
-# left (window_release) keeps the same rules without it: the shell under the editor.
+# alone fills it. With an editor pane, the agent keeps the left 40% and the editor takes the
+# right 60%, and a shell sits under the editor only, a quarter of the window high. With no
+# editor pane, the shell is a column on the right, 40% wide, full height. A window the agent
+# has left (window_release) keeps the same rules without it: the shell under the editor.
 #
 # move-pane (tmux 3.2) puts a pane where it belongs whether it was there already or not, so
 # this runs after every pane is made and after the editor pane exits, and never needs to know
@@ -2447,13 +2447,13 @@ window_layout() {
   cl_h=$(tmux display-message -pt "$1" '#{window_height}' 2>/dev/null)
   [ -n "$cl_w" ] && [ -n "$cl_h" ] || return 0
   if [ -n "$cl_e" ]; then
-    [ -z "$cl_v" ] || tmux move-pane -d -bh -s "$cl_e" -t "$cl_v" 2>/dev/null
+    [ -z "$cl_v" ] || tmux move-pane -d -h -s "$cl_e" -t "$cl_v" 2>/dev/null
     [ -z "$cl_s" ] || tmux move-pane -d -v -s "$cl_s" -t "$cl_e" 2>/dev/null
     [ -z "$cl_v" ] || tmux resize-pane -t "$cl_e" -x $((cl_w * 60 / 100)) 2>/dev/null
     [ -z "$cl_s" ] || tmux resize-pane -t "$cl_s" -y $((cl_h / 4)) 2>/dev/null
   elif [ -n "$cl_s" ] && [ -n "$cl_v" ]; then
-    tmux move-pane -d -v -f -s "$cl_s" -t "$cl_v" 2>/dev/null
-    tmux resize-pane -t "$cl_s" -y $((cl_h / 4)) 2>/dev/null
+    tmux move-pane -d -h -f -s "$cl_s" -t "$cl_v" 2>/dev/null
+    tmux resize-pane -t "$cl_s" -x $((cl_w * 40 / 100)) 2>/dev/null
   fi
 }
 
@@ -3019,9 +3019,9 @@ EOF
   fi
   if [ -z "$pane" ]; then
     if [ "$ck" = edit ]; then
-      pane=$(tmux split-window -d -bh -t "$wid" -c "$here" -P -F '#{pane_id}' "$(editor_cmd "$wid")") || exit 1
+      pane=$(tmux split-window -d -h -t "$wid" -c "$here" -P -F '#{pane_id}' "$(editor_cmd "$wid")") || exit 1
     else
-      pane=$(tmux split-window -d -v -t "$wid" -c "$here" -P -F '#{pane_id}') || exit 1
+      pane=$(tmux split-window -d -h -t "$wid" -c "$here" -P -F '#{pane_id}') || exit 1
     fi
     tmux set-option -p -t "$pane" @trails_pane "$mark"
     tool_remark "$wid"
@@ -3318,7 +3318,16 @@ checklist_open() {
     exit 1
   }
   # shellcheck disable=SC2086 # $EDITOR may carry its own arguments
-  exec $co_ed "$co_file"
+  [ "${2:-}" = back ] || exec $co_ed "$co_file"
+  # From the list's ctrl-e: the list again once the editor quits, in prefix N's popup when it was
+  # in one (sized as `trails keys` binds it).
+  # shellcheck disable=SC2086
+  $co_ed "$co_file"
+  if in_popup; then
+    checklist_popup "-w 60% -h 50%" "$(shq "$SELF") checklist $(shq "${1:-$PWD}")"
+  else
+    checklist_ui "${1:-$PWD}"
+  fi
 }
 
 # An item is a line starting "- [ ] " or "- [x] " (or * for -, X for x) at the left margin;
@@ -3405,6 +3414,7 @@ fzf_ok() {
       listen) fo_o="--listen=${TMPDIR:-/tmp}/trails-probe-$$.sock" ;;
       printquery) fo_o=--bind=enter:accept-or-print-query ;;
       transform) fo_o='--bind=space:transform:true' ;;
+      resize) fo_o='--bind=start,resize:transform:true' ;;
       *) fo_o=--info-command=true ;;
     esac
     fo_v=no
@@ -3469,29 +3479,44 @@ checklist_ui() {
   cu_pane="$cu_self checklist --text $cu_f {1}"
   cu_wrap=wrap
   fzf_ok wrapword && cu_wrap=wrap-word
+  # The list is ten rows, scrolling past that, and the pane has the rest: one line goes to the
+  # input line, one to the pane's border, and one more to a header where the keys are one. On
+  # every resize too. An fzf too old for it splits the popup in half.
+  cu_size="--preview-window=down,50%,$cu_wrap,border-top"
+  if fzf_ok resize; then
+    cu_used=12
+    case $cu_hint in --header=*) cu_used=13 ;; esac
+    cu_size="--bind=start,resize:transform:n=\$((FZF_LINES - $cu_used)); [ \$n -ge 3 ] || n=3; echo \"change-preview-window:down,\$n\""
+  fi
   # Enter prints what was typed and the row under the cursor, even over an empty list; an fzf
   # without accept-or-print-query does as much with accept, which --print-query makes print the
   # query too, and an empty list's no-match exits 1, as an abort does not.
   cu_enter=accept
   fzf_ok printquery && cu_enter=accept-or-print-query
+  # With something typed, Enter adds it and the list stays open, reloaded with the cursor on the
+  # new item, for the next one (checklist_enter); with nothing typed, it copies and closes, below.
+  # An fzf without transform adds and closes.
+  cu_enter_key="enter:$cu_enter"
+  fzf_ok transform && cu_enter_key="enter:transform:$cu_self checklist --enter $cu_f $(shq "$cu_label") {q}"
   cu_out=$(checklist_rows "$cu_file" |
     SHELL=/bin/sh fzf --disabled --print-query --expect=ctrl-e --reverse --ansi --no-sort --no-separator --no-info \
       --delimiter="$TAB" --with-nth=2.. --prompt="Checklist for $cu_label ▸ " "$cu_hint" \
-      --preview="$cu_pane" --preview-window="down,50%,$cu_wrap,border-top" \
-      --bind="enter:$cu_enter" --bind="$cu_tick_key") ||
+      --preview="$cu_pane" --preview-window="down,50%,$cu_wrap,border-top" "$cu_size" \
+      --bind="$cu_enter_key" --bind="$cu_tick_key") ||
     [ $? -eq 1 ] || return 0
   cu_query=$(printf '%s\n' "$cu_out" | sed -n 1p)
   cu_key=$(printf '%s\n' "$cu_out" | sed -n 2p)
   cu_pick=$(printf '%s\n' "$cu_out" | sed -n 3p)
   if [ "$cu_key" = ctrl-e ]; then
     # In prefix N's popup the file gets a popup of its own, sized for an editor, opened on the
-    # same terminal once this one has closed: a client shows one popup at a time.
-    if [ -n "$TMUX" ] && [ -z "${TMUX_PANE:-}" ]; then
-      cu_bg=$(popup_bg)
-      tmux run-shell -b "sleep 0.2; tmux -S $(shq "${TMUX%%,*}") display-popup ${CLIENT:+-c $(shq "$CLIENT")} -E -w 80% -h 80% -s bg=$cu_bg -S bg=$cu_bg,fg=brightblack $(shq "$cu_self checklist --edit $(shq "$cu_dir")")"
+    # same terminal once this one has closed: a client shows one popup at a time. Either way the
+    # list comes back once the editor quits (checklist_open's back).
+    if in_popup; then
+      checklist_popup "-w 80% -h 80%" "$cu_self checklist --edit $(shq "$cu_dir") back"
       return 0
     fi
-    checklist_open "$cu_dir"
+    checklist_open "$cu_dir" back
+    return
   fi
   if [ -z "$(printf '%s' "$cu_query" | tr -d ' \t')" ]; then
     [ -z "$cu_pick" ] || checklist_copy "$cu_file" "${cu_pick%%"$TAB"*}"
@@ -3499,6 +3524,31 @@ checklist_ui() {
   fi
   note_add "$cu_file" "$cu_query" "$cu_label" || exit 1
   [ -z "$TMUX" ] || tmux refresh-client -S ${CLIENT:+-t "$CLIENT"} 2>/dev/null
+}
+
+# Enter in the list, with what was typed ($3) for checklist $1 of codebase $2, printing the fzf
+# actions to take (a transform): nothing typed, accept, which copies and closes; else add it,
+# clear the line and reload, the cursor on the new item. It is the last open one, as an item is
+# added at the end and the rows put open ones first. A write that fails says why, on tmux's
+# message line, and leaves what was typed.
+checklist_enter() {
+  if [ -z "$(printf '%s' "$3" | tr -d ' \t')" ]; then
+    printf 'accept-or-print-query'
+    return 0
+  fi
+  note_add "$1" "$3" "$2" 2>/dev/null || return 0
+  [ -z "$TMUX" ] || tmux refresh-client -S 2>/dev/null
+  printf 'clear-query+reload-sync(%s checklist --rows %s)+pos(%s)' "$(shq "$SELF")" "$(shq "$1")" \
+    "$(grep -c '^[-*] \[ \] ' "$1")"
+}
+
+# Is this run in a popup: inside tmux, but in no pane.
+in_popup() { [ -n "$TMUX" ] && [ -z "${TMUX_PANE:-}" ]; }
+
+# Command $2 in a popup of size $1 on this terminal, once the popup this runs in has closed.
+checklist_popup() {
+  cp_bg=$(popup_bg)
+  tmux run-shell -b "sleep 0.2; tmux -S $(shq "${TMUX%%,*}") display-popup ${CLIENT:+-c $(shq "$CLIENT")} -E $1 -s bg=$cp_bg -S bg=$cp_bg,fg=brightblack $(shq "$2")"
 }
 
 # $1 single-quoted for a shell command line, its own single quotes and all.
@@ -3523,7 +3573,8 @@ note_cmd() {
 }
 
 # `trails checklist [DIR]`, and the list's own actions: --rows, --toggle, --copy and --text FILE LINE,
-# --count DIR for the status line, --edit DIR.
+# --enter FILE LABEL TYPED,
+# --count DIR for the status line, --edit DIR [back].
 checklist_cmd() {
   case ${1:-} in
     --rows) checklist_rows "$2" ;;
@@ -3534,7 +3585,8 @@ checklist_cmd() {
     --copy) checklist_copy "$2" "$3" ;;
     --text) [ -z "${3:-}" ] || checklist_text "$2" "$3" ;;
     --count) checklist_count "${2:-}" ;;
-    --edit) checklist_open "${2:-$(note_where)}" ;;
+    --edit) checklist_open "${2:-$(note_where)}" "${3:-}" ;;
+    --enter) checklist_enter "$2" "$3" "${4:-}" ;;
     -*)
       echo "trails: checklist takes a directory, or nothing for this codebase's" >&2
       exit 1
@@ -3754,7 +3806,7 @@ bind P display-popup -E -w 60% -h 70% -s bg=$tbg -S bg=$tbg,fg=brightblack "$kq 
 bind W display-popup -E -w 60% -h 50% -s bg=$tbg -S bg=$tbg,fg=brightblack "$kq ws $khold"
 bind e run-shell "TRAILS_CLIENT=#{client_name} $kq edit"
 bind \` run-shell "TRAILS_CLIENT=#{client_name} $kq shell"
-bind N display-popup -E -w 70% -h 50% -s bg=$tbg -S bg=$tbg,fg=brightblack "$kq checklist"
+bind N display-popup -E -w 60% -h 50% -s bg=$tbg -S bg=$tbg,fg=brightblack "$kq checklist"
 bind ( run-shell "TRAILS_CLIENT=#{client_name} $kq ws prev"
 bind ) run-shell "TRAILS_CLIENT=#{client_name} $kq ws next"
 bind M run-shell "TRAILS_CLIENT=#{client_name} $kq map here"
@@ -4398,8 +4450,8 @@ In tmux, from trails keys (prefix, then):
   P                 this workspace's trails, in a popup (the picker)
   W                 the workspaces
   A                 every running trail, in every workspace
-  e                 the editor beside the agent; again, back
-  `                 a shell along the bottom; again, back
+  e                 the editor beside the agent, on the right; again, back
+  `                 a shell beside the agent, on the right; again, back
   N                 this codebase's checklist: type a new item, or move to one to
                     read it whole; space ticks it, enter copies it
   ( )               the previous and next workspace
@@ -4466,23 +4518,24 @@ usage: trails [command]
   ws add NAME [DIR] put DIR (here) in workspace NAME, creating it if new
   ws next | prev    the terminal to the next or previous running workspace, as the
                     status line lists them (prefix ( and ), from trails keys)
-  edit | shell      the editor ($EDITOR) beside the agent, or a shell along the bottom,
+  edit | shell      the editor ($EDITOR) or a shell beside the agent, on the right,
                     as panes of the trail's window in the workspace (the editor alone
                     in a window of its own when nothing runs there): made once, then
                     selected; run from the pane, back to where you were. The window you
                     are on says which codebase, or DIR after the command
   note TEXT         TEXT as an item on this codebase's checklist
-  checklist [DIR]   the checklist: type and enter adds an item; ↑ ↓ to one, space ticks
-                    it done or back, enter with nothing typed copies it; ctrl-e opens the
-                    file in $EDITOR (the config's "data" says where)
+  checklist [DIR]   the checklist: type and enter adds an item, and it stays open; ↑ ↓
+                    to one, space ticks it done or back, enter with nothing typed copies
+                    it and closes; ctrl-e opens the file in $EDITOR, then the list again
+                    (the config's "data" says where); esc closes
   keys              print tmux.conf lines that bind the picker, every trail, the editor,
-                    the shell, the checklist, the workspaces, the map and the diff, and list the
-                    workspaces in the status line
+                    the shell, the checklist, the workspaces, the map and the diff, and put
+                    the workspaces and the checklist's count in the status line
   diff [DIR]        this codebase's changes, untracked files too, side by side: prefix G,
                     in a popup; the config's "diff" says what shows them
-  state WORD [--id ID]
-                    for an agent's hooks: working, waiting or idle, and the
-                    conversation it is in (https://github.com/gunasekar/trails#hooks-for-each-agent)
+  state WORD [--id ID] [--agent PROGRAM]
+                    for an agent's hooks: working, waiting or idle, the conversation
+                    it is in, and the program saying it (https://github.com/gunasekar/trails#hooks-for-each-agent)
   config            the agents file: written from the built-ins the first
                     time, then opened in $EDITOR (~/.config/trails/config.json)
   help [keys]       this; keys, the keys alone (? in the picker)
@@ -4667,7 +4720,7 @@ case $1 in
     exit 0
     ;;
   # Asked by the editor pane's command as it ends (tool), so the shell under it can go
-  # back along the bottom.
+  # back to its own column on the right.
   --layout)
     window_layout "$2"
     tool_remark "$2"

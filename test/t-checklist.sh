@@ -80,6 +80,14 @@ assert_eq "$(cd "$T" && "$TRAILS" checklist --count "$T")" "" "no count where th
 line=$(grep -n '^- \[ \] Refactor X' "$NOTES" | cut -d: -f1)
 tmux run-shell "'$TRAILS' checklist --copy '$NOTES' $line"
 assert_eq "$(tmux show-buffer)" "$(printf 'Refactor X\n\nKeep the API\n\nAdd tests')" "its paragraphs kept"
+# Enter in the list (a transform): with nothing typed, accept, to copy and close; with an item
+# typed, it is added and the list stays, reloaded, the cursor on the new item, the last open one.
+assert_eq "$("$TRAILS" checklist --enter "$NOTES" proj '  ')" "accept-or-print-query" "nothing typed: accept"
+n_open=$(grep -c '^- \[ \] ' "$NOTES")
+acts=$("$TRAILS" checklist --enter "$NOTES" proj 'typed and kept')
+assert_match "$(tail -n 1 "$NOTES")" '^- \[ \] typed and kept$' "the item added"
+assert_match "$acts" "^clear-query\+reload-sync\('$TRAILS' checklist --rows '$NOTES'\)\+pos\($((n_open + 1))\)\$" "the list reloaded, on it"
+assert_eq "$("$TRAILS" checklist --rows "$NOTES" | sed -n "$((n_open + 1))p" | cut -f2)" "☐ typed and kept" "which is that row"
 # The pane under the list shows the item whole, as it is copied; over an empty list, nothing.
 assert_eq "$("$TRAILS" checklist --text "$NOTES" "$line")" "$(printf 'Refactor X\n\nKeep the API\n\nAdd tests')" "the item whole, in the pane"
 assert_eq "$("$TRAILS" checklist --text "$NOTES" '')" "" "nothing for no row"
@@ -151,9 +159,11 @@ tmux run-shell -c "$T" "env TMUX='$sock,1,0' TRAILS_CLIENT='$term' '$TRAILS' not
 wait_for 5 sh -c "grep -q 'from the popup' '$NOTES'" || fail "the popup's note did not reach the trail's codebase"
 assert_match "$(tail -n 1 "$NOTES")" "^- \[ \] from the popup\$" "in the trail's codebase"
 
-# ctrl-e there: the checklist opens in a popup of its own, sized for an editor.
+# ctrl-e there: the checklist opens in a popup of its own, sized for an editor, and once the
+# editor quits the list is back. The stand-in editor sets FZF_DUMP for what the server starts
+# next, so the list that comes back says so, and the first, already running, doesn't.
 # shellcheck disable=SC2016 # the $(...) is the stand-in editor's, run when it opens
-printf '#!/bin/sh\nprintf "%%s %%s\\n" "$(stty size </dev/tty | cut -d" " -f1)" "$1" >"%s/opened"\n' "$T" >"$T/marked"
+printf '#!/bin/sh\nprintf "%%s %%s\\n" "$(stty size </dev/tty | cut -d" " -f1)" "$1" >"%s/opened"\ntmux set-environment -g FZF_DUMP "%s/back"\n' "$T" "$T" >"$T/marked"
 chmod +x "$T/marked"
 tmux set-environment -g EDITOR "$T/marked"
 tmux display-popup -c "$term" -h 5 -E "env FZF_PICK='from the popup' FZF_QUERY= FZF_KEY=ctrl-e '$TRAILS' checklist"
@@ -161,6 +171,9 @@ wait_for 5 test -s "$T/opened" || fail "the checklist never opened in a popup"
 rows=$(cut -d" " -f1 "$T/opened")
 assert_eq "$(cut -d" " -f2- "$T/opened")" "$NOTES" "the checklist"
 [ "$rows" -gt 5 ] || fail "the checklist opened $rows rows high, in the list's popup"
+wait_for 5 test -e "$T/back" || fail "the list did not come back after the editor"
+grep -q 'from the popup' "$T/back" || fail "the list came back without the items: $(cat "$T/back")"
+tmux set-environment -gu FZF_DUMP
 
 # trails keys offers the checklist on prefix N, and its count in the status line, before the clock.
 assert_match "$("$TRAILS" keys)" "bind N display-popup .*\"'$TRAILS' checklist\"" "the binding"

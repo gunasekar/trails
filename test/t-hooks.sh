@@ -84,7 +84,9 @@ type_in default/payments "hook idle --id $new"
 # At once, not at the next listing: nothing lists the trails here.
 wait_for 5 grep -qx "id=$new" "$STATE/default/payments" ||
   fail "the record did not follow the agent: $(cat "$STATE/default/payments")"
-assert_eq "$(tmux display-message -pt default/payments '#{@trails_id}')" "$new" "the trail carries it"
+# The window is told after the record is written, so it is waited for too.
+wait_for 5 sh -c "[ \"\$(tmux display-message -pt default/payments '#{@trails_id}')\" = '$new' ]" ||
+  fail "the trail does not carry it: $(tmux display-message -pt default/payments '#{@trails_id}')"
 assert_file "$HIST/$old" "the conversation it left, in the history"
 assert_eq "$(cd "$PROJ" && "$TRAILS" ls | awk -F'\t' '$2 == "closed" { print $7 }')" "$old" "listed as closed, to resume"
 
