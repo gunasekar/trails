@@ -18,7 +18,8 @@
 #   anything    echo it back
 #
 # Each conversation ID gets a transcript file under $HOME/.agent/, so a resume of an ID
-# that was never started fails the way a real agent's would.
+# that was never started fails the way a real agent's would; after AGENT_REFUSE_AFTER seconds
+# with that set, as claude does when it has MCP servers to start first.
 id=; name=; resume=; yolo=; other=; hooks=1
 while [ $# -gt 0 ]; do
   case $1 in
@@ -37,6 +38,7 @@ store=$HOME/.agent
 mkdir -p "$store"
 if [ -n "$resume" ]; then
   [ -f "$store/$id" ] || {
+    [ -z "${AGENT_REFUSE_AFTER:-}" ] || sleep "$AGENT_REFUSE_AFTER"
     echo "No conversation found with session ID: $id" >&2
     exit 1
   }

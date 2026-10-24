@@ -2158,6 +2158,11 @@ EOF
 
   # A restore ($4, the trail's ID) comes back as the same trail, under the session it had.
   tid=${4:-$(new_tid)}
+  # What the wrapper is told: a resume, a restore's resume (refused late, it starts fresh), or
+  # neither.
+  wrap_resume=
+  [ -z "$3" ] || wrap_resume=resume
+  [ -z "$3" ] || [ -z "$4" ] || wrap_resume=restore
   was=
   [ -z "$4" ] || was=$(rec_get "$4" session)
 
@@ -2247,7 +2252,7 @@ EOF
   # untouched by anything the user renames or re-numbers.
   # shellcheck disable=SC2086
   wid=$(tmux_door new-session -d -s "$sess" -n "$win" -c "$PWD" -P -F '#{window_id}' \
-    sh -c "$WRAP" trails-wrap "$SELF" "$tid" "$sess" "${3:+resume}" "$cmd" $args \
+    sh -c "$WRAP" trails-wrap "$SELF" "$tid" "$sess" "$wrap_resume" "$cmd" $args \
     \; set-option -w -t "=$sess:=$win" remain-on-exit on \
     \; set-option -qw -t "=$sess:=$win" remain-on-exit-format '' \
     \; set-option -t "=$sess:" status off \
@@ -2561,6 +2566,12 @@ attach_key() {
 # record: the row comes back as lost, to retry or ctrl-x. A fresh start has no such case, and
 # a resume that ran for a while and then crashed is a session that was used, so both forget.
 #
+# A restore ($4 "restore") refused that way is the agent saying its conversation is gone (one
+# never typed into, which the agent never kept): kept as lost, it would be refused again by
+# every restore. So it starts fresh in its place, as the same trail, once the dying session
+# has gone (--refused, from the server, since the pane's process group dies with the pane): what
+# restore_one does when the refusal comes inside BOOT.
+#
 # Records begin with this version: a session started before it has none, and so cannot be
 # brought back.
 STATE_DIR=${XDG_STATE_HOME:-$HOME/.local/state}/trails/sessions
@@ -2575,8 +2586,11 @@ esac
 RESUME_GRACE=20
 # shellcheck disable=SC2016 # expanded by the wrapper's sh, not here
 WRAP='self=$1 tid=$2 sess=$3 resume=$4; shift 4; trap : INT QUIT; t0=$(date +%s); "$@"; s=$?
-  [ -n "$resume" ] && [ "$s" -ne 0 ] && [ $(($(date +%s) - t0)) -lt '$RESUME_GRACE' ] ||
+  if [ -n "$resume" ] && [ "$s" -ne 0 ] && [ $(($(date +%s) - t0)) -lt '$RESUME_GRACE' ]; then
+    [ "$resume" != restore ] || tmux run-shell -b "'\''$self'\'' --refused $tid $sess >/dev/null 2>&1"
+  else
     "$self" --forget "$tid" "$sess"
+  fi
   exit $s'
 
 # A conversation ID in the shape the agent's session.id asks for.
@@ -4745,6 +4759,23 @@ case $1 in
   # stand does not matter.
   restore)
     restore_all "$2"
+    exit 0
+    ;;
+  # From the wrapper of a restore whose resume the agent refused after BOOT (see "Surviving
+  # tmux"), run by the server: --refused TID SESSION. Once its session has gone, the trail
+  # starts fresh in its place, as itself, if it is still lost.
+  --refused)
+    rf_n=0
+    while tmux has-session -t "=$3" 2>/dev/null && [ "$rf_n" -lt 50 ]; do
+      sleep 0.1
+      rf_n=$((rf_n + 1))
+    done
+    rec_is_dead "$2" || exit 0
+    rf_dir=$(rec_get "$2" dir)
+    [ -d "$rf_dir" ] || exit 0
+    cd "$rf_dir" || exit 0
+    LAUNCH_DETACHED=1
+    launch "$(rec_get "$2" agent)" "$(rec_get "$2" yolo)" "" "$2" >/dev/null
     exit 0
     ;;
   # `trails ws` on a terminal is the workspace picker, and `trails ws NAME` goes straight

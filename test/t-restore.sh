@@ -84,3 +84,22 @@ wait_for 5 screen_has default/solo-2 'agent id=' || fail "solo-2 never came up"
 assert_eq "$(tmux display-message -pt default/solo-2 '#{@trails_trail}')" "$solo_tid" "the same trail"
 assert_file "$solo_file" "its record where it was"
 assert_eq "$(sed -n 's/^session=//p' "$solo_file")" default/solo-2 "its session rewritten"
+
+# A restore the agent refuses after BOOT (claude, with MCP servers to start first): trails has
+# said "restored" by then, and the wrapper keeps the record, so it would come back lost and be
+# refused again by every restore. Instead the trail starts fresh in its place, as itself.
+FZF_PICK='' trails_bg new late
+wait_for 5 screen_has default/late 'agent id=' || fail "late never started"
+late_tid=$(tmux display-message -pt default/late '#{@trails_trail}')
+late_id=$(tmux display-message -pt default/late '#{@trails_id}')
+tmux kill-server
+sleep 0.3
+rm -f "$HOME/.agent/$late_id"
+out=$(cd "$T" && AGENT_REFUSE_AFTER=2.5 "$TRAILS" restore 2>&1)
+assert_match "$out" "restored default/late" "said restored, before the refusal"
+wait_for 12 sh -c "tmux capture-pane -pt default/late 2>/dev/null | grep -q 'resume=0'" ||
+  fail "never started fresh after the late refusal: $(cat "$(trec default/late)")"
+assert_eq "$(tmux display-message -pt default/late '#{@trails_trail}')" "$late_tid" "the same trail"
+assert_eq "$(sed -n 's/^trail=//p' "$(trec default/late)")" "$late_tid" "its record, the same"
+[ "$(sed -n 's/^id=//p' "$(trec default/late)")" != "$late_id" ] || fail "still on the refused conversation"
+assert_eq "$(cd "$T" && "$TRAILS" restore 2>&1)" "trails: nothing to restore" "nothing lost after"

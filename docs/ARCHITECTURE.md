@@ -422,8 +422,11 @@ So the agent runs under a small `sh` wrapper:
 
 ```sh
 self=$1 tid=$2 sess=$3 resume=$4; shift 4; trap : INT QUIT; t0=$(date +%s); "$@"; s=$?
-  [ -n "$resume" ] && [ "$s" -ne 0 ] && [ $(($(date +%s) - t0)) -lt 20 ] ||
+  if [ -n "$resume" ] && [ "$s" -ne 0 ] && [ $(($(date +%s) - t0)) -lt 20 ]; then
+    [ "$resume" != restore ] || tmux run-shell -b "'$self' --refused $tid $sess >/dev/null 2>&1"
+  else
     "$self" --forget "$tid" "$sess"
+  fi
   exit $s
 ```
 
@@ -435,7 +438,12 @@ One exit keeps the record: a resume that fails within its first 20 seconds. An
 agent can take longer than the launch check to start and then refuse the resume
 (claude starting several MCP servers, then "No conversation found"). Forgetting
 the record then would lose the only pointer to the conversation, so the trail
-comes back as lost, to retry or forget.
+comes back as lost, to retry or forget. A restore refused that way is different:
+kept as lost, it would be refused again by every restore, so the wrapper asks the
+server to run `--refused`, which waits for the dying session to go and starts the
+agent fresh in its place, as the same trail. That is what `restore_one` does when
+the refusal comes inside the launch check. It runs from the server because the
+wrapper's own process group dies with the pane.
 
 **A record is dead** when no window carries its trail ID (`@trails_trail`), not when
 no session has its name. Otherwise a session you created by hand under the same name
