@@ -44,7 +44,7 @@ assert_eq "$(grep -cv '^--- ' "$T/d1")" 5 "all five trails offered"
 assert_eq "$(tmux list-panes -t '=trails_map:' | wc -l | tr -d ' ')" 4 "four panes, no more"
 
 # The status line lists the map after the workspaces.
-"$TRAILS" keys | grep '^set -g status-left' | tmux source-file - || fail "tmux refused the status lines"
+"$TRAILS" keys | grep -E '^(set -g status-left|%if|%else|%endif)' | tmux source-file - || fail "tmux refused the status lines"
 sleep 1
 bar=$(tmux capture-pane -ep -t driver-1 | tail -n 1 | sed 's/\x1b\[[0-9;]*m//g')
 assert_match "$bar" "^ alpha  beta  ▦ map │" "the workspaces, then the map"

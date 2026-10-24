@@ -783,6 +783,21 @@ TAB=$(printf '\t')
 # meant for this, and appears in no name.
 US=$(printf '\037')
 
+# tmux 3.4 and 3.5 print a control character in a format's output escaped, the unit separator
+# as the four characters \037; 3.3 and 3.8 print the byte. So every tmux command whose
+# arguments carry $US has its output put back to the byte, and keeps tmux's exit status. tmux
+# escapes no backslash, so a \037 in that output can only be the separator. The x keeps a
+# trailing newline that $(...) would strip.
+tmux() {
+  case $* in
+    *"$US"*)
+      tx_out=$(command tmux "$@" && printf x) || return
+      printf '%s' "${tx_out%x}" | sed "s/\\\\037/$US/g"
+      ;;
+    *) command tmux "$@" ;;
+  esac
+}
+
 # A locale, when the caller has none: launchd jobs (a cron, a tmux started at login) start
 # with no LANG or LC_*, and a tmux client in the C locale rewrites every byte it cannot
 # print as `_` on the way out: the separator between two fields of a format, the `·` in a
@@ -3909,7 +3924,11 @@ keys() {
   kws='#{S/n:#{?@trails_workspace,#[range=session|#{session_id}]#{?#{||:#{==:#{session_name},#{client_session}},#{m:#{session_name}~*,#{client_session}}},#[reverse] #{session_name} #[noreverse], #{session_name} }#[norange],}}'
   # Then the map, while one is up (its session carries @trails_map): after the workspaces,
   # by a loop of its own, so a name never sorts it in among them.
+  # tmux before 3.6 or so has no /n, and prints it as text; its plain #{S:} lists by name
+  # already (3.8's lists in the order they were made). The %if below asks tmux which it is.
+  kws_old="#{S:${kws#'#{S/n:'}"
   kws="$kws"'#{S:#{?@trails_map,#[range=session|#{session_id}]#{?#{==:#{session_name},#{client_session}},#[reverse] ▦ map #[noreverse], ▦ map }#[norange],}}'
+  kws_old="$kws_old"'#{S:#{?@trails_map,#[range=session|#{session_id}]#{?#{==:#{session_name},#{client_session}},#[reverse] ▦ map #[noreverse], ▦ map }#[norange],}}'
   cat <<EOF
 # trails: one line in tmux.conf loads all of these, and follows every upgrade:
 #   run-shell "$kq keys | tmux source-file -"
@@ -3929,7 +3948,11 @@ bind A display-popup -E -w 70% -h 70% -s bg=$tbg -S bg=$tbg,fg=brightblack "env 
 bind G run-shell "TRAILS_CLIENT=#{client_name} $kq diff"
 bind ? run-shell "TRAILS_CLIENT=#{client_name} $kq --keys"
 set -g status-left-length 60
+%if "#{m:x*,#{S/n:x}}"
 set -g status-left "${kws}│ "
+%else
+set -g status-left "${kws_old}│ "
+%endif
 EOF
 }
 

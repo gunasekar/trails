@@ -29,6 +29,14 @@ t_setup() {
   PATH=$REPO/test/bin:$PATH
   export HOME XDG_CONFIG_HOME XDG_STATE_HOME TMUX_TMPDIR PATH
   unset TMUX TMUX_PANE TERM_PROGRAM NVIM ZED_TERM TRAILS_ATTACH TRAILS_CLIENT
+  # A UTF-8 locale for the tmux server the first driver starts, as a terminal has. With none
+  # (CI's runner) tmux 3.4 rewrites what it can't print as _ (the · in a window's name, the
+  # unit separator between fields), and every trail reads as lost. trails sets one for a
+  # server it starts itself; this one starts before trails runs.
+  if [ -z "${LANG:-}${LC_ALL:-}${LC_CTYPE:-}" ]; then
+    LC_CTYPE=$(locale -a 2>/dev/null | grep -ixE 'C\.UTF-?8|en_US\.UTF-?8' | head -n 1)
+    [ -z "$LC_CTYPE" ] || export LC_CTYPE
+  fi
   trap 't_teardown' EXIT
   trap 'exit 130' INT
   trap 'exit 143' TERM

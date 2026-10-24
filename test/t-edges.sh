@@ -94,7 +94,9 @@ mkdir -p "$T/dots" "$T/w1" "$T/a[1]" "$T/a1" "$T/sp ace"
 mv "$CFG" "$T/dots/config.json" && chmod 600 "$T/dots/config.json" && ln -s "$T/dots/config.json" "$CFG"
 "$TRAILS" ws add w "$T/w1" >/dev/null 2>&1 || fail "ws add failed"
 [ -L "$CFG" ] || fail "ws add replaced the linked config with a file"
-assert_eq "$(stat -f %Lp "$T/dots/config.json" 2>/dev/null || stat -c %a "$T/dots/config.json")" 600 "and kept its mode"
+# GNU stat's -f is the filesystem, not a format: ask which stat this is, as trails does.
+if stat -c %a / >/dev/null 2>&1; then mode=$(stat -c %a "$T/dots/config.json"); else mode=$(stat -f %Lp "$T/dots/config.json"); fi
+assert_eq "$mode" 600 "and kept its mode"
 # A folder named with glob characters claims itself, not others.
 "$TRAILS" ws add g "$T/a[1]" >/dev/null 2>&1
 assert_eq "$("$TRAILS" ws of "$T/a[1]" 2>/dev/null)" g "a[1] is g's"
@@ -121,7 +123,9 @@ jq '.notes = "~/n/{codebase}.md"' "$T/dots/config.json" >"$T/c.tmp" && cat "$T/c
 (cd "$T/R&D" && "$TRAILS" note amp >/dev/null 2>&1)
 [ -f "$T/n/R&D.md" ] || fail "{codebase} lost the & in R&D: $(ls "$T/n" 2>&1)"
 jq '.notes = "/nonexistent-root/x.md"' "$T/dots/config.json" >"$T/c.tmp" && cat "$T/c.tmp" >"$T/dots/config.json"
-assert_match "$(cd "$PROJ" && "$TRAILS" note x 2>&1)" "can't write the notes at" "an unwritable notes path, said so"
+# Not as root, who can write anywhere (a container's test run).
+[ "$(id -u)" -eq 0 ] ||
+  assert_match "$(cd "$PROJ" && "$TRAILS" note x 2>&1)" "can't write the notes at" "an unwritable notes path, said so"
 jq 'del(.notes)' "$T/dots/config.json" >"$T/c.tmp" && cat "$T/c.tmp" >"$T/dots/config.json"
 "$TRAILS" notes "$T/nope" >/dev/null 2>&1 && fail "notes made a directory that wasn't there"
 [ -e "$T/nope" ] && fail "notes created $T/nope"

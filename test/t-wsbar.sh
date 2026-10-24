@@ -28,7 +28,7 @@ tmux switch-client -c "$term" -t =alpha
 wait_for 5 sh -c "[ \"\$(tmux list-clients -F '#{client_name} #{session_name}' | awk -v c='$term' '\$1 == c { print \$2 }')\" = alpha ]" || fail "not on alpha"
 
 # The status line, as the terminal draws it: alpha in reverse, beta not, and no alpha/one.
-"$TRAILS" keys | grep '^set -g status-left' >"$T/bar.conf"
+"$TRAILS" keys | grep -E '^(set -g status-left|%if|%else|%endif)' >"$T/bar.conf"
 tmux source-file "$T/bar.conf" || fail "tmux refused the status lines"
 sleep 1
 bar=$(tmux capture-pane -ep -t driver-1 | tail -n 1)

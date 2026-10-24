@@ -114,8 +114,9 @@ type_in "$shp" "FZF_PICKS=$T/p4c $TRAILS"
 wait_for 10 has_session lattiq/augur ||
   fail "no second trail in augur; windows: $(tmux list-windows -t lattiq -F '#{window_name}' | tr '\n' ' '); pane: $(tmux capture-pane -pt "$shp" | grep -v '^$' | tail -3 | tr '\n' '|')"
 wait_for 5 screen_has lattiq/augur 'agent (other)' || fail "the other agent never started"
-wins() { tmux list-windows -t lattiq -F '#{window_name}' | grep -vx bash | sort | tr '\n' ' '; }
-wait_for 5 sh -c "[ \"\$(tmux list-windows -t lattiq | wc -l)\" -ge 4 ]" || true
+# The trails' windows only, not the shell this test types into, whatever it is called.
+wins() { tmux list-windows -t lattiq -F '#{?@trails_window,#{window_name},}' | grep . | sort | tr '\n' ' '; }
+wait_for 5 sh -c "[ \"\$(tmux list-windows -t lattiq -F '#{@trails_window}' | grep -c .)\" -ge 3 ]" || true
 assert_eq "$(wins)" "augur augur·api ledger " "its window"
 wait_for 5 sh -c "tmux list-clients -F '#{session_name} #{window_name}' | grep -qx 'lattiq augur'" ||
   fail "the client was not switched to the new trail"

@@ -217,7 +217,11 @@ and the name, never off a name alone.
 
 What tmux is asked for comes back with its fields between `$US`, the unit
 separator, never `|` (a directory may hold one) nor a tab (the shell reads a tab
-as whitespace and drops empty fields). A `read` with that IFS is never fed a
+as whitespace and drops empty fields). tmux 3.4 and 3.5 print a control character
+in a format's output escaped, `$US` as the four characters `\037`, where 3.3 and
+3.8 print the byte; so trails' `tmux` function puts the byte back in the output of
+any command whose arguments carry `$US`, keeping tmux's exit status. tmux escapes
+no backslash, so `\037` there can only be the separator. A `read` with that IFS is never fed a
 command substitution of its own: its IFS would split the substitution's words.
 
 A key trails is handed (by the picker, the map) is checked by `key_ok`: a
