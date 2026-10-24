@@ -1,6 +1,7 @@
 # 4. Recent conversations come from each agent's own store
 
-- Status: accepted
+- Status: superseded by [ADR 19](0019-no-agents-files-read.md): "resume old" lists trails'
+  own history of the trails it ran
 - Date: 2026-10
 
 ## Context

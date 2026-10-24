@@ -1,6 +1,7 @@
 # Notes: design
 
-Status: implemented · 2026-10-22.
+Status: implemented 2026-10-22; superseded in 1.7 by the checklist
+([trails-1.7.md](trails-1.7.md#the-checklist)).
 
 While an agent works for ten minutes or an hour, the thoughts that come up, "this
 should also change", "that behaviour is wrong", get lost. They belong to the

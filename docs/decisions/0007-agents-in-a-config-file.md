@@ -1,6 +1,7 @@
 # 7. Agents live in a config file
 
-- Status: accepted
+- Status: accepted, amended by [ADR 19](0019-no-agents-files-read.md): no agent's own store
+  is read, recent conversations included
 - Date: 2026-10
 
 ## Context

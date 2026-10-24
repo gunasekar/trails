@@ -12,7 +12,7 @@ test/run.sh checklist  # one of them
 ```
 
 Each test runs with `test/bin` first on `PATH`: a stub agent that reads `ask`,
-`busy`, `title`, `exit` from its pane, a stub fzf driven by `FZF_PICK`,
+`busy`, `title`, `exit` and `hook WORD` from its pane, a stub fzf driven by `FZF_PICK`,
 `FZF_PICKS`, `FZF_DUMP` (with `!esc` for Esc and `!query` for Enter on typed
 text), and a stub editor. Nothing touches the real tmux server or config.
 
@@ -31,7 +31,7 @@ covered yet.
 | 4 | New trail in another codebase | A `t-screens` |
 | 5 | Move between trails and workspaces | A `t-screens`, `t-inside`, `t-grouped` |
 | 6 | Editor and shell beside the agent | A `t-tools` · M3 |
-| 7 | Come back after a break, restore after tmux dies | A `t-restore`, `t-legacy` · M4 |
+| 7 | Come back after a break, restore after tmux dies | A `t-restore`, `t-autorestore` · M4 |
 | 8 | Finish, or resume old work | A `t-launch`, `t-picker` (ctrl-x) · M5 (resume) |
 
 ### Everything else
@@ -55,7 +55,7 @@ covered yet.
 | | `trails ws NAME` | A `t-screens` |
 | | `trails ls`, `-a`, `DIR`, piped | A `t-ls` |
 | | Esc up, ctrl-c out | A `t-screens`, `t-picker` |
-| Watching | states, from hooks and Claude's file | A `t-classify`, `t-hooks`, `t-ls` |
+| Watching | states, from hooks | A `t-classify`, `t-hooks`, `t-ls` |
 | | preview: layout, follow, live refresh, wrap | M9 |
 | | `trails map` | A `t-map` |
 | | every running trail: prefix A, ctrl-a, Esc back, ctrl-x from it | A `t-all` |
@@ -88,14 +88,14 @@ Each on the real machine, in Ghostty, with `trails keys` pasted into tmux.conf.
 |---|---|---|
 | M1 | From another machine: `ssh host -t trails`, pick a workspace, `prefix W` to another, detach, reconnect | The workspaces list; attached on the trail that most wants you; switched without reconnecting; the one you were in marked on return |
 | M2 | Ask claude something that needs a permission; let another finish its turn | `● needs you` and `● your turn` in the picker, the cursor on the one that needs you |
-| M3 | In a trail: `prefix e`, again, `` prefix ` ``, quit the agent | Editor left 60%, back to the agent, shell along the bottom; editor and shell kept as the codebase's window |
+| M3 | In a trail: `prefix e`, again, `` prefix ` ``, quit the agent | Editor right 60%, agent left; back to the agent; shell under the editor (a 40% column on the right with no editor); editor and shell kept as the codebase's window |
 | M4 | `tmux kill-server`, then `trails`, then `trails restore` | Trails shown `○ lost`; each back on its conversation, in its workspace |
 | M5 | End a claude trail, then **↩ resume old trails**, Tab on it, Enter | Listed as closed; Tab flips YOLO; resumes on its conversation |
 | M6 | `brew install` or `bin/trails` on PATH; `trails keys` into tmux.conf, reload | Every line accepted, every key works |
 | M7 | *(retired in 1.6, with the menu-bar plugin)* | |
 | M8 | VS Code / Zed terminal (local and Remote-SSH): `trails`, pick a trail | The codebase's trails only; attached to that one trail; no workspace |
 | M9 | `prefix P` on a busy trail, on a wide one, on a narrow one; ctrl-/ | Preview under the list to the popup's bottom, latest output, updating every second; wide one wrapped, narrow one at its width; ctrl-/ hides and shows |
-| M10 | `prefix N`, type, Enter; `prefix N`, ↓, Space; `prefix N`, ↓, Enter, then ⌘V in the agent; ctrl-e | Item added to `.scratch/trails/checklist.md`; ticked, moved down, `☑` count in the status line drops; the item pasted; the file in a large popup |
+| M10 | `prefix N`, type, Enter, type, Enter; ↓, Space; ↓, Enter, then ⌘V in the agent; `prefix N`, ctrl-e, quit the editor | Both items added to the checklist (`.trails/checklist.md`, or under `data`), the list open on each; the item under the cursor shown whole under the list; ticked, moved down, `☑` count in the status line drops; the item pasted; the file in a large popup, then the list again |
 
 ### Run, 2026-10-23
 
@@ -169,8 +169,7 @@ Data loss first.
 | Finding | Why it stands |
 |---|---|
 | A worktree whose own path a catch-all glob (`~/*`) claims goes there, not to its main checkout's workspace | rare, and which should win is a design call |
-| Notes in a git worktree are its own, not the main checkout's | the repository's top is where they live, by design (N2) |
+| Without `data`, a git worktree's checklist is its own, not the main checkout's (with `data`, it is the main checkout's) | the repository's top is where it lives, by design |
 | A trail session renamed by hand drops out of the lists | renaming trails' sessions is outside what trails supports |
 | Map pane borders read the host name without a `set-titles` in tmux.conf | cosmetic |
 | A temp directory left by a picker killed with SIGKILL | KILL can't be trapped |
-| A `y/n` question stays "needs you" until it scrolls off | the screen heuristic's limit, for agents without a state of their own |

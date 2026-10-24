@@ -8,7 +8,8 @@ grouped by what you are doing. The [README](../README.md) has the detail of
 each command and key.
 
 Keys are the ones `trails keys` prints: `prefix P` the picker, `prefix W` the
-workspaces, `prefix e` the editor, `` prefix ` `` a shell, `prefix N` the checklist.
+workspaces, `prefix e` the editor, `` prefix ` `` a shell, `prefix G` the diff,
+`prefix N` the checklist, `prefix M` the map; `prefix ?` lists them all.
 
 ## The everyday loop
 
@@ -36,7 +37,8 @@ workspaces, `prefix e` the editor, `` prefix ` `` a shell, `prefix N` the checkl
    workspaces in the config: `/*` entries for workspace directories, plain
    paths for codebases of their own, and an optional `root` for `browse…`.
 4. No workspaces at all: everything runs in `default`.
-5. `trails keys` prints the tmux.conf lines for the five keys above.
+5. `trails keys` prints the tmux.conf lines for the keys above, and the status
+   line's.
 
 ### Starting a trail
 
@@ -62,8 +64,8 @@ workspaces, `prefix e` the editor, `` prefix ` `` a shell, `prefix N` the checkl
 3. `trails` from `~`, a fresh ssh login, or `prefix W`: the workspaces.
 4. `trails ws NAME`: straight to a workspace.
 5. `trails ls`, `ls -a`, `ls DIR`: a table of trails, tab-separated when piped.
-7. tmux's own keys: next and previous window, `prefix s`, `choose-tree`.
-8. Esc goes up a level, from a codebase to its workspace to the workspaces, and
+6. tmux's own keys: next and previous window, `prefix s`, `choose-tree`.
+7. Esc goes up a level, from a codebase to its workspace to the workspaces, and
    ctrl-c quits.
 
 ### Watching
@@ -76,22 +78,27 @@ workspaces, `prefix e` the editor, `` prefix ` `` a shell, `prefix N` the checkl
 
 ### Beside the agent
 
-1. `prefix e` / `trails edit`: the editor on the left 60%, the agent on the
-   right. Again goes back.
-2. `` prefix ` `` / `trails shell`: a shell along the bottom.
-3. Where nothing runs, the editor in a window of its own (`checkout·nvim`).
-4. When the agent ends, the editor and shell stay, as the codebase's window.
-5. ctrl-e in the picker: the editor for the row's codebase.
+1. `prefix e` / `trails edit`: the editor on the right 60%, the agent on the
+   left. Again goes back.
+2. `` prefix ` `` / `trails shell`: a shell in a column on the right, 40% wide,
+   or under the editor when it is open.
+3. `prefix G` / `trails diff`: what the agent changed, side by side, untracked
+   files too.
+4. Where nothing runs, the editor in a window of its own (`checkout·nvim`).
+5. When the agent ends, the editor and shell stay, as the codebase's window.
+6. ctrl-e in the picker: the editor for the row's codebase.
 
 ### Checklist
 
 What to do next in a codebase, and the prompts to give its agent, parked while
 it works.
 
-1. `prefix N`: the checklist in a popup. Type an item, Enter adds it.
-2. ↑ ↓ to an item: Space ticks it done, or back; Enter copies it, to paste into
-   the agent.
-3. Esc closes; ctrl-e opens the file in `$EDITOR`, in a popup of its own.
+1. `prefix N`: the checklist in a popup. Type an item, Enter adds it, and the
+   list stays open for the next.
+2. ↑ ↓ to an item, shown whole under the list: Space ticks it done, or back;
+   Enter copies it and closes, to paste into the agent.
+3. Esc closes; ctrl-e opens the file in `$EDITOR`, in a popup of its own, and the
+   list comes back when you quit it.
 4. The status line counts it before the clock: `☑ 2/5`, open of all.
 5. `trails note "TEXT"` adds one from a shell, and `trails checklist` opens it.
 6. The config's `data` keeps every codebase's checklist in a folder of yours: iCloud

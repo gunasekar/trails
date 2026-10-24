@@ -2,7 +2,8 @@
 
 - Status: accepted
 - Date: 2026-10
-- Supersedes ADR 11 (an agent's own state beats its screen); amends ADR 18 (status
+- Supersedes ADR 4 (recent conversations from each agent's store) and ADR 11 (an agent's
+  own state beats its screen); amends ADRs 3, 7, 9 and 12, and ADR 18 (status
   from the agent's hooks): the hooks are the only source, and say the
   conversation as well as the state
 

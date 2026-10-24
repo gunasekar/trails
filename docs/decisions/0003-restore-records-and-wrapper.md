@@ -1,6 +1,7 @@
 # 3. Records and a wrapper to survive tmux dying
 
-- Status: accepted
+- Status: accepted, amended by [ADR 19](0019-no-agents-files-read.md): the conversation a
+  trail moved to comes from its hooks' `--id`; no agent's file is read
 - Date: 2026-10
 
 ## Context

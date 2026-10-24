@@ -1,6 +1,8 @@
 # 12. One name for a trail, everywhere
 
-- Status: accepted
+- Status: accepted, amended by [ADR 13](0013-workspaces-are-sessions-trails-are-windows.md) (the session is
+  `<workspace>/<name>`) and [ADR 19](0019-no-agents-files-read.md) (no `@name` badge or
+  `peer` column)
 - Date: 2026-10
 
 ## Context

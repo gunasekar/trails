@@ -25,7 +25,7 @@ In scope:
   `trails ls -a` for every one, and whether each agent is working or waiting on
   you.
 - **Resuming:** a record per trail that outlives tmux, `trails restore`, and
-  ended conversations read from the agents' own stores.
+  ended trails, from trails' own history of what it ran.
 - **Ending** a trail, or forgetting a lost one.
 - **Workspaces:** which codebases go together, from the config, and a session
   per workspace to switch between over one connection.
@@ -338,7 +338,7 @@ badge leading and the workspace after the agent; `ls_rows` carries the badge as 
 extra leading field that the TSV drops, since a badge needs the label and name
 the TSV doesn't carry.
 
-Reading conversation history costs most of an `ls`. `TRAILS_RECENT_MAX=0` skips it,
+Reading the history of ended trails is the slow part of an `ls`. `TRAILS_RECENT_MAX=0` skips it,
 for a poll that only wants running trails.
 
 ## Surviving tmux
@@ -525,7 +525,7 @@ with `curl`, ending when the picker kills it or its directory goes. Without
 terminal.
 
 The running block is classified once per picker run and cached in a temp file,
-because `classify` sleeps and every Tab reloads. Recent rows are cached the same
+because every Tab and ctrl-x reloads the menu. Recent rows are cached the same
 way; on the workspace picker the cache holds every trail classified, for the
 counts.
 
@@ -535,7 +535,6 @@ counts.
 | `attach` | window id | `attach_to`: the workspace on the trail's window, or its session |
 | `restore` | record key | `restore_one` in the record's directory, then attach |
 | `resume` / `resume-yolo` | `agent:id:dir` | launch with the resume flag and that ID in that directory, recorded like any launch; `resume-yolo` when it last ran YOLO (unless Tab flipped it back) or Tab armed it |
-| `open` | `agent:id:dir` | refuse, naming the process that has it |
 | `tool` | window id | an editor or shell window: switch or attach to it |
 | `browse` | | `pick_codebase`: the workspace's codebase tree (`codebase_tree`), walking the file system from a `browse:DIR` row (`walk_dir`), then the agents screen |
 | `agents` | | a codebase's "＋ new trail…": the agents screen for this directory |
@@ -566,22 +565,22 @@ these are `tool`, `tool_find` and `tool_make`.
 
 `window_layout` decides where the panes go from which of them exist, whatever
 the order they were opened in: the agent alone fills the window; a shell with no
-editor pane runs along the bottom, full width, a quarter high; an editor pane
-takes the left 60% and the agent the right 40%; a shell with an editor pane sits
+editor pane is a column on the right, 40% wide, full height; an editor pane
+takes the right 60% and the agent the left 40%; a shell with an editor pane sits
 under the editor only, a quarter high. It uses `move-pane` (tmux 3.2), which puts
 a pane where it belongs whether it was there already or not, then `resize-pane`
 for the sizes, since a size given to `move-pane` is taken from the pane it splits.
 It runs after every pane is made, and the editor pane's command ends by running
 `trails --layout` in the background, so a shell that sat under the editor goes
-back along the bottom once the pane has gone. The window you are on decides: from
+back to its own column once the pane has gone. The window you are on decides: from
 a trail's window or an editor or shell window, that window; from a plain window in
 the workspace, the window of the trail in the pane's directory that most wants
 you; outside tmux, the current directory's or `DIR`'s. Directories are compared
 resolved, because tmux reports a pane's path through symlinks.
 
 With no trail in the codebase, `edit` makes the editor alone as a window in the
-workspace, `<codebase>·nvim`, marked `@trails_tool editor`, and `shell` goes along
-its bottom. Such a window is renamed and re-marked for what it holds whenever its
+workspace, `<codebase>·nvim`, marked `@trails_tool editor`, and `shell` goes under
+it, a quarter high. Such a window is renamed and re-marked for what it holds whenever its
 panes change (`tool_remark`): `<codebase>·shell` once the editor has left, the
 editor's name again when one is opened in it. When a trail ends with panes beside it, `window_release` turns the
 trail's window into such a window rather than killing what you had open: renamed
@@ -649,7 +648,7 @@ end, through `switch_to`, so a grouped terminal stays grouped.
 A codebase's checklist is a Markdown file of its own, `- [ ]` and `- [x]` items
 (`note_cmd`, `checklist_cmd`). Where (`checklist_file`): with the config's `data`
 (`load_data_dir`), `<data>/trails/<path>/checklist.md`, `<path>` from `path_key`, the
-codebase's root (`codebase_root`, a worktree's main checkout) from `$HOME` with every
+codebase's root (`codebase_root`; a worktree's main checkout, by `path_key`) from `$HOME` with every
 non-alphanumeric as `-`, as Claude names a project's folder, so the same code has the
 same name on every machine and a synced folder shares it; without it,
 `.trails/checklist.md` in the codebase; with only the pre-1.7 `notes`
@@ -670,17 +669,27 @@ it is. The list (`checklist_ui`) is one fzf: `--disabled`, so its input line is 
 a new item and never filters, over `checklist_rows`, each row the item's line
 number and its text, open ones first. The keys depend only on the input line:
 
-- Enter (`accept-or-print-query`) prints what was typed and the row under the
-  cursor; trails adds the first, or with nothing typed copies the second
-  (`checklist_copy`: `tmux load-buffer -w`, so the terminal's clipboard too).
+- Enter is a `transform` (`checklist --enter`, `checklist_enter`): with something
+  typed it adds the item and answers `clear-query+reload-sync(…)+pos(N)`, so the
+  list stays open on the new item, the last open one; with nothing typed,
+  `accept-or-print-query`, and trails copies the row under the cursor
+  (`checklist_copy`: `tmux load-buffer -w`, so the terminal's clipboard too) and
+  closes. An fzf without `transform` accepts either way, and trails adds what was
+  typed, closing.
 - Space is a `transform` (fzf 0.45): with nothing typed, tick the row's line
   (`checklist_toggle`, which touches only an item's own line) and reload; else
   `put( )`, a space. An older fzf ticks on Tab.
-- ctrl-e opens the file, in a popup of its own from `prefix N`'s.
+- ctrl-e opens the file, in a popup of its own from `prefix N`'s, and when the
+  editor quits opens the list again (`checklist_open`'s `back`): in a popup as
+  `prefix N`'s, scheduled from the editor's (`checklist_popup`), or in the same
+  terminal from a shell.
 
 A row is the item's first line, cut to the popup's width. fzf's preview, under
 the list, is the row's item whole (`checklist --text FILE LINE`, `checklist_text`,
-what a copy takes), wrapped at words where fzf can (`wrap-word`).
+what a copy takes), wrapped at words where fzf can (`wrap-word`). The list is ten
+rows and the preview takes the rest, set on start and on every resize by a
+`transform` to `change-preview-window` from `FZF_LINES`; an fzf without the
+`resize` event splits the popup in half.
 
 The bindings' commands run with `SHELL=/bin/sh`: fzf runs them through `$SHELL`,
 and a login shell's zsh reads a path's `=` and `~` its own way.
@@ -768,9 +777,11 @@ vhs assets/demo/map.tape
 `test/run.sh` runs the integration tests in `test/t-*.sh`, one per area: launch,
 ls, classify, picker, screens (the workspace screens), tools (the editor and the
 shell), inside (inside
-tmux: switch-client, a nested editor client, the refused collision), restore, map, workspace (the config), hooks
-(`trails state` and `--id`, the history, the plugin against the docs), diff, and
-the popup check behind D4 of the design. CI runs them after ShellCheck. Each test is
+tmux: switch-client, a nested editor client, the refused collision), restore,
+autorestore, map, workspace and wsmap (the config), wsbar (the status line),
+grouped (a second terminal on a workspace), all (every trail), edges, hooks
+(`trails state` and `--id`, the history, the plugin against the docs), checklist,
+diff, and the popup check behind D4 of the design. CI runs them after ShellCheck. Each test is
 its own process on its own tmux server in a throwaway `HOME`: `TMUX_TMPDIR` puts
 the socket there, `XDG_CONFIG_HOME` and `XDG_STATE_HOME` give it a config and
 records of its own, and `TMUX`, `TERM_PROGRAM`, `NVIM` and `ZED_TERM` are unset so

@@ -1,5 +1,8 @@
 # trails 1.6: hooks, a diff, and who it is for
 
+Status: implemented in 1.6.0. `trails hooks` and the reading of Claude's state file
+went in 1.7 ([ADR 19](../decisions/0019-no-agents-files-read.md)).
+
 Seven changes. The first is the large one and has an ADR of its own
 ([ADR 18](../decisions/0018-status-from-the-agents-hooks.md)); the fourth is on
 trial and may not ship.

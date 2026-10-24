@@ -1,6 +1,8 @@
 # 15. Companions: the editor and a shell as marked windows beside a trail
 
-- Status: accepted, amended by [ADR 16](0016-the-trail-lives-in-its-view.md)
+- Status: accepted, amended by [ADR 16](0016-the-trail-lives-in-its-view.md); the layout
+  since 1.7.2 is the agent on the left, the editor on the right 60%, and the shell under
+  the editor, or a 40% column on the right without one (`window_layout`)
 - Date: 2026-10
 
 ## Context

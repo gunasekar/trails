@@ -1,6 +1,7 @@
 # 9. Two signals per session: running or not, and a state word
 
-- Status: accepted
+- Status: accepted, amended by [ADR 18](0018-status-from-the-agents-hooks.md) (*unknown*,
+  for a trail nothing speaks for) and [ADR 19](0019-no-agents-files-read.md) (*elsewhere* gone)
 - Date: 2026-10
 - Supersedes the row markers in ADRs 3 and 4 (`↻`, `◷`, `!`)
 

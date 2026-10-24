@@ -117,6 +117,17 @@ something you act on, not only a file to open.
   iCloud Drive, the checklists are the same on each machine. trails owns the layout
   under `data`; the config only says where.
 
+## Since 1.7.0
+
+- **1.7.1:** the item under the cursor, whole, in fzf's preview under the list
+  (`checklist --text`), wrapped at words.
+- **1.7.2:** Enter on a typed item adds it and the list stays open, on it, for the
+  next (`checklist --enter`, a `transform`); Enter with nothing typed still copies
+  and closes. ctrl-e brings the list back once the editor quits. The list is ten
+  rows and the preview takes the rest; the popup is 60% wide. The editor and the
+  shell open on the right: the agent on the left 40% beside the editor's 60%, or
+  60% beside a shell's 40%, and with both, the shell under the editor.
+
 ## Tests
 
 - The checklist: an item added, Esc adding nothing, Enter on one copying it
