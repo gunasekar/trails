@@ -8,7 +8,7 @@ grouped by what you are doing. The [README](../README.md) has the detail of
 each command and key.
 
 Keys are the ones `trails keys` prints: `prefix P` the picker, `prefix W` the
-workspaces, `prefix e` the editor, `` prefix ` `` a shell, `prefix N` a note.
+workspaces, `prefix e` the editor, `` prefix ` `` a shell, `prefix N` the checklist.
 
 ## The everyday loop
 
@@ -31,7 +31,7 @@ workspaces, `prefix e` the editor, `` prefix ` `` a shell, `prefix N` a note.
    fzf, jq and an agent CLI.
 2. `trails config` writes the built-in agents to
    `~/.config/trails/config.json`, to edit: the agents, `default_agent`, `mode`
-   (`default` or `yolo`), `map` and `notes`.
+   (`default` or `yolo`), `map` and `data`.
 3. Put a codebase in a workspace with `trails ws add NAME [DIR]`, or declare
    workspaces in the config: `/*` entries for workspace directories, plain
    paths for codebases of their own, and an optional `root` for `browse…`.
@@ -83,14 +83,19 @@ workspaces, `prefix e` the editor, `` prefix ` `` a shell, `prefix N` a note.
 4. When the agent ends, the editor and shell stay, as the codebase's window.
 5. ctrl-e in the picker: the editor for the row's codebase.
 
-### Notes
+### Checklist
 
-1. `prefix N`: a one-line popup. Type the note, Enter saves it.
-2. Esc drops it.
-3. Enter on an empty line: the codebase's notes in `$EDITOR`, in a popup of
-   their own.
-4. `trails note "TEXT"` adds one from a shell, and `trails notes` opens them.
-5. The config's `notes` moves them, `~/notes/{codebase}.md` among the choices.
+What to do next in a codebase, and the prompts to give its agent, parked while
+it works.
+
+1. `prefix N`: the checklist in a popup. Type an item, Enter adds it.
+2. ↑ ↓ to an item: Space ticks it done, or back; Enter copies it, to paste into
+   the agent.
+3. Esc closes; ctrl-e opens the file in `$EDITOR`, in a popup of its own.
+4. The status line counts it before the clock: `☑ 2/5`, open of all.
+5. `trails note "TEXT"` adds one from a shell, and `trails checklist` opens it.
+6. The config's `data` keeps every codebase's checklist in a folder of yours: iCloud
+   Drive, and they are the same on each Mac.
 
 ### Ending and resuming
 

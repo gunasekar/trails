@@ -8,7 +8,7 @@ terminal, editor, agent or app will do. Run before a release.
 
 ```console
 test/run.sh            # every test/t-*.sh, each on its own tmux server, in a throwaway HOME
-test/run.sh notes      # one of them
+test/run.sh checklist  # one of them
 ```
 
 Each test runs with `test/bin` first on `PATH`: a stub agent that reads `ask`,
@@ -43,7 +43,7 @@ covered yet.
 | | broken, empty, wrong-typed config | A `t-edges` |
 | | `trails ws add`, workspaces in the config | A `t-workspace` |
 | | no workspaces: `default` | A `t-picker`, `t-launch` |
-| | `trails keys` lines accepted by tmux | A `t-notes` (prefix N line) · M6 |
+| | `trails keys` lines accepted by tmux | A `t-checklist` (prefix N, status-right) · M6 |
 | Starting | new trail in a repo, a workspace | A `t-picker`, `t-screens` |
 | | browse… to an unlisted folder | A `t-screens` |
 | | folder no workspace claims: the question | A `t-screens` |
@@ -62,7 +62,7 @@ covered yet.
 | | `?`: the keys, `trails help keys` | A `t-edges` (the text) · checked by hand with real fzf |
 | Beside the agent | edit, shell, toggles, kept window, ctrl-e | A `t-tools` |
 | | the diff: untracked files, a popup from prefix G, a gui command | A `t-diff` |
-| Notes | prefix N, Esc, Enter on empty, `note`, `notes`, path | A `t-notes` · M10 |
+| Checklist | prefix N: add, Esc, Enter copies, ctrl-e; tick; count; `note`; path, old `notes` key and file | A `t-checklist` · M10 |
 | Ending | ctrl-x | A `t-picker`, `t-tools`, `t-map` |
 | | resume old trails, from the history; ctrl-x forgets one; a resume that dies keeps it | A `t-hooks` · M5 |
 | | a conversation that never had a turn stays out of the history | A `t-tools` |
@@ -95,7 +95,7 @@ Each on the real machine, in Ghostty, with `trails keys` pasted into tmux.conf.
 | M7 | *(retired in 1.6, with the menu-bar plugin)* | |
 | M8 | VS Code / Zed terminal (local and Remote-SSH): `trails`, pick a trail | The codebase's trails only; attached to that one trail; no workspace |
 | M9 | `prefix P` on a busy trail, on a wide one, on a narrow one; ctrl-/ | Preview under the list to the popup's bottom, latest output, updating every second; wide one wrapped, narrow one at its width; ctrl-/ hides and shows |
-| M10 | `prefix N`, type, Enter; `prefix N`, Esc; `prefix N`, Enter on empty | Note added to `.scratch/trails/notes.md`; nothing added; notes open in a large popup |
+| M10 | `prefix N`, type, Enter; `prefix N`, ↓, Space; `prefix N`, ↓, Enter, then ⌘V in the agent; ctrl-e | Item added to `.scratch/trails/checklist.md`; ticked, moved down, `☑` count in the status line drops; the item pasted; the file in a large popup |
 
 ### Run, 2026-10-23
 

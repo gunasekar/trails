@@ -279,9 +279,13 @@ name, never by glyph: macOS awk compares strings by locale collation, which rank
 The agent says ([ADR 18](decisions/0018-status-from-the-agents-hooks.md)), and
 nothing else does ([ADR 19](decisions/0019-no-agents-files-read.md)).
 
-`trails state working|waiting|idle [--id ID]`, run from the agent's hooks, sets
-`@trails_state` on the agent's pane, the hook's `TMUX_PANE`; `@trails_worked` once
-it has said *working*; and `@trails_said_id` when the hook passes the conversation.
+`trails state working|waiting|idle [--id ID] [--agent PROGRAM]`, run from the agent's
+hooks, sets `@trails_state` on the agent's pane, the hook's `TMUX_PANE`;
+`@trails_worked` once the conversation has had a turn (it said *working*, or any word
+after its first); and `@trails_said_id` when the hook passes the conversation. A call
+whose `--agent` isn't the trail's agent's program (`@trails_program`, set at launch)
+is dropped whole: an agent the trail's agent runs from its shell, of another kind,
+inherits the pane, and would otherwise speak for the trail.
 It is dispatched at the top of the script, before the config or the agents are
 read, since it runs on every turn of every hooked agent, and it is silent and exits
 0 whatever happens, since a hook's output can land in the transcript and a failing
@@ -295,7 +299,7 @@ first ID records how many processes up from the hook the pane's process is
 (`@trails_said_depth`), and an ID from deeper down is left out. When the ID is not
 the one the trail carries, `trails state` starts `trails --said` in the background,
 a `sessions` pass that moves the record at once (`rec_note_id`), rather than at the
-next listing.
+next listing; only for a trail's pane (`@trails_session`), not any pane a hook runs in.
 
 `classify` reads every trail's word in the one `list-windows` of its pass:
 `working`, `waiting` (`blocked` inside the script) or `idle`; anything else, or
@@ -433,8 +437,9 @@ A trail's record moves to `history/<conversation id>`, under the state directory
 with `ended=<epoch>`, when its agent exits or you end it (`rec_close`), and when the
 agent moves to another conversation (`rec_note_id`). A record with no conversation
 ID has nothing to resume and is just forgotten, and so is a conversation that never
-had a turn: its hooks spoke but never said *working* (`@trails_worked`), and an agent
-refuses to resume a conversation that never got a message. A resumed one counts as
+had a turn: its hooks spoke once and no more (`@trails_worked`), and an agent
+refuses to resume a conversation that never got a message. A fresh trail that dies on
+arrival is taken out again by `launch`. A resumed one counts as
 worked; with no hooks to tell, it is kept. The newest 100 are kept.
 
 "Resume old trails" and `trails ls`'s closed rows are the history (`recent_rows`):
@@ -615,7 +620,7 @@ a popup is `popup-style` itself, so on 3.8 it keeps the grey; 3.8 added
 `bg=terminal` for the terminal's own, and a tmux before it rejects the word.
 `prefix P`, `W`, `A`, `e`, `` ` ``, `N` and `G` are free in tmux 3.8's default table (`n` is
 next-window, `g` and `D` are taken); `P` is "pick a trail", the backtick for the shell is the editors'
-own toggle-terminal key, `N` is a note, `A` all trails and `G` the git diff. `(` and `)` take tmux's cycling
+own toggle-terminal key, `N` is the checklist, `A` all trails and `G` the git diff. `(` and `)` take tmux's cycling
 through every session for the workspaces alone, and `M` takes clearing the marked
 pane (which `prefix m` on it still does) for the map.
 
@@ -639,23 +644,47 @@ click, the one the terminal is on in reverse video (its `client_session`, or a
 `)` run `trails ws prev` / `next` (`ws_step`): the same list, by name, round the
 end, through `switch_to`, so a grouped terminal stays grouped.
 
-## Notes
+## Checklist
 
-A codebase's notes are a Markdown checklist in a file of its own (`note_cmd`,
-`notes_open`). Where: the config's `notes` (`load_notes_path`), relative to the
-codebase's root (`codebase_root`, the repository's top or the directory itself),
-or `~`/absolute, with `{codebase}` for `codebase_label`. Which codebase
-(`note_where`): from a popup, which has no `TMUX_PANE`, the window of the
-terminal that opened it, by `CLIENT`, a trail's window giving its ``
-and its key to sign the note with; from a shell, `$PWD`.
+A codebase's checklist is a Markdown file of its own, `- [ ]` and `- [x]` items
+(`note_cmd`, `checklist_cmd`). Where (`checklist_file`): with the config's `data`
+(`load_data_dir`), `<data>/trails/<path>/checklist.md`, `<path>` from `path_key`, the
+codebase's root (`codebase_root`, a worktree's main checkout) from `$HOME` with every
+non-alphanumeric as `-`, as Claude names a project's folder, so the same code has the
+same name on every machine and a synced folder shares it; without it,
+`.trails/checklist.md` in the codebase; with only the pre-1.7 `notes`
+(`load_notes_path`), its path, `{codebase}` as `codebase_label`. A checklist left in
+the codebase, under any of its old names (`.scratch/trails/notes.md`,
+`.scratch/trails/checklist.md`), moves to where it lives now the first time it is
+opened or added to; the status line's count reads it where it is, and moves nothing. Which codebase (`note_where`): from a popup, which has no
+`TMUX_PANE`, the window of the terminal that opened it, by `CLIENT`; from a shell,
+`$PWD`.
 
-`note_add` writes the note as `- [ ] TEXT`, any further lines indented under
-it, making the file under a `# LABEL: notes` heading the first
-time. trails writes nothing else in the repo, `.gitignore` included.
+`note_add` writes an item as `- [ ] TEXT`, any further lines indented under it,
+making the file under a `# LABEL: checklist` heading the first time. trails writes
+nothing else in the repo, `.gitignore` included.
 
-Without `TEXT`, `note_ask` takes one line on fzf's input line: `--disabled` over
-nothing to pick, and `enter:accept-or-print-query`, so Enter prints what was
-typed. Esc drops it, and an empty line opens the notes (`notes_open`).
+An item is a line starting `- [ ] ` or `- [x] ` (or `*`, or `X`) at the left
+margin, with the lines indented under it; everything else in the file is left as
+it is. The list (`checklist_ui`) is one fzf: `--disabled`, so its input line is for
+a new item and never filters, over `checklist_rows`, each row the item's line
+number and its text, open ones first. The keys depend only on the input line:
+
+- Enter (`accept-or-print-query`) prints what was typed and the row under the
+  cursor; trails adds the first, or with nothing typed copies the second
+  (`checklist_copy`: `tmux load-buffer -w`, so the terminal's clipboard too).
+- Space is a `transform` (fzf 0.45): with nothing typed, tick the row's line
+  (`checklist_toggle`, which touches only an item's own line) and reload; else
+  `put( )`, a space. An older fzf ticks on Tab.
+- ctrl-e opens the file, in a popup of its own from `prefix N`'s.
+
+The bindings' commands run with `SHELL=/bin/sh`: fzf runs them through `$SHELL`,
+and a login shell's zsh reads a path's `=` and `~` its own way.
+
+The status line's count is `checklist_count` on tmux's `status-interval`: a
+`#()` job in the `status-right` that `trails keys` sets, given the window's
+`@trails_dir` (else the pane's directory), printing `☑ open/total ` or nothing.
+Adding or ticking an item refreshes it at once (`refresh-client -S`).
 
 ## The map
 

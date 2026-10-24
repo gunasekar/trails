@@ -1,4 +1,4 @@
-# trails 1.7: no agent's files read
+# trails 1.7: no agent's files read, and the checklist
 
 trails runs coding agents, and knows them only through its config: how to start
 one, how to resume a conversation, its YOLO flag, its name flag. What an agent
@@ -94,7 +94,34 @@ life  state  session  agent  yolo  dir  id  when  workspace  title
 
 A script that takes the title as the last field keeps working.
 
+## The checklist
+
+Notes were for parking what to do next, and the prompts to give the agent, while
+it works. 1.7 names them for what they are, a checklist, and makes the list
+something you act on, not only a file to open.
+
+- **`prefix N`** opens one fzf: a line to type a new item on, and the items under
+  it, open ones first. No shortcuts, only whether something is typed: Enter adds
+  it; with nothing typed, ↑ ↓ move, Space ticks the item done or back, Enter copies
+  it (to tmux's buffer and the terminal's clipboard) and closes. ctrl-e opens the
+  file, Esc closes. Space needs fzf's `transform` (0.45); older, Tab ticks.
+- **The status line** counts it before the clock, `☑ 2/5`, open of all, for the
+  codebase you are on. `trails keys` sets `status-right` for it; tmux.conf drops its
+  own.
+- **The name**: `trails checklist`, the file `.trails/checklist.md`.
+  `trails note TEXT` stays the way to add one. The old `notes` key is still read,
+  and a codebase's `.scratch/trails/notes.md` is moved to the new place the first time it is wanted.
+- **Where, shared**: the config's `data`, a folder of yours, puts every codebase's
+  checklist at `<data>/trails/<path>/checklist.md`, `<path>` the codebase's root
+  from `$HOME` with every non-alphanumeric as `-`, as Claude names a project. Set to
+  iCloud Drive, the checklists are the same on each machine. trails owns the layout
+  under `data`; the config only says where.
+
 ## Tests
+
+- The checklist: an item added, Esc adding nothing, Enter on one copying it
+  (with the lines under it), ctrl-e, ticking and back, the count, the old file
+  moved and the old key read.
 
 - `trails state WORD --id ID` sets the pane's ID; the record follows it.
 - An agent with no start ID gets its record from its first hook's ID.

@@ -58,12 +58,12 @@
 # can't stop this run from attaching.
 unset LAUNCH_DETACHED
 
-# `trails state working|waiting|idle [--id ID]`: an agent's hooks telling trails what it is
-# doing, and which conversation it is in (ADR 18, ADR 19). It marks the agent's own pane,
-# which the hook inherits as TMUX_PANE, with the word, which classify reads back; with
-# @trails_worked once it has said working, so a conversation that never got a turn stays out
-# of the history (hist_add); and with the conversation's ID when the hook passes one. How a
-# hook gets the ID out of its agent is the hook's business: trails takes it as given, and
+# `trails state working|waiting|idle [--id ID] [--agent PROGRAM]`: an agent's hooks telling
+# trails what it is doing, and which conversation it is in (ADR 18, ADR 19). It marks the
+# agent's own pane, which the hook inherits as TMUX_PANE, with the word, which classify reads
+# back; with @trails_worked once the conversation has had a turn, so one that never did stays
+# out of the history (hist_add); and with the conversation's ID when the hook passes one. How
+# a hook gets the ID out of its agent is the hook's business: trails takes it as given, and
 # reads nothing of the agent's.
 #
 # Here at the top, before anything reads the config: it runs on every turn of every agent
@@ -71,22 +71,37 @@ unset LAUNCH_DETACHED
 # know included, since a hook's output can land in the agent's transcript and a failing hook
 # is reported on every turn.
 #
-# An ID is taken only when it is one (id_ok's rule, spelled out here, before it is defined)
-# and only from the agent the trail runs, not one it started: a `claude -p` run from the
-# agent's own shell inherits the pane, and its hooks would move the trail onto a throwaway
-# conversation. Which is which, without knowing any agent: the trail's agent is the one
-# nearest the pane's process, so its hooks are the fewest processes down from it. The first
-# ID sets that depth (@trails_said_depth); one from deeper down is left out. A new ID moves
-# the trail's record at once, in the background (--said), rather than at the next listing,
-# which a reboot might come before.
+# Whatever runs in the trail's pane inherits it, an agent the trail's agent starts from its
+# shell (a `claude -p`) included, and that agent's hooks speak of their own state and their
+# own conversation. Two guards, neither naming an agent:
+#
+#   --agent    the hook's program (the snippets pass it). One that isn't the trail's agent's
+#              (@trails_program, from launch) is not the trail's: its word and ID are dropped.
+#   depth      the same program, started by the agent: the trail's agent is the one nearest
+#              the pane's process, so the first ID records how many processes up the pane's
+#              process is (@trails_said_depth), and an ID from deeper down is left out.
+#
+# An ID is taken only if it is one (id_ok's rule, spelled out here, before it is defined). A
+# new one moves the trail's record at once, in the background (--said), rather than at the
+# next listing, which a reboot might come before. "Had a turn" is a working, or any word after
+# the first: an agent whose prompt hook doesn't fire (Cursor's CLI) still ends turns.
 if [ "${1:-}" = state ]; then
-  case ${2:-} in
+  st_word=${2:-}
+  case $st_word in
     working | waiting | idle) ;;
     *) exit 0 ;;
   esac
   [ -n "${TMUX:-}" ] && [ -n "${TMUX_PANE:-}" ] || exit 0
-  st_id=
-  [ "${3:-}" != --id ] || st_id=${4:-}
+  shift 2
+  st_id='' st_agent=''
+  while [ $# -ge 2 ]; do
+    case $1 in
+      --id) st_id=$2 ;;
+      --agent) st_agent=$2 ;;
+      *) ;;
+    esac
+    shift 2
+  done
   case $st_id in
     [A-Za-z0-9]*) ;;
     *) st_id= ;;
@@ -95,13 +110,19 @@ if [ "${1:-}" = state ]; then
     *[!A-Za-z0-9_.-]*) st_id= ;;
     *) ;;
   esac
-  st_word=$2
+  st_pane=$(tmux display-message -p -t "$TMUX_PANE" '#{pane_pid}|#{@trails_session}|#{@trails_program}|#{@trails_said_depth}|#{@trails_state}|#{@trails_id}' 2>/dev/null) || exit 0
+  st_root=${st_pane%%|*} st_pane=${st_pane#*|}
+  st_trail=${st_pane%%|*} st_pane=${st_pane#*|}
+  st_prog=${st_pane%%|*} st_pane=${st_pane#*|}
+  st_known=${st_pane%%|*} st_pane=${st_pane#*|}
+  st_before=${st_pane%%|*} st_carried=${st_pane#*|}
+  [ -z "$st_agent" ] || [ -z "$st_prog" ] || [ "$st_agent" = "$st_prog" ] || exit 0
   set -- set-option -pq -t "$TMUX_PANE" @trails_state "$st_word"
-  [ "$st_word" != working ] || set -- "$@" \; set-option -pq -t "$TMUX_PANE" @trails_worked 1
+  if [ "$st_word" = working ] || [ -n "$st_before" ]; then
+    set -- "$@" \; set-option -pq -t "$TMUX_PANE" @trails_worked 1
+  fi
+  [ -n "$st_trail" ] || st_id=
   if [ -n "$st_id" ]; then
-    st_pane=$(tmux display-message -p -t "$TMUX_PANE" '#{pane_pid}|#{@trails_said_depth}|#{@trails_id}' 2>/dev/null)
-    st_root=${st_pane%%|*} st_rest=${st_pane#*|}
-    st_known=${st_rest%%|*} st_carried=${st_rest#*|}
     st_p=$PPID st_d=0
     while [ -n "$st_p" ] && [ "$st_p" != "$st_root" ] && [ "$st_p" -gt 1 ] 2>/dev/null && [ "$st_d" -lt 16 ]; do
       st_p=$(ps -o ppid= -p "$st_p" 2>/dev/null | tr -d ' ')
@@ -166,9 +187,9 @@ TRAILS_NAME=
 #                  starts in. Tab flips a row from it, so with "yolo" Tab is how you start one
 #                  in default mode. Closed sessions come back in the mode they last ran in
 #                  either way, and an agent with no yolo flag always runs in default mode.
-#   notes          where a codebase's notes go (see "Notes"): relative to the codebase's root,
-#                  or ~ or absolute, with {codebase} for its label. ".scratch/trails/notes.md"
-#                  without it.
+#   data           a folder of yours for each codebase's checklist (see "Checklist"), at
+#                  <data>/trails/<path>/checklist.md; ".trails/checklist.md" in the codebase
+#                  without it. "notes", the checklist's path before 1.7, is read too.
 #   diff           what `trails diff` shows the changes with (see "The diff"): a command
 #                  the diff is piped to; { "command": ..., "pipe": false } for one that
 #                  finds them itself, run in the popup; or { "command": ..., "gui": true }
@@ -625,6 +646,7 @@ available_agents() {
 #   @trails_session  its session's name, which is also its record's key
 #   @trails_label  the codebase label its windows and session are named from
 #   @trails_name   the name you gave it, if any
+#   @trails_program  its agent's command, by name: which hooks speak for it (trails state)
 #   @trails_since  when it started, Unix time
 #
 # The trail's window carries @trails_window (the trail's key) with @trails_dir, @trails_ws and
@@ -753,8 +775,14 @@ client_outer() {
 # was started, and taken for a pane it would show a popup's content in the job's output,
 # which nobody sees.
 [ -z "${TRAILS_CLIENT:-}" ] || unset TMUX_PANE
+# Not for what runs in no terminal and shows nothing: the status line's checklist count, on
+# every redraw, the list's own reloads, the hooks' --said, the wrapper's --forget.
 CLIENT=${TRAILS_CLIENT:-}
-if [ -z "$CLIENT" ] && [ -n "$TMUX" ]; then
+case "${1:-} ${2:-}" in
+  "checklist --count" | "checklist --rows" | "checklist --toggle" | "--said "* | "--forget "*) LIGHT=1 ;;
+  *) LIGHT= ;;
+esac
+if [ -z "$CLIENT" ] && [ -n "$TMUX" ] && [ -z "$LIGHT" ]; then
   [ -z "${TMUX_PANE:-}" ] || CLIENT=$(tmux list-clients -F '#{client_activity} #{client_name} #{pane_id}' 2>/dev/null |
     awk -v p="$TMUX_PANE" '$3 == p' | sort -rn | head -n 1 | cut -d' ' -f2)
   [ -n "$CLIENT" ] || CLIENT=$(tmux display-message -p '#{client_name}' 2>/dev/null)
@@ -1306,9 +1334,10 @@ trail_name_taken() {
 # nothing else ever reaps them. The target is a running row's window id, and the trail's
 # directory guards it: a "new  default" row would otherwise hand us the agent name.
 #
-# On a lost row it closes the trail instead: there is no process to kill, only the record that
-# would bring one back, and only a lost row of this directory or workspace, as the directory
-# guards a running one. On a closed row it forgets the trail from the history.
+# On a lost row it forgets the trail instead, for good: there is no process to kill, only the
+# record that would bring one back, and only a lost row of this directory or workspace, as the
+# directory guards a running one. (Its conversation stays in the agent's own history.) On a
+# closed row it forgets the trail from trails' history.
 #
 # A kill is on purpose, so it closes the record too, into the history. The agent's wrapper
 # would do that anyway were it allowed to finish, but killing the window hangs up on the
@@ -2109,8 +2138,10 @@ EOF
     name=$(rec_get "$4" name)
     [ -z "$name" ] || ! trail_name_taken "$name" "$4" || name=
   elif [ -n "$3" ]; then
+    # A closed trail's name, if nothing has it now: not a trail's name, nor its session, which
+    # an unnamed trail in a codebase of that name holds. Taken, it comes back unnamed.
     name=$(hist_get "$3" name)
-    [ -z "$name" ] || ! trail_name_taken "$name" || name=
+    [ -z "$name" ] || { ! trail_name_taken "$name" && ! session_taken "$ws/$name"; } || name=
   fi
 
   launch_lock
@@ -2231,6 +2262,7 @@ EOF
     \; set-option -w -t "$wid" @trails_session "$sess" \
     \; set-option -w -t "$wid" @trails_label "$label" \
     \; set-option -w -t "$wid" @trails_name "$name" \
+    \; set-option -w -t "$wid" @trails_program "$(basename "$cmd")" \
     \; set-option -w -t "$wid" @trails_since "$(date +%s)"
   [ -n "$id" ] && tmux set-option -w -t "$wid" @trails_id "$id"
   # A conversation resumed has been worked in, so it goes back into the history when it ends,
@@ -2257,6 +2289,9 @@ EOF
     tmux capture-pane -pS- -t "$wid" 2>/dev/null | awk 'NF' | tail -n 15 >&2
     tmux kill-session -t "=$sess" 2>/dev/null
     rec_forget "$sess"
+    # The wrapper put it in the history as it went; a fresh one that never ran has nothing
+    # to resume. A resume keeps its entry, to try again.
+    [ -n "$3" ] || [ -z "$id" ] || hist_forget "$id"
     exit 1
   fi
   # Survived, so back to the default: quitting the agent should close the window, not
@@ -2686,10 +2721,9 @@ rec_note_id() {
   resumable "$id_agent" || return 0
   if [ -f "$(rec_path "$1")" ]; then
     [ "$(rec_get "$1" id)" = "$carried" ] || return 0
-    # The conversation left, into the history if it was ever worked in; the new one starts
-    # unworked.
+    # The conversation left, into the history if it was ever worked in. The mark is not
+    # cleared for the new one: a /resume moves to a conversation that has had turns.
     hist_add "$1" "$2"
-    tmux set-option -pqu -t "$2" @trails_worked
     rec_rewrite "$1" '/^id=/ { print "id=" ENVIRON["RR_V"]; next } 1' "$now" || return 0
   else
     [ -z "$carried" ] || return 0
@@ -3084,39 +3118,73 @@ tools() {
     done
 }
 
-# ─── Notes ───────────────────────────────────────────────────────────────────
-# A codebase's notes: what else to do there, caught while an agent works, so the thought
-# outlives the trail you had it in. A Markdown checklist in a file of its own, one per
-# codebase, that any editor opens:
+# ─── Checklist ───────────────────────────────────────────────────────────────
+# A codebase's checklist: what to do there next, and the prompts to give its agent, parked
+# while the agent is busy, so the thought outlives the trail you had it in. A Markdown
+# checklist in a file of its own, one per codebase, that any editor opens:
 #
 #   - [ ] Esc on the agents list should remember the cursor
 #   - [x] Fix prefix P inside a trail
 #
-# The config's "notes" says where: a relative path is taken from the codebase's root (the
-# repository's top, or the directory itself outside git), ~ and an absolute path as written,
-# and {codebase} is the codebase's label, so one folder can hold every codebase's notes.
-# trails writes the file and nothing else: whether it is committed or ignored is the repo's
-# business.
+# Where it lives:
+#
+#   "data" in the config   <data>/trails/<path>/checklist.md: a folder of yours, a synced one
+#                          (iCloud Drive) to have the same checklists on every machine. <path>
+#                          names the codebase as Claude names a project, its root (a worktree's
+#                          main checkout) from $HOME with every non-alphanumeric as -, so
+#                          ~/code/api is code-api; one outside $HOME keeps its leading -.
+#   neither                .trails/checklist.md in the codebase. trails writes the file
+#                          and nothing else: whether it is committed or ignored is the repo's.
+#   "notes" (before 1.7)   the path it gave, as it did: from the codebase's root, or ~ or
+#                          absolute, with {codebase} for the codebase's label.
+#
+# A checklist left in the codebase is moved to where it lives now the first time it is opened
+# or added to: one from before 1.7 (.scratch/trails/notes.md, or .scratch/trails/checklist.md
+# from 1.7's first builds), or one from before "data" was set.
 #
 #   trails note TEXT    add TEXT as an item
-#   trails note         a line typed for one (prefix N, from `trails keys`): Enter saves it,
-#                       Esc drops it, and Enter on an empty line opens the notes
-#   trails notes        the notes in $EDITOR
-NOTES_DEFAULT=.scratch/trails/notes.md
+#   trails checklist    the checklist (prefix N, from `trails keys`): a line to type a new
+#                       item on, and the items under it, open ones first. Enter adds what
+#                       was typed, or with nothing typed copies the item under the cursor;
+#                       space ticks it done, or back (checklist_ui)
+#   trails checklist --count   "☑ open/total " for the status line, nothing without items
+CHECKLIST_DEFAULT=.trails/checklist.md
+CHECKLIST_OLD=".scratch/trails/checklist.md .scratch/trails/notes.md"
 
-# The config's notes path, or the default. Anything but a non-empty string is a typo, and
-# reads as the default with a warning, as a bad mode does.
-load_notes_path() {
-  np=
-  [ -f "$CONFIG" ] && np=$(jq -r 'if (.notes | type) == "string" then .notes elif .notes == null then "" else "!" end' "$CONFIG" 2>/dev/null)
-  case $np in
-    '') printf '%s' "$NOTES_DEFAULT" ;;
-    '!')
-      echo "trails: notes in $CONFIG is not a path; using $NOTES_DEFAULT" >&2
-      printf '%s' "$NOTES_DEFAULT"
-      ;;
-    *) printf '%s' "$np" ;;
+# The config's "data" folder, ~ expanded, or nothing. Anything but a non-empty string is a typo,
+# and reads as unset with a warning, as a bad mode does.
+load_data_dir() {
+  [ -f "$CONFIG" ] || return 0
+  dd=$(jq -r 'if (.data | type) == "string" then .data elif .data == null then "" else "!" end' "$CONFIG" 2>/dev/null)
+  # shellcheck disable=SC2088 # a literal ~ from the config, expanded here
+  case $dd in
+    '') ;;
+    '!') echo "trails: data in $CONFIG is not a path; keeping each checklist in its codebase" >&2 ;;
+    '~') printf '%s' "$HOME" ;;
+    '~/'*) printf '%s' "$HOME/${dd#\~/}" ;;
+    *) printf '%s' "$dd" ;;
   esac
+}
+
+# The pre-1.7 "notes" path, or nothing.
+load_notes_path() {
+  [ -f "$CONFIG" ] && jq -r 'if (.notes | type) == "string" then .notes else empty end' "$CONFIG" 2>/dev/null
+}
+
+# Codebase root $1 as a name, as Claude names a project's folder: from $HOME (so the same code
+# has the same name on every machine), every non-alphanumeric as -, and a worktree by its main
+# checkout's path, so a branch's items stay with its repository.
+path_key() {
+  pk_root=$1
+  pk_common=$(git -C "$pk_root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) &&
+    case $pk_common in */.git) pk_root=${pk_common%/.git} ;; *) ;; esac
+  case $pk_root in
+    "$HOME") pk_rel= ;;
+    "$HOME"/*) pk_rel=${pk_root#"$HOME"/} ;;
+    *) pk_rel=$pk_root ;;
+  esac
+  pk=$(printf '%s' "$pk_rel" | sed 's/[^A-Za-z0-9]/-/g')
+  printf '%s' "${pk:--}"
 }
 
 # The directory a note is about: in a shell, here; from a popup, the window of the terminal
@@ -3153,32 +3221,59 @@ codebase_root() {
   git -C "$cr_dir" rev-parse --show-toplevel 2>/dev/null || (cd "$cr_dir" 2>/dev/null && pwd -P) || printf '%s\n' "$cr_dir"
 }
 
-# The notes file for directory $1: the config's path, from the codebase's root.
-notes_file() {
+# The checklist file for directory $1 (see "Checklist" for where). One still in the codebase
+# where the config now says otherwise, or under its pre-1.7 name, is moved the first time it is
+# opened or added to; with $2 "look", only looked at (the status line's count), which reads it
+# where it is.
+checklist_file() {
   nf_root=$(codebase_root "$1")
-  nf_path=$(load_notes_path)
-  case $nf_path in
-    *'{codebase}'*)
-      # As text: through ENVIRON and index, since -v eats a backslash and gsub reads & as the
-      # match, and a codebase may be named R&D.
-      nf_path=$(printf '%s' "$nf_path" | NF_LABEL=$(codebase_label "$nf_root") awk '
-        { s = $0; out = ""; t = "{codebase}"
-          while ((i = index(s, t)) > 0) { out = out substr(s, 1, i - 1) ENVIRON["NF_LABEL"]; s = substr(s, i + length(t)) }
-          print out s }')
-      ;;
-    *) ;;
-  esac
-  # shellcheck disable=SC2088 # a literal ~ from the config, expanded here
-  case $nf_path in
-    '~') nf_path=$HOME ;;
-    '~/'*) nf_path=$HOME/${nf_path#\~/} ;;
-    /*) ;;
-    *) nf_path=$nf_root/$nf_path ;;
-  esac
+  nf_data=$(load_data_dir)
+  while :; do
+    case $nf_data in
+      ?*/) nf_data=${nf_data%/} ;;
+      *) break ;;
+    esac
+  done
+  if [ -n "$nf_data" ]; then
+    nf_path=$nf_data/trails/$(path_key "$nf_root")/checklist.md
+  else
+    nf_path=$(load_notes_path)
+    case $nf_path in
+      '') nf_path=$CHECKLIST_DEFAULT ;;
+      *'{codebase}'*)
+        # As text: through ENVIRON and index, since -v eats a backslash and gsub reads & as the
+        # match, and a codebase may be named R&D.
+        nf_path=$(printf '%s' "$nf_path" | NF_LABEL=$(codebase_label "$nf_root") awk '
+          { s = $0; out = ""; t = "{codebase}"
+            while ((i = index(s, t)) > 0) { out = out substr(s, 1, i - 1) ENVIRON["NF_LABEL"]; s = substr(s, i + length(t)) }
+            print out s }')
+        ;;
+      *) ;;
+    esac
+    # shellcheck disable=SC2088 # a literal ~ from the config, expanded here
+    case $nf_path in
+      '~') nf_path=$HOME ;;
+      '~/'*) nf_path=$HOME/${nf_path#\~/} ;;
+      /*) ;;
+      *) nf_path=$nf_root/$nf_path ;;
+    esac
+  fi
+  if [ ! -e "$nf_path" ]; then
+    for nf_old in $CHECKLIST_DEFAULT $CHECKLIST_OLD; do
+      nf_old=$nf_root/$nf_old
+      [ "$nf_old" != "$nf_path" ] && [ -f "$nf_old" ] || continue
+      if [ "${2:-}" = look ]; then
+        nf_path=$nf_old
+      else
+        mkdir -p "$(dirname "$nf_path")" 2>/dev/null && mv "$nf_old" "$nf_path" 2>/dev/null
+      fi
+      break
+    done
+  fi
   printf '%s' "$nf_path"
 }
 
-# Add a note to file $1: $2 is its text. Its first line is the item, and any more are indented
+# Add an item to checklist $1: $2 is its text. Its first line is the item, and any more are indented
 # under it, so Markdown keeps them together. The file and its folder are made the first time,
 # under a heading naming the codebase, $3.
 note_add() {
@@ -3188,37 +3283,113 @@ note_add() {
   # folder, or it is read-only.
   {
     [ ! -d "$1" ] && mkdir -p "$(dirname "$1")" &&
-      { [ -s "$1" ] || printf '# %s: notes\n\n' "$3" >"$1"; } &&
+      { [ -s "$1" ] || printf '# %s: checklist\n\n' "$3" >"$1"; } &&
       # A file that doesn't end in a newline would weld the item onto its last line.
       { [ -z "$(tail -c 1 "$1")" ] || printf '\n' >>"$1"; } &&
       printf '%s\n' "$na_text" | awk 'NR == 1 { print "- [ ] " $0; next } { print ($0 == "" ? "" : "  " $0) }' >>"$1"
   } 2>/dev/null || {
-    say_err "trails: can't write the notes at $(tilde_path "$1")"
+    say_err "trails: can't write the checklist at $(tilde_path "$1")"
     return 2
   }
 }
 
-# The notes in $EDITOR, made first so the editor opens on a file, not a new buffer.
-notes_open() {
+# Checklist $1 made, under a heading naming the codebase of directory $2, so an editor opens
+# on a file, not a new buffer. Fails, said, when it can't be.
+checklist_make() {
+  [ -e "$1" ] && return 0
+  { mkdir -p "$(dirname "$1")" &&
+    printf '# %s: checklist\n\n' "$(codebase_label "$(codebase_root "$2")")" >"$1"; } 2>/dev/null || {
+    say_err "trails: can't make the checklist at $(tilde_path "$1")"
+    return 1
+  }
+}
+
+# The checklist of directory $1 in $EDITOR.
+checklist_open() {
   [ -d "${1:-$PWD}" ] || {
     say_err "trails: no such directory: ${1:-$PWD}"
     exit 1
   }
-  no_file=$(notes_file "${1:-$PWD}")
-  if [ ! -e "$no_file" ]; then
-    { mkdir -p "$(dirname "$no_file")" &&
-      printf '# %s: notes\n\n' "$(codebase_label "$(codebase_root "${1:-$PWD}")")" >"$no_file"; } 2>/dev/null || {
-      say_err "trails: can't make the notes at $(tilde_path "$no_file")"
-      exit 1
-    }
-  fi
-  no_ed=${EDITOR:-nvim}
-  command -v "${no_ed%% *}" >/dev/null 2>&1 || {
-    say_err "trails: \$EDITOR is ${no_ed%% *}, which isn't installed — the notes are in $(tilde_path "$no_file")"
+  co_file=$(checklist_file "${1:-$PWD}")
+  checklist_make "$co_file" "${1:-$PWD}" || exit 1
+  co_ed=${EDITOR:-nvim}
+  command -v "${co_ed%% *}" >/dev/null 2>&1 || {
+    say_err "trails: \$EDITOR is ${co_ed%% *}, which isn't installed — the checklist is in $(tilde_path "$co_file")"
     exit 1
   }
   # shellcheck disable=SC2086 # $EDITOR may carry its own arguments
-  exec $no_ed "$no_file"
+  exec $co_ed "$co_file"
+}
+
+# An item is a line starting "- [ ] " or "- [x] " (or * for -, X for x) at the left margin;
+# the lines indented under it are its own. Everything else in the file is left as it is.
+#
+# The items of checklist $1 as the list draws them, open ones first, each kept in file order:
+#   line<TAB>☐ text      the line the item starts on, which the actions below are given
+#   line<TAB>☑ text      done, dimmed
+checklist_rows() {
+  [ -f "$1" ] || return 0
+  awk -v dim="$DIM" -v rst="$RST" -v tab="$TAB" '
+    /^[-*] \[[ xX]\] / {
+      done = substr($0, 4, 1) != " "
+      t = substr($0, 7)
+      if (done) d[++nd] = NR tab dim "☑ " t rst
+      else o[++no] = NR tab "☐ " t
+    }
+    END { for (i = 1; i <= no; i++) print o[i]; for (i = 1; i <= nd; i++) print d[i] }' "$1"
+}
+
+# Tick the item on line $2 of checklist $1 done, or back to open. Only an item's own line:
+# a number that has since become some other line (an edit in between) is left alone. Written
+# back into the file, not moved over it, so a checklist that is a link stays one.
+checklist_toggle() {
+  [ -f "$1" ] || return 0
+  ct_tmp="$1.tmp.$$"
+  awk -v n="$2" '
+    NR == n && /^[-*] \[ \] / { print substr($0, 1, 3) "x" substr($0, 5); next }
+    NR == n && /^[-*] \[[xX]\] / { print substr($0, 1, 3) " " substr($0, 5); next }
+    { print }' "$1" >"$ct_tmp" && cat "$ct_tmp" >"$1"
+  rm -f "$ct_tmp"
+}
+
+# The text of the item on line $2 of checklist $1: its own line without the box, then the
+# lines indented under it, unindented.
+checklist_text() {
+  [ -f "$1" ] || return 0
+  awk -v n="$2" '
+    NR == n { if (!/^[-*] \[[ xX]\] /) exit; print substr($0, 7); on = 1; next }
+    on && /^  / { printf "%s", blank; blank = ""; print substr($0, 3); next }
+    on && /^$/ { blank = blank "\n"; next }
+    on { exit }' "$1"
+}
+
+# Copy the item on line $2 of checklist $1: to tmux's buffer and, through it, the terminal's
+# clipboard (set-buffer -w, OSC 52 where tmux's set-clipboard allows it, over ssh too); outside
+# tmux, to the system's clipboard where there is a command for one.
+checklist_copy() {
+  cc_text=$(checklist_text "$1" "$2")
+  [ -n "$cc_text" ] || return 0
+  if [ -n "$TMUX" ]; then
+    printf '%s' "$cc_text" | tmux load-buffer -w - 2>/dev/null
+    tmux display-message ${CLIENT:+-c "$CLIENT"} "trails: copied" 2>/dev/null
+  elif command -v pbcopy >/dev/null 2>&1; then
+    printf '%s' "$cc_text" | pbcopy
+  elif command -v wl-copy >/dev/null 2>&1; then
+    printf '%s' "$cc_text" | wl-copy
+  elif command -v xclip >/dev/null 2>&1; then
+    printf '%s' "$cc_text" | xclip -selection clipboard
+  else
+    printf '%s\n' "$cc_text"
+  fi
+}
+
+# For the status line: "☑ open/total " for the checklist of directory $1, nothing when it has
+# no items. Read on tmux's status-interval, so it does no more than count.
+checklist_count() {
+  [ -d "${1:-}" ] || return 0
+  cn_file=$(checklist_file "$1" look)
+  [ -f "$cn_file" ] || return 0
+  awk '/^[-*] \[[ xX]\] / { n++; if (substr($0, 4, 1) == " ") o++ } END { if (n) printf "☑ %d/%d ", o, n }' "$cn_file"
 }
 
 # Whether this fzf takes one of the newer options the lists use, asked of fzf itself (it exits
@@ -3233,6 +3404,7 @@ fzf_ok() {
       wrapword) fo_o=--preview-window=wrap-word ;;
       listen) fo_o="--listen=${TMPDIR:-/tmp}/trails-probe-$$.sock" ;;
       printquery) fo_o=--bind=enter:accept-or-print-query ;;
+      transform) fo_o='--bind=space:transform:true' ;;
       *) fo_o=--info-command=true ;;
     esac
     fo_v=no
@@ -3261,56 +3433,117 @@ need_fzf() {
   exit 1
 }
 
-# A one-line note, typed on fzf's input line: its editing, and Esc, with nothing to pick from. The
-# keys are ghost text, gone once you type: an --info-command would run a shell per keystroke,
-# which a pasted line outruns.
-# Enter prints what was typed (accept-or-print-query). Status 1 on Esc or ctrl-c.
-note_ask() {
+# The checklist of directory $1, as one fzf: its input line is where a new item is typed (search
+# is off, so typing never filters the items away), and the items are under it. No shortcuts to
+# learn, only what the input line holds:
+#
+#   ↑ ↓           move through the items
+#   space         tick the item under the cursor done, or back, while nothing is typed;
+#                 a space in what you type once something is (tab on an fzf too old to ask)
+#   enter         add what was typed; with nothing typed, copy the item under the cursor and
+#                 close, to paste it into the agent
+#   ctrl-e        the file in $EDITOR
+#   esc           close
+#
+# fzf runs its bindings' commands through $SHELL, here sh: a login shell's zsh would expand a
+# path's = or ~ in ways sh doesn't.
+checklist_ui() {
   need_fzf
-  na_ghost=
-  fzf_ok ghost && na_ghost='--ghost=enter: save · esc: discard · enter on an empty note: open the notes'
-  na_enter=print-query
-  fzf_ok printquery && na_enter=accept-or-print-query
-  na_out=$(fzf --print-query --disabled --reverse --height=~4 --no-separator --no-info \
-    ${na_ghost:+"$na_ghost"} --bind "enter:$na_enter" --prompt="$1 ▸ " </dev/null) || [ $? -eq 1 ] || return 1
-  printf '%s\n' "$na_out" | head -n 1
+  cu_dir=$1
+  cu_file=$(checklist_file "$cu_dir")
+  cu_label=$(codebase_label "$(codebase_root "$cu_dir")")
+  cu_f=$(shq "$cu_file") cu_self=$(shq "$SELF")
+  cu_tick="execute-silent($cu_self checklist --toggle $cu_f {1})+reload($cu_self checklist --rows $cu_f)"
+  if fzf_ok transform; then
+    cu_tick_key="space:transform:[ -z {q} ] && echo \"$cu_tick\" || echo 'put( )'"
+    cu_hint="type a new item · ↑↓ to one: space ticks it, enter copies it · ctrl-e: edit · esc: close"
+  else
+    cu_tick_key="tab:$cu_tick"
+    cu_hint="type a new item · ↑↓ to one: tab ticks it, enter copies it · ctrl-e: edit · esc: close"
+  fi
+  # The keys as ghost text in the empty input line, gone once you type; a header on an fzf
+  # without it.
+  if fzf_ok ghost; then cu_hint="--ghost=$cu_hint"; else cu_hint="--header=$cu_hint"; fi
+  # Enter prints what was typed and the row under the cursor, even over an empty list; an fzf
+  # without accept-or-print-query does as much with accept, which --print-query makes print the
+  # query too, and an empty list's no-match exits 1, as an abort does not.
+  cu_enter=accept
+  fzf_ok printquery && cu_enter=accept-or-print-query
+  cu_out=$(checklist_rows "$cu_file" |
+    SHELL=/bin/sh fzf --disabled --print-query --expect=ctrl-e --reverse --ansi --no-sort --no-separator --no-info \
+      --delimiter="$TAB" --with-nth=2.. --prompt="Checklist for $cu_label ▸ " "$cu_hint" \
+      --bind="enter:$cu_enter" --bind="$cu_tick_key") ||
+    [ $? -eq 1 ] || return 0
+  cu_query=$(printf '%s\n' "$cu_out" | sed -n 1p)
+  cu_key=$(printf '%s\n' "$cu_out" | sed -n 2p)
+  cu_pick=$(printf '%s\n' "$cu_out" | sed -n 3p)
+  if [ "$cu_key" = ctrl-e ]; then
+    # In prefix N's popup the file gets a popup of its own, sized for an editor, opened on the
+    # same terminal once this one has closed: a client shows one popup at a time.
+    if [ -n "$TMUX" ] && [ -z "${TMUX_PANE:-}" ]; then
+      cu_bg=$(popup_bg)
+      tmux run-shell -b "sleep 0.2; tmux -S $(shq "${TMUX%%,*}") display-popup ${CLIENT:+-c $(shq "$CLIENT")} -E -w 80% -h 80% -s bg=$cu_bg -S bg=$cu_bg,fg=brightblack $(shq "$cu_self checklist --edit $(shq "$cu_dir")")"
+      return 0
+    fi
+    checklist_open "$cu_dir"
+  fi
+  if [ -z "$(printf '%s' "$cu_query" | tr -d ' \t')" ]; then
+    [ -z "$cu_pick" ] || checklist_copy "$cu_file" "${cu_pick%%"$TAB"*}"
+    return 0
+  fi
+  note_add "$cu_file" "$cu_query" "$cu_label" || exit 1
+  [ -z "$TMUX" ] || tmux refresh-client -S ${CLIENT:+-t "$CLIENT"} 2>/dev/null
 }
 
 # $1 single-quoted for a shell command line, its own single quotes and all.
 shq() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
 
-# `trails note [TEXT]`: TEXT as a note on this codebase; without it, a line typed for one,
-# and on an empty one, the notes.
+# `trails note [TEXT]`: TEXT as an item on this codebase's checklist; without it, the checklist.
 note_cmd() {
   nc_dir=$(note_where)
-  nc_file=$(notes_file "$nc_dir")
-  nc_label=$(codebase_label "$(codebase_root "$nc_dir")")
-  if [ $# -gt 0 ]; then
-    note_add "$nc_file" "$*" "$nc_label" || {
-      [ $? -eq 2 ] || say_err "trails: nothing to note"
-      exit 1
-    }
-    echo "trails: noted in $(tilde_path "$nc_file")"
-    return 0
+  if [ $# -eq 0 ]; then
+    checklist_cmd
+    return
   fi
-  [ -t 0 ] || {
-    echo "trails: note takes the text, or a terminal to type it in" >&2
+  nc_file=$(checklist_file "$nc_dir")
+  nc_label=$(codebase_label "$(codebase_root "$nc_dir")")
+  note_add "$nc_file" "$*" "$nc_label" || {
+    [ $? -eq 2 ] || say_err "trails: nothing to note"
     exit 1
   }
-  nc_text=$(note_ask "Note for $nc_label") || return 0
-  if [ -z "$(printf '%s' "$nc_text" | tr -d ' \t')" ]; then
-    # In prefix N's popup, a line high, the notes get a popup of their own, opened on the same
-    # terminal once this one has closed: a client shows one popup at a time.
-    if [ -n "$TMUX" ] && [ -z "${TMUX_PANE:-}" ]; then
-      nc_bg=$(popup_bg)
-      tmux run-shell -b "sleep 0.2; tmux -S $(shq "${TMUX%%,*}") display-popup ${CLIENT:+-c $(shq "$CLIENT")} -E -w 80% -h 80% -s bg=$nc_bg -S bg=$nc_bg,fg=brightblack $(shq "$(shq "$SELF") notes $(shq "$nc_dir")")"
-      return 0
-    fi
-    notes_open "$nc_dir"
-  fi
-  note_add "$nc_file" "$nc_text" "$nc_label" || exit 1
-  [ -z "$TMUX" ] || tmux display-message ${CLIENT:+-c "$CLIENT"} "trails: noted in $(tilde_path "$nc_file")" 2>/dev/null
+  echo "trails: noted in $(tilde_path "$nc_file")"
+  [ -z "$TMUX" ] || tmux refresh-client -S 2>/dev/null
   return 0
+}
+
+# `trails checklist [DIR]`, and the list's own actions: --rows, --toggle and --copy FILE LINE,
+# --count DIR for the status line, --edit DIR.
+checklist_cmd() {
+  case ${1:-} in
+    --rows) checklist_rows "$2" ;;
+    --toggle)
+      checklist_toggle "$2" "$3"
+      [ -z "$TMUX" ] || tmux refresh-client -S 2>/dev/null
+      ;;
+    --copy) checklist_copy "$2" "$3" ;;
+    --count) checklist_count "${2:-}" ;;
+    --edit) checklist_open "${2:-$(note_where)}" ;;
+    -*)
+      echo "trails: checklist takes a directory, or nothing for this codebase's" >&2
+      exit 1
+      ;;
+    *)
+      [ -d "${1:-.}" ] || {
+        say_err "trails: no such directory: $1"
+        exit 1
+      }
+      [ -t 0 ] || {
+        echo "trails: checklist needs a terminal; trails note TEXT adds an item from a script" >&2
+        exit 1
+      }
+      checklist_ui "${1:-$(note_where)}"
+      ;;
+  esac
 }
 
 # ─── The diff ────────────────────────────────────────────────────────────────
@@ -3456,6 +3689,20 @@ diff_cmd() {
 # light, as Ghostty does over a black window), and a list drawn in dim text on that grey is
 # hard to read. brightblack for the frame: a mid grey in every palette, on dark or light.
 #
+# Is this tmux version $1.$2 or later? A development build (next, master) is.
+tmux_at_least() {
+  case $(tmux -V 2>/dev/null) in
+    "tmux next"* | "tmux master"*) return 0 ;;
+    "tmux "*)
+      kv=$(tmux -V | sed 's/^tmux //; s/[^0-9.].*$//')
+      kmaj=${kv%%.*} kmin=${kv#*.}
+      case $kmin in '' | *.*) kmin=0 ;; esac
+      [ "${kmaj:-0}" -gt "$1" ] 2>/dev/null || { [ "${kmaj:-0}" -eq "$1" ] && [ "${kmin:-0}" -ge "$2" ]; } 2>/dev/null
+      ;;
+    *) return 1 ;;
+  esac
+}
+
 # The colour that means "the terminal's own" depends on the tmux: in a style, bg=default
 # means the *base* style's background, which for a popup is popup-style itself — so on
 # 3.8 it keeps the grey. 3.8 added bg=terminal for the real thing, and a tmux before it
@@ -3464,16 +3711,7 @@ diff_cmd() {
 # tmux it runs under, and a tmux upgrade past 3.8 wants the lines pasted again.
 popup_bg() {
   tbg=default
-  case $(tmux -V 2>/dev/null) in
-    "tmux next"* | "tmux master"*) tbg=terminal ;;
-    "tmux "*)
-      kv=$(tmux -V | sed 's/^tmux //; s/[^0-9.].*$//')
-      kmaj=${kv%%.*} kmin=${kv#*.}
-      case $kmin in '' | *.*) kmin=0 ;; esac
-      [ "${kmaj:-0}" -gt 3 ] 2>/dev/null || { [ "${kmaj:-0}" -eq 3 ] && [ "${kmin:-0}" -ge 8 ]; } 2>/dev/null && tbg=terminal
-      ;;
-    *) ;;
-  esac
+  ! tmux_at_least 3 8 || tbg=terminal
   printf '%s' "$tbg"
 }
 
@@ -3493,11 +3731,11 @@ keys() {
   kws='#{S/n:#{?@trails_workspace,#[range=session|#{session_id}]#{?#{||:#{==:#{session_name},#{client_session}},#{m:#{session_name}~*,#{client_session}}},#[reverse] #{session_name} #[noreverse], #{session_name} }#[norange],}}'
   # Then the map, while one is up (its session carries @trails_map): after the workspaces,
   # by a loop of its own, so a name never sorts it in among them.
-  # tmux before 3.6 or so has no /n, and prints it as text; its plain #{S:} lists by name
-  # already (3.8's lists in the order they were made). The %if below asks tmux which it is.
-  kws_old="#{S:${kws#'#{S/n:'}"
+  # tmux before 3.6 has no /n and prints it as text, but its plain #{S:} lists by name already;
+  # from 3.6 #{S:} lists in the order they were made, and /n sorts. Asked of the version, not
+  # with %if: the keys are read at tmux's start, before there is a session to test #{S/n:} on.
+  tmux_at_least 3 6 || kws="#{S:${kws#'#{S/n:'}"
   kws="$kws"'#{S:#{?@trails_map,#[range=session|#{session_id}]#{?#{==:#{session_name},#{client_session}},#[reverse] ▦ map #[noreverse], ▦ map }#[norange],}}'
-  kws_old="$kws_old"'#{S:#{?@trails_map,#[range=session|#{session_id}]#{?#{==:#{session_name},#{client_session}},#[reverse] ▦ map #[noreverse], ▦ map }#[norange],}}'
   cat <<EOF
 # trails: one line in tmux.conf loads all of these, and follows every upgrade:
 #   run-shell "$kq keys | tmux source-file -"
@@ -3509,7 +3747,7 @@ bind P display-popup -E -w 60% -h 70% -s bg=$tbg -S bg=$tbg,fg=brightblack "$kq 
 bind W display-popup -E -w 60% -h 50% -s bg=$tbg -S bg=$tbg,fg=brightblack "$kq ws $khold"
 bind e run-shell "TRAILS_CLIENT=#{client_name} $kq edit"
 bind \` run-shell "TRAILS_CLIENT=#{client_name} $kq shell"
-bind N display-popup -E -w 70% -h 3 -s bg=$tbg -S bg=$tbg,fg=brightblack "$kq note"
+bind N display-popup -E -w 70% -h 50% -s bg=$tbg -S bg=$tbg,fg=brightblack "$kq checklist"
 bind ( run-shell "TRAILS_CLIENT=#{client_name} $kq ws prev"
 bind ) run-shell "TRAILS_CLIENT=#{client_name} $kq ws next"
 bind M run-shell "TRAILS_CLIENT=#{client_name} $kq map here"
@@ -3517,11 +3755,8 @@ bind A display-popup -E -w 70% -h 70% -s bg=$tbg -S bg=$tbg,fg=brightblack "env 
 bind G run-shell "TRAILS_CLIENT=#{client_name} $kq diff"
 bind ? run-shell "TRAILS_CLIENT=#{client_name} $kq --keys"
 set -g status-left-length 60
-%if "#{m:x*,#{S/n:x}}"
+set -g status-right "#($kq checklist --count '#{?@trails_dir,#{@trails_dir},#{pane_current_path}}')%H:%M "
 set -g status-left "${kws}│ "
-%else
-set -g status-left "${kws_old}│ "
-%endif
 EOF
 }
 
@@ -4158,7 +4393,8 @@ In tmux, from trails keys (prefix, then):
   A                 every running trail, in every workspace
   e                 the editor beside the agent; again, back
   `                 a shell along the bottom; again, back
-  N                 a note on this codebase
+  N                 this codebase's checklist: type a new item, or move to one;
+                    space ticks it, enter copies it
   ( )               the previous and next workspace
   M                 the map: up to four trails side by side
   G                 this codebase's changes, side by side (trails diff)
@@ -4228,11 +4464,12 @@ usage: trails [command]
                     in a window of its own when nothing runs there): made once, then
                     selected; run from the pane, back to where you were. The window you
                     are on says which codebase, or DIR after the command
-  note [TEXT]       TEXT as a note on this codebase; without it, type the line: enter
-                    saves, esc drops it, enter on an empty line opens the notes
-  notes [DIR]       this codebase's notes in $EDITOR (the config's "notes" says where)
+  note TEXT         TEXT as an item on this codebase's checklist
+  checklist [DIR]   the checklist: type and enter adds an item; ↑ ↓ to one, space ticks
+                    it done or back, enter with nothing typed copies it; ctrl-e opens the
+                    file in $EDITOR (the config's "data" says where)
   keys              print tmux.conf lines that bind the picker, every trail, the editor,
-                    the shell, a note, the workspaces, the map and the diff, and list the
+                    the shell, the checklist, the workspaces, the map and the diff, and list the
                     workspaces in the status line
   diff [DIR]        this codebase's changes, untracked files too, side by side: prefix G,
                     in a popup; the config's "diff" says what shows them
@@ -4255,7 +4492,7 @@ EOF
 }
 
 # A config that is there but isn't a JSON object reads, quietly, as no workspaces, the default
-# notes path and the default mode, each loader seeing nothing. So it is checked once, first,
+# checklist path and the default mode, each loader seeing nothing. So it is checked once, first,
 # and named for what it is: not JSON (with jq's reason), empty, or not an object. help,
 # config, keys and the internals go on, as does ls, so a typo can't blank what reads it; the rest
 # stop rather than act on a config they can't read.
@@ -4278,6 +4515,7 @@ config_check() {
 case $1 in
   help | -h | --help | config | keys | --keys | --forget | --layout | --peek) ;;
   ls) config_check || true ;;
+  checklist) [ -n "$LIGHT" ] || config_check || exit 1 ;;
   *) config_check || exit 1 ;;
 esac
 
@@ -4286,12 +4524,14 @@ esac
 # config is broken. ls carries on
 # without them (only its closed rows need them), so a typo in the file can't blank what reads it.
 case $1 in
-  help | -h | --help | config | keys | --keys | note | notes | diff | --forget | --layout | --peek) AGENTS= ;;
+  help | -h | --help | config | keys | --keys | note | checklist | diff | --forget | --layout | --peek) AGENTS= ;;
   ls | ws) AGENTS=$(load_agents) || AGENTS= ;;
   *) AGENTS=$(load_agents) || exit 1 ;;
 esac
-# The workspaces, read once per run too; empty means none configured (see workspace_of).
-WORKSPACES=$(load_workspaces)
+# The workspaces, read once per run too; empty means none configured (see workspace_of). Not
+# for the checklist's light runs, which never ask.
+WORKSPACES=
+[ -n "$LIGHT" ] && [ "$1" = checklist ] || WORKSPACES=$(load_workspaces)
 MODE=default
 case $1 in
   '' | ws | --print-menu) MODE=$(load_mode) ;;
@@ -4331,19 +4571,17 @@ case $1 in
     tool "$1" "${2:-}"
     exit 0
     ;;
-  # A note on this codebase, or its notes (see "Notes"): from a popup, the codebase of the
-  # window it was opened over.
+  # An item on this codebase's checklist, or the checklist (see "Checklist"): from a popup, the
+  # codebase of the window it was opened over.
   note)
     shift
     note_cmd "$@"
     exit 0
     ;;
-  notes)
-    nd=${2:-}
-    [ -n "$nd" ] || {
-      nd=$(note_where)
-    }
-    notes_open "$nd"
+  checklist)
+    shift
+    checklist_cmd "$@"
+    exit 0
     ;;
   keys)
     keys

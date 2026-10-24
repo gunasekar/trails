@@ -37,6 +37,9 @@ t_setup() {
     LC_CTYPE=$(locale -a 2>/dev/null | grep -ixE 'C\.UTF-?8|en_US\.UTF-?8' | head -n 1)
     [ -z "$LC_CTYPE" ] || export LC_CTYPE
   fi
+  # Out of the repo: a trails run from where the test runner stands would file a checklist
+  # item, or anything else trails writes, in the repo's own .trails.
+  cd "$T" || exit 1
   trap 't_teardown' EXIT
   trap 'exit 130' INT
   trap 'exit 143' TERM
@@ -49,7 +52,11 @@ t_setup() {
 }
 
 t_teardown() {
-  tmux kill-server 2>/dev/null
+  # Every server under this test's TMUX_TMPDIR, the default and any other a test started (-L
+  # other), so a test that fails before it stops one leaves nothing running.
+  for ts in "$T"/tmux-*/*; do
+    [ -S "$ts" ] && tmux -S "$ts" kill-server 2>/dev/null
+  done
   sleep 0.2
   rm -rf "$T"
 }

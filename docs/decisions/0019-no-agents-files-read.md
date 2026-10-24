@@ -45,9 +45,14 @@ its hooks.
   *elsewhere* goes the guard against resuming a conversation that is open in an
   agent trails didn't start: trails can no longer see that, so resuming it from
   the history would run it twice, as the agent's own resume would.
-- A hook's word is taken from whatever runs in the trail's pane, an agent the
-  trail's agent started included; its `--id` only from the trail's own agent,
-  told apart by process depth, not by name.
+- Whatever runs in the trail's pane inherits it, an agent the trail's agent starts
+  from its shell included. A hook names its program (`--agent`), and one that isn't
+  the trail's agent's is dropped; the same program started by the agent is told
+  apart by process depth, and its `--id` dropped.
+- Claude's own state file answered for what no hook says, an interrupt (Esc mid-turn
+  runs no `Stop` hook) among them. Without it an interrupted turn reads *working*
+  until the next hook; Claude's `idle_prompt` notification, after it has waited on
+  you a minute, says *idle*.
 - About 400 lines go. An agent release can no longer break trails; it can only
   break that agent's hook snippet, which lives in the README, outside trails' code.
 - The hook snippets for each agent are documentation ([the README](../../README.md#hooks-for-each-agent))

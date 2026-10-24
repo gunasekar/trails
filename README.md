@@ -21,8 +21,8 @@ after tmux or the machine dies, and puts the editor beside the agent with one ke
 
 After the first `trails`, everything above is a key, named at the bottom right as
 it is pressed: `prefix P` a workspace's trails, `e` the editor, `` ` `` a shell,
-`(` and `)` the workspaces, `M` the map, `A` every trail, `G` the diff and `N` a
-note, all from the one tmux.conf line in [Workspaces](#workspaces). `prefix ?` lists
+`(` and `)` the workspaces, `M` the map, `A` every trail, `G` the diff and `N` the
+checklist, all from the one tmux.conf line in [Workspaces](#workspaces). `prefix ?` lists
 them.
 
 ## What it's for
@@ -191,7 +191,7 @@ The everyday loop, and every other way trails is used, are in
 | `trails new NAME [AGENT]` | start a trail named `NAME`, with `-y` for YOLO: its session is `<workspace>/NAME`, and claude takes `NAME` as its own name, so other Claude sessions can message it by that name |
 | `trails edit` / `shell` | the editor beside the agent, or a shell along the bottom, as panes of the trail's window in the workspace (the editor alone in a window of its own when nothing runs there): made once, then selected. The window you are on says which codebase, or `DIR` after the command |
 | `trails ls [-a \| DIR]` | this directory's trails: running, lost when tmux died, or finished in the last 10 days. `DIR` lists that directory instead, `-a` every directory |
-| `trails note [TEXT]` / `notes` | add a note on this codebase, typed on a line without `TEXT`; open its notes in `$EDITOR`. See [Notes](#notes) |
+| `trails checklist` / `note TEXT` | this codebase's checklist: type a new item, or move to one to tick it (space) or copy it (enter); `note TEXT` adds one from a shell. See [Checklist](#checklist) |
 | `trails restore` | bring back every trail lost when tmux died, each on its own conversation, into its workspace, detached |
 | `trails map [N]` | several running agents side by side in one window: re-attach to the map already up, pick a set, or take the `N` that most want you (`map new` forces a fresh pick) |
 | `trails keys` | print tmux.conf lines that put the picker, the workspaces, every trail, a note and the diff in popups, bind the editor, a shell, the workspaces and the map, and list the workspaces in the status line; trails binds nothing itself |
@@ -283,7 +283,7 @@ bind P display-popup -E -w 60% -h 70% -s bg=terminal -S bg=terminal,fg=brightbla
 bind W display-popup -E -w 60% -h 50% -s bg=terminal -S bg=terminal,fg=brightblack "'trails' ws || { echo; echo press enter to close; read -r _; }"
 bind e run-shell "TRAILS_CLIENT=#{client_name} 'trails' edit"
 bind ` run-shell "TRAILS_CLIENT=#{client_name} 'trails' shell"
-bind N display-popup -E -w 70% -h 3 -s bg=terminal -S bg=terminal,fg=brightblack "'trails' note"
+bind N display-popup -E -w 70% -h 50% -s bg=terminal -S bg=terminal,fg=brightblack "'trails' checklist"
 bind ( run-shell "TRAILS_CLIENT=#{client_name} 'trails' ws prev"
 bind ) run-shell "TRAILS_CLIENT=#{client_name} 'trails' ws next"
 bind M run-shell "TRAILS_CLIENT=#{client_name} 'trails' map here"
@@ -292,26 +292,32 @@ bind A display-popup -E -w 70% -h 70% -s bg=terminal -S bg=terminal,fg=brightbla
 bind G run-shell "TRAILS_CLIENT=#{client_name} 'trails' diff"
 set -g status-left-length 60
 set -g status-left "#{S/n:#{?@trails_workspace,…}}│ "
+set -g status-right "#('trails' checklist --count '#{?@trails_dir,#{@trails_dir},#{pane_current_path}}')%H:%M "
 ```
 
-The last two lines put the running workspaces at the left of the status line, the
-one you are on in reverse video, apart from the window you are on, which tmux
-underlines:
+The `status-left` lines put the running workspaces at the left of the status line,
+the one you are on in reverse video, apart from the window you are on, which tmux
+underlines. The `status-right` line puts the [checklist](#checklist) of the
+codebase you are on before the clock, open items of all:
 
 ```text
- lattiq  personal │ 1:gunasekar  2:gunasekar-2  3:trails*
+ lattiq  personal │ 1:gunasekar  2:gunasekar-2  3:trails*            ☑ 2/5 14:05
 ```
 
 Click one to go there, or `prefix (` and `)` for the one before and after, in
 place of tmux's own cycling through every session, each trail's among them.
-`trails keys` prints the full `status-left`; it replaces one you have.
+`trails keys` prints the full `status-left`, and both replace any `status-left` or
+`status-right` you have: drop yours from tmux.conf, or set yours after the
+`trails keys` line. On tmux before 3.6 the workspaces are listed with `#{S:}`,
+which sorts by name there; from 3.6 that lists them in the order they were made,
+and `#{S/n:}` sorts.
 
 `trails keys` prints trails' full path where these show `trails`, and the full
 format where `status-left` shows `…`. The `run-shell` lines pass the terminal
 that pressed the key, so with two terminals on one workspace the right one moves.
 A popup closes as soon as trails exits, so when trails refuses something there,
 the picker's and the workspaces' popups wait for Enter to let you read why, and
-the note's shows it on tmux's message line. `P`, `W`, `A`, `e`, `` ` ``, `N` and `G` are
+the checklist's shows it on tmux's message line. `P`, `W`, `A`, `e`, `` ` ``, `N` and `G` are
 unbound in tmux's defaults. `(` and `)` take tmux's cycling through every session
 for the workspaces alone, `?` takes tmux's list of every binding (still
 `:list-keys`) for trails' keys alone, and `M` takes clearing the marked pane, which `prefix m`
@@ -442,7 +448,9 @@ What a running trail is doing, and which conversation it is in, comes from the
 agent's own hooks ([ADR 18](docs/decisions/0018-status-from-the-agents-hooks.md),
 [ADR 19](docs/decisions/0019-no-agents-files-read.md)). The agent runs
 `trails state working`, `waiting` or `idle`, with `--id` and its conversation where
-it can, and trails takes its word. Without hooks a trail is *unknown*: trails doesn't
+it can, and `--agent` and its program, and trails takes its word. `--agent` is what
+keeps an agent the trail's agent runs from its shell (a `claude -p`) from speaking for
+the trail. Without hooks a trail is *unknown*: trails doesn't
 guess from the screen, and reads none of the agent's files.
 
 Setting the hooks up is yours, and short: [each agent's hooks](#hooks-for-each-agent)
@@ -452,7 +460,7 @@ tmux or where `trails` isn't on the hook's `PATH`.
 
 | Agent | Where | working | needs you | your turn |
 |---|---|---|---|---|
-| claude | the [Claude Code plugin](plugins/trails), or `~/.claude/settings.json` | prompt sent, tool done | permission prompt, a question | session start, turn end |
+| claude | the [Claude Code plugin](plugins/trails), or `~/.claude/settings.json` | prompt sent, tool done | permission prompt, a question | session start, turn end, a minute waiting on you |
 | codex | `~/.codex/hooks.json` (trust them with `/hooks` in codex) | prompt sent, tool done | permission request | session start, turn end |
 | gemini | `~/.gemini/settings.json` | before the agent, after a tool | notification | session start, after the agent |
 | copilot | `~/.copilot/hooks/trails.json` | prompt sent, tool done | (no hook) | session start, agent stop |
@@ -470,8 +478,9 @@ conversation Claude is in, so a trail follows it through `/resume` and `/clear`:
 An agent with no hook for a permission prompt reads as *working* through one. For an agent
 not listed, have its hooks run `trails state working` when a prompt is sent or a tool
 has run, `trails state waiting` when it asks you something, and `trails state idle`
-when a session starts and when a turn ends, with `--id` and the conversation wherever
-the hook knows it, at least when a session starts. `--id` is what lets a restore bring
+when a session starts and when a turn ends, each with `--agent PROGRAM` (its
+command's name, as the config runs it), and `--id` and the conversation wherever the
+hook knows it, at least when a session starts. `--id` is what lets a restore bring
 back the conversation the agent is in now, and an agent that picks its own
 conversation ID (no `session.start`) be restored at all. Getting the ID out of the
 agent is the hook's job, in the agent's terms: trails takes what it is given.
@@ -497,14 +506,17 @@ restart.
 {
   "hooks": {
     "SessionStart": [{ "hooks": [{ "type": "command",
-      "command": "trails state idle --id \"$(jq -r '.session_id // empty')\" 2>/dev/null || true" }] }],
-    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "trails state working 2>/dev/null || true" }] }],
-    "PostToolUse": [{ "hooks": [{ "type": "command", "command": "trails state working 2>/dev/null || true" }] }],
-    "Stop": [{ "hooks": [{ "type": "command", "command": "trails state idle 2>/dev/null || true" }] }],
-    "Notification": [{ "matcher": "permission_prompt",
-      "hooks": [{ "type": "command", "command": "trails state waiting 2>/dev/null || true" }] }],
+      "command": "trails state idle --id \"$(jq -r '.session_id // empty')\" --agent claude 2>/dev/null || true" }] }],
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "trails state working --agent claude 2>/dev/null || true" }] }],
+    "PostToolUse": [{ "hooks": [{ "type": "command", "command": "trails state working --agent claude 2>/dev/null || true" }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "trails state idle --agent claude 2>/dev/null || true" }] }],
+    "Notification": [
+      { "matcher": "permission_prompt",
+        "hooks": [{ "type": "command", "command": "trails state waiting --agent claude 2>/dev/null || true" }] },
+      { "matcher": "idle_prompt",
+        "hooks": [{ "type": "command", "command": "trails state idle --agent claude 2>/dev/null || true" }] }],
     "PreToolUse": [{ "matcher": "AskUserQuestion",
-      "hooks": [{ "type": "command", "command": "trails state waiting 2>/dev/null || true" }] }]
+      "hooks": [{ "type": "command", "command": "trails state waiting --agent claude 2>/dev/null || true" }] }]
   }
 }
 ```
@@ -521,11 +533,11 @@ it: `/hooks` in codex.
 ```json
 {
   "hooks": {
-    "SessionStart": [{ "hooks": [{ "type": "command", "command": "trails state idle 2>/dev/null || true" }] }],
-    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "trails state working 2>/dev/null || true" }] }],
-    "PostToolUse": [{ "hooks": [{ "type": "command", "command": "trails state working 2>/dev/null || true" }] }],
-    "Stop": [{ "hooks": [{ "type": "command", "command": "trails state idle 2>/dev/null || true" }] }],
-    "PermissionRequest": [{ "hooks": [{ "type": "command", "command": "trails state waiting 2>/dev/null || true" }] }]
+    "SessionStart": [{ "hooks": [{ "type": "command", "command": "trails state idle --agent codex 2>/dev/null || true" }] }],
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "trails state working --agent codex 2>/dev/null || true" }] }],
+    "PostToolUse": [{ "hooks": [{ "type": "command", "command": "trails state working --agent codex 2>/dev/null || true" }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "trails state idle --agent codex 2>/dev/null || true" }] }],
+    "PermissionRequest": [{ "hooks": [{ "type": "command", "command": "trails state waiting --agent codex 2>/dev/null || true" }] }]
   }
 }
 ```
@@ -541,11 +553,11 @@ checked which field of its hook input holds the ID (not yet checked here).
 ```json
 {
   "hooks": {
-    "SessionStart": [{ "hooks": [{ "type": "command", "command": "trails state idle 2>/dev/null || true" }] }],
-    "BeforeAgent": [{ "hooks": [{ "type": "command", "command": "trails state working 2>/dev/null || true" }] }],
-    "AfterTool": [{ "hooks": [{ "type": "command", "command": "trails state working 2>/dev/null || true" }] }],
-    "Notification": [{ "hooks": [{ "type": "command", "command": "trails state waiting 2>/dev/null || true" }] }],
-    "AfterAgent": [{ "hooks": [{ "type": "command", "command": "trails state idle 2>/dev/null || true" }] }]
+    "SessionStart": [{ "hooks": [{ "type": "command", "command": "trails state idle --agent gemini 2>/dev/null || true" }] }],
+    "BeforeAgent": [{ "hooks": [{ "type": "command", "command": "trails state working --agent gemini 2>/dev/null || true" }] }],
+    "AfterTool": [{ "hooks": [{ "type": "command", "command": "trails state working --agent gemini 2>/dev/null || true" }] }],
+    "Notification": [{ "hooks": [{ "type": "command", "command": "trails state waiting --agent gemini 2>/dev/null || true" }] }],
+    "AfterAgent": [{ "hooks": [{ "type": "command", "command": "trails state idle --agent gemini 2>/dev/null || true" }] }]
   }
 }
 ```
@@ -559,10 +571,10 @@ reads as *working* until you answer.
 {
   "version": 1,
   "hooks": {
-    "sessionStart": [{ "type": "command", "bash": "trails state idle 2>/dev/null || true" }],
-    "userPromptSubmitted": [{ "type": "command", "bash": "trails state working 2>/dev/null || true" }],
-    "postToolUse": [{ "type": "command", "bash": "trails state working 2>/dev/null || true" }],
-    "agentStop": [{ "type": "command", "bash": "trails state idle 2>/dev/null || true" }]
+    "sessionStart": [{ "type": "command", "bash": "trails state idle --agent copilot 2>/dev/null || true" }],
+    "userPromptSubmitted": [{ "type": "command", "bash": "trails state working --agent copilot 2>/dev/null || true" }],
+    "postToolUse": [{ "type": "command", "bash": "trails state working --agent copilot 2>/dev/null || true" }],
+    "agentStop": [{ "type": "command", "bash": "trails state idle --agent copilot 2>/dev/null || true" }]
   }
 }
 ```
@@ -577,8 +589,8 @@ hook for a permission prompt.
 {
   "version": 1,
   "hooks": {
-    "beforeSubmitPrompt": [{ "command": "trails state working 2>/dev/null || true" }],
-    "stop": [{ "command": "trails state idle 2>/dev/null || true" }]
+    "beforeSubmitPrompt": [{ "command": "trails state working --agent cursor-agent 2>/dev/null || true" }],
+    "stop": [{ "command": "trails state idle --agent cursor-agent 2>/dev/null || true" }]
   }
 }
 ```
@@ -590,7 +602,7 @@ A plugin, `~/.config/opencode/plugins/trails.js`:
 ```js
 // trails: tell trails what this opencode is doing (trails state), from its own events.
 export const Trails = async ({ $ }) => {
-  const say = (word) => $`trails state ${word}`.quiet().nothrow()
+  const say = (word) => $`trails state ${word} --agent opencode`.quiet().nothrow()
   return {
     "tool.execute.after": async () => { await say("working") },
     event: async ({ event }) => {
@@ -733,40 +745,79 @@ The config's `diff` says what shows them, in one of three ways.
   "diff": { "command": "fork status", "gui": true }
   ```
 
-### Notes
+### Checklist
 
-A thought about what else to do in a codebase, caught while an agent works on
-something else, so it outlives the trail you had it in. Each codebase has a
-notes file, a Markdown checklist that any editor opens:
+What to do next in a codebase, and the prompts you mean to give its agent, parked
+while the agent is busy with something else, so they outlive the trail you had them
+in. Each codebase has a checklist, a Markdown file that any editor opens:
 
 ```markdown
-# checkout: notes
+# checkout: checklist
 
-- [ ] Retry budget should be per merchant
+- [ ] Ask it to make the retry budget per merchant
 - [x] Fix the flaky cart-total test
 ```
 
-`prefix N` (from `trails keys`) opens a one-line popup, its keys shown until you
-type:
+`prefix N` (from `trails keys`) opens it in a popup: a line to type a new item on,
+and the items under it, open ones first.
 
 ```text
-Note for checkout ▸ enter: save · esc: discard · enter on an empty note: open the notes
+Checklist for checkout ▸ type a new item · ↑↓ to one: space ticks it, enter copies it · ctrl-e: edit · esc: close
+▌ ☐ Ask it to make the retry budget per merchant
+  ☐ Check the refund window against the spec
+  ☑ Fix the flaky cart-total test
 ```
 
-A note longer than the popup scrolls sideways as you type, and is kept whole.
+No shortcuts to learn, only whether you have typed anything:
 
-Enter adds the note as an item. Esc drops it.
-Enter on an empty line opens the notes in `$EDITOR`, to read them, tick them off
-or add detail under an item.
+| Key | Does |
+|---|---|
+| type, then `enter` | add what you typed as an item |
+| `↑` `↓` | move through the items |
+| `space` | tick the item under the cursor done, or back (once you are typing, it's a space) |
+| `enter` | with nothing typed: copy the item under the cursor and close, to paste into the agent |
+| `ctrl-e` | the file in `$EDITOR`, to add detail under an item or tidy up |
+| `esc` | close |
 
-`trails note "TEXT"` adds one from a shell, and `trails notes` opens them. From
-the popup the codebase is the window's it opened over, from a shell the
-directory you are in, and the notes are at the codebase's root: the
+A copy goes to tmux's buffer and, through it, your terminal's clipboard, over ssh
+too where tmux's `set-clipboard` allows it: paste it with ⌘V, or `prefix ]`. An
+item's own lines indented under it are copied with it. On an fzf older than 0.45,
+`tab` ticks in place of `space`.
+
+The status line shows the checklist of the codebase you are on, open items of all,
+before the clock: `☑ 2/5`.
+
+`trails note "TEXT"` adds an item from a shell, and `trails checklist` opens the
+list there. From the popup the codebase is the window's it opened over, from a
+shell the directory you are in, and the checklist is at the codebase's root: the
 repository's top, or the directory itself outside git.
 
-They go in `.scratch/trails/notes.md` there, or where the config's `notes`
-says. trails writes the file and nothing else: commit it, or ignore `.scratch/`,
-as the repo wants.
+It goes in `.trails/checklist.md` there: trails writes the file and nothing
+else, so commit it, or ignore `.trails/`, as the repo wants.
+
+Or keep every codebase's checklist in a folder of yours, a synced one to have the
+same checklists on each machine, with the config's `data`:
+
+```json
+"data": "~/Library/Mobile Documents/com~apple~CloudDocs/"
+```
+
+That puts them in iCloud Drive, under trails' own folder, one per codebase,
+named as Claude names a project: the codebase's root from your home folder, every
+character that isn't a letter or digit as `-`.
+
+```text
+iCloud Drive/trails/
+├─ workspace-acme-checkout/checklist.md    ← ~/workspace/acme/checkout
+├─ -dotfiles/checklist.md                  ← ~/.dotfiles
+└─ Downloads-spike/checklist.md            ← ~/Downloads/spike
+```
+
+The same code has the same name on every machine where it is at the same place
+under your home folder. A worktree uses its repository's checklist, so a branch's
+items outlive the worktree; a codebase outside your home folder keeps its whole
+path (`-opt-src-tool`). A checklist still in the codebase moves to `data` the first
+time it is opened or added to.
 
 ### trails ls
 
@@ -887,7 +938,7 @@ file in `$EDITOR`. Changing agents never needs a change to trails.
 | `mode` | *(optional)* `default` (the agent's own, prompting mode) or `yolo`: the mode a *new trail* row starts in. Tab flips a row from it, so with `yolo` Tab is how you start one in default mode. Closed trails come back in the mode they last ran in unless Tab flips them, and an agent with no `yolo` flag always runs in default mode. |
 | `map` | *(optional)* how `trails map` lays out its panes: `two` (`side`, `stacked`, or `auto`, the default, which goes side by side from 160 columns) and `layout` for three or more (a tmux layout name, `tiled` by default). See [trails map](#trails-map). |
 | `diff` | *(optional)* what `trails diff` shows the changes with: a pager to pipe to, `{ "command": ..., "pipe": false }` for one that finds them itself, or `{ "command": ..., "gui": true }` for an app. See [The diff](#the-diff). |
-| `notes` | *(optional)* where a codebase's notes go: a path from the codebase's root, or `~`/absolute, with `{codebase}` for its name (`"~/notes/{codebase}.md"`). `.scratch/trails/notes.md` by default. See [Notes](#notes). |
+| `data` | *(optional)* a folder of yours for what trails keeps per codebase, a synced one (`"~/Library/Mobile Documents/com~apple~CloudDocs/"`, iCloud Drive) to have it on every machine: each codebase's checklist goes in `trails/<path>/checklist.md` there. Without it, `.trails/checklist.md` in the codebase. The pre-1.7 `notes`, a path with `{codebase}`, is still read when `data` isn't set. See [Checklist](#checklist). |
 
 Only agents whose command is on `PATH` are offered. Closed trails come from
 trails' own history of the trails it ran (the newest 100), not from the agents':
@@ -1004,6 +1055,15 @@ everywhere else too.
   the *elsewhere* state, the `@name` badge, the `pid` and `peer` columns of
   `trails ls`, and `session.find` in the config, which is ignored.
 - **Codex** trails are restored only with hooks that pass `--id`.
+- **Notes are now the checklist**: `prefix N` opens the list, with items to move
+  through, tick (`space`) and copy (`enter`), and the status line counts them,
+  `☑ 2/5`, before the clock. `trails keys` now sets `status-right`, so drop yours
+  from tmux.conf or set it after the `trails keys` line. A codebase's
+  `.scratch/trails/notes.md` moves to `.trails/checklist.md` the first time it is opened,
+  and the config's `notes` is still read. `trails note TEXT` still adds one;
+  `trails notes` is now `trails checklist`. The config's new `data` puts every
+  codebase's checklist in a folder of yours, iCloud Drive to share them between
+  machines.
 
 ## How it works
 

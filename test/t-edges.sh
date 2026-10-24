@@ -117,7 +117,7 @@ rm -f "$T/d2"
 (cd "$T" && FZF_PICK='' FZF_DUMP=$T/d2 TRAILS_PICKER=workspace TRAILS_WS=e "$TRAILS" >/dev/null 2>&1)
 assert_match "$(cat "$T/d2")" "\\(0 codebases\\)" "an empty workspace counts none"
 
-# ── Notes ──────────────────────────────────────────────────────────────────────────────
+# ── Checklist ──────────────────────────────────────────────────────────────────────────
 mkdir -p "$T/R&D"
 jq '.notes = "~/n/{codebase}.md"' "$T/dots/config.json" >"$T/c.tmp" && cat "$T/c.tmp" >"$T/dots/config.json"
 (cd "$T/R&D" && "$TRAILS" note amp >/dev/null 2>&1)
@@ -125,10 +125,10 @@ jq '.notes = "~/n/{codebase}.md"' "$T/dots/config.json" >"$T/c.tmp" && cat "$T/c
 jq '.notes = "/nonexistent-root/x.md"' "$T/dots/config.json" >"$T/c.tmp" && cat "$T/c.tmp" >"$T/dots/config.json"
 # Not as root, who can write anywhere (a container's test run).
 [ "$(id -u)" -eq 0 ] ||
-  assert_match "$(cd "$PROJ" && "$TRAILS" note x 2>&1)" "can't write the notes at" "an unwritable notes path, said so"
+  assert_match "$(cd "$PROJ" && "$TRAILS" note x 2>&1)" "can't write the checklist at" "an unwritable checklist path, said so"
 jq 'del(.notes)' "$T/dots/config.json" >"$T/c.tmp" && cat "$T/c.tmp" >"$T/dots/config.json"
-"$TRAILS" notes "$T/nope" >/dev/null 2>&1 && fail "notes made a directory that wasn't there"
-[ -e "$T/nope" ] && fail "notes created $T/nope"
+"$TRAILS" checklist --edit "$T/nope" >/dev/null 2>&1 && fail "the checklist made a directory that wasn't there"
+[ -e "$T/nope" ] && fail "the checklist created $T/nope"
 
 # ── The map's argument ─────────────────────────────────────────────────────────────────
 for a in abc 0 -1 99999999999999999999; do

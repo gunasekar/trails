@@ -9,15 +9,17 @@ doing, so you don't have to paste them into `~/.claude/settings.json`:
 /plugin install trails@trails
 ```
 
-Each hook runs `trails state working | waiting | idle`:
+Each hook runs `trails state working | waiting | idle --agent claude`:
 
 | When | Says |
 |---|---|
 | a session starts, a turn ends (`SessionStart`, `Stop`) | idle: your turn |
+| Claude has waited on you a minute (`Notification` `idle_prompt`), which also clears a turn you interrupted with Esc, since that runs no `Stop` | idle: your turn |
 | a prompt is sent, a tool has run (`UserPromptSubmit`, `PostToolUse`) | working |
 | a permission prompt, a question (`Notification` `permission_prompt`, `PreToolUse` `AskUserQuestion`) | waiting: needs you |
 
-The `SessionStart` hook also passes the conversation Claude is in (`--id`, from the
+`--agent claude` keeps a `claude -p` that another agent runs from its shell from
+speaking for that agent's trail. The `SessionStart` hook also passes the conversation Claude is in (`--id`, from the
 `session_id` Claude gives each hook), so a trail follows Claude through `/resume`
 and `/clear`, and a restore brings back the conversation you were in.
 

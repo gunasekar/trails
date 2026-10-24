@@ -64,6 +64,16 @@ sleep 1
 assert_eq "$(tmux show-options -pqv -t "$pane" @trails_said_id)" "$carried" "a nested agent's ID, left out"
 assert_eq "$(sed -n 's/^id=//p' "$STATE/default/payments")" "$carried" "and the record kept"
 
+# Another program's hooks, though in the trail's pane (a claude -p run from a gemini, say): not
+# the trail's agent (@trails_program, from launch), so neither their word nor their ID counts.
+assert_eq "$(tmux display-message -pt default/payments '#{@trails_program}')" agent "the trail's program, kept"
+type_in default/payments "hook working --agent agent"
+wait_for 5 state_is working || fail "its own program's word: got $(state)"
+type_in default/payments "hook idle --agent claude --id 88888888-0000-0000-0000-000000000000"
+sleep 1
+assert_eq "$(state)" working "another program's word, dropped"
+assert_eq "$(tmux show-options -pqv -t "$pane" @trails_said_id)" "$carried" "and its ID"
+
 # The agent moves to another conversation (a /clear, a /resume): the record follows it, and
 # the one it left goes into the history, to resume.
 HIST=$XDG_STATE_HOME/trails/history
@@ -117,6 +127,30 @@ printf '%s\n' "resume old trails" "Lost cause" >"$T/pick2"
 DRIVER_DIR=$PROJ FZF_PICKS=$T/pick2 driver "$TRAILS"
 sleep 3
 assert_file "$HIST/$gone" "a resume that died on arrival, still in the history"
+
+# A fresh trail that dies on arrival (an agent that can't start) never ran: nothing to resume.
+cp "$XDG_CONFIG_HOME/trails/config.json" "$T/cfg.keep"
+cat >"$XDG_CONFIG_HOME/trails/config.json" <<CFG
+{ "default_agent": "dud", "agents": [ { "name": "dud", "program": "false",
+    "session": { "start": "--session-id {id}", "resume": "--resume {id}", "id": "uuid" } } ] }
+CFG
+n_before=$(ls "$HIST" | wc -l)
+(cd "$PROJ" && "$TRAILS" new dud >/dev/null 2>&1)
+sleep 1
+assert_eq "$(ls "$HIST" | wc -l)" "$n_before" "a trail that died on arrival, not in the history"
+cp "$T/cfg.keep" "$XDG_CONFIG_HOME/trails/config.json"
+
+# A closed named trail whose name an unnamed trail's session holds now comes back unnamed,
+# rather than refused.
+tmux new-session -d -s default/proj # held, as an unnamed trail in codebase proj would hold it
+named=44444444-5555-6666-7777-888888888888
+: >"$HOME/.agent/$named"
+printf 'agent=stub\ndir=%s\nid=%s\nyolo=\ntask=Named one\nworkspace=default\nlabel=proj\nname=proj\nended=%s\n' \
+  "$PROJ" "$named" "$(date +%s)" >"$HIST/$named"
+printf '%s\n' "resume old trails" "Named one" >"$T/pick3"
+DRIVER_DIR=$PROJ FZF_PICKS=$T/pick3 driver "$TRAILS"
+wait_for 5 sh -c "tmux list-windows -a -F '#{@trails_id}' | grep -qx '$named'" ||
+  fail "a named trail whose session is taken was not resumed: $(tmux ls)"
 
 # ── An agent that picks its own ID: its record waits for its hooks to say it ────────────
 # No session.start: launch() has no ID to write down, and nothing is read from the agent.
