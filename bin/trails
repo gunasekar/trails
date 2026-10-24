@@ -2167,10 +2167,13 @@ EOF
   [ -z "$4" ] || was=$(rec_get "$4" session)
 
   launch_lock
-  # Brought back already, on this conversation, by another restore while this one waited.
-  if [ -n "$was" ] && [ -n "$3" ] && [ "$(tmux display-message -pt "=$was:" '#{@trails_id}' 2>/dev/null)" = "$3" ]; then
+  # Brought back already, by another restore while this one waited: a window carries the
+  # trail's ID. A restore the agent refused can be started fresh twice over — by restore_one,
+  # when the refusal came inside BOOT, and by the wrapper's --refused — and the lock makes the
+  # second see the first.
+  if [ -n "$4" ] && trail_back "$4"; then
     launch_unlock
-    echo "trails: $was is back already" >&2
+    echo "trails: ${was:-$4} is back already" >&2
     exit 3
   fi
 
@@ -2625,6 +2628,9 @@ new_tid() {
   printf '%s' "$nt"
 }
 
+# Is trail $1 running: a window carries its ID.
+trail_back() { tid_ok "$1" && tmux list-windows -a -F '#{@trails_trail}' 2>/dev/null | grep -qxF "$1"; }
+
 # Record $1's file, wherever its codebase's folder is; nothing outside the records' directory,
 # whatever $1 is.
 rec_path() {
@@ -2898,9 +2904,9 @@ restore_one() {
   )
   ro_rc=$?
   [ "$ro_rc" -eq 0 ] && return 0
-  # Turned away by tmux (status 3) with the trail running under its session: another restore
-  # brought it back a moment ago. Starting it fresh would be a second agent in its place.
-  if [ "$ro_rc" -eq 3 ] && [ -n "$(agent_wid "$ro_was")" ]; then
+  # Turned away (status 3) with the trail running: another restore brought it back a moment
+  # ago, under whatever session. Starting it fresh would be a second agent in its place.
+  if [ "$ro_rc" -eq 3 ] && trail_back "$1"; then
     echo "trails: $ro_was is back already" >&2
     return 0
   fi
@@ -2912,6 +2918,8 @@ restore_one() {
     LAUNCH_DETACHED=1
     launch "$agent" "$mode" "" "$1"
   ) && return 0
+  # Back already, by the wrapper's --refused while this one tried: its record is the live one.
+  trail_back "$1" && return 0
   mkdir -p "$(dirname "$ro_file")" && printf '%s\n' "$saved" >"$ro_file"
   echo "trails: could not bring $ro_was back — its record is kept, try again once $agent starts" >&2
   return 1

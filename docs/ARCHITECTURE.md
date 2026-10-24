@@ -443,7 +443,10 @@ kept as lost, it would be refused again by every restore, so the wrapper asks th
 server to run `--refused`, which waits for the dying session to go and starts the
 agent fresh in its place, as the same trail. That is what `restore_one` does when
 the refusal comes inside the launch check. It runs from the server because the
-wrapper's own process group dies with the pane.
+wrapper's own process group dies with the pane. A refusal inside the launch check
+reaches both: `restore_one` and `--refused` each start the trail fresh. A restore
+asks first, inside the launch lock, whether a window already carries the trail's
+ID (`trail_back`), so the second finds it back and stops.
 
 **A record is dead** when no window carries its trail ID (`@trails_trail`), not when
 no session has its name. Otherwise a session you created by hand under the same name

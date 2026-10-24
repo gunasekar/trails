@@ -40,6 +40,12 @@ assert_match "$(screen default/fast)" 'resume=0' "fast started fresh"
 newid=$(tmux display-message -pt default/fast '#{@trails_id}')
 [ "$newid" != "$id2" ] || fail "fast should have a new id"
 assert_eq "$(sed -n 's/^id=//p' "$(trec default/fast)")" "$newid" "record follows the new id"
+# Refused inside BOOT, restore_one starts it fresh; the wrapper's --refused asks the same, and
+# must find it back already rather than start a second (lattiq/consent and consent-2, both
+# fresh, both one trail, before the launch lock checked).
+fast_tid=$(tmux display-message -pt default/fast '#{@trails_trail}')
+sleep 6
+assert_eq "$(tmux list-windows -a -F '#{@trails_trail}' | grep -cxF "$fast_tid")" 1 "started fresh once"
 
 # Nothing left to restore.
 assert_eq "$(cd "$T" && "$TRAILS" restore 2>&1)" "trails: nothing to restore" "idempotent"
@@ -103,3 +109,16 @@ assert_eq "$(tmux display-message -pt default/late '#{@trails_trail}')" "$late_t
 assert_eq "$(sed -n 's/^trail=//p' "$(trec default/late)")" "$late_tid" "its record, the same"
 [ "$(sed -n 's/^id=//p' "$(trec default/late)")" != "$late_id" ] || fail "still on the refused conversation"
 assert_eq "$(cd "$T" && "$TRAILS" restore 2>&1)" "trails: nothing to restore" "nothing lost after"
+
+# Two restores at once (the tmux.conf line as the server starts, and one typed): each lost trail
+# comes back once.
+tmux kill-server
+sleep 0.3
+(cd "$T" && "$TRAILS" restore >/dev/null 2>&1) &
+(cd "$T" && "$TRAILS" restore >/dev/null 2>&1) &
+wait
+sleep 1
+for k in default/payments default/fast; do
+  ktid=$(sed -n 's/^trail=//p' "$(trec "$k")")
+  assert_eq "$(tmux list-windows -a -F '#{@trails_trail}' | grep -cxF "$ktid")" 1 "$k back once, under two restores"
+done
