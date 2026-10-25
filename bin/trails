@@ -1333,7 +1333,8 @@ next_session() {
 trail_name_taken() {
   tmux list-windows -a -F '#{@trails_name}' 2>/dev/null | grep -qxF -e "$1" && return 0
   [ -d "$STATE_DIR" ] || return 1
-  grep -rlxF -e "name=$1" "$STATE_DIR" 2>/dev/null | grep -qv "^$(rec_path "${2:-//}")\$"
+  grep -rlxF -e "name=$1" "$STATE_DIR" 2>/dev/null | grep '/t[0-9a-f]\{8\}$' |
+    grep -qvxF "$(rec_path "${2:-}")"
 }
 
 # ─── Picker internals (invoked by fzf, one process each) ─────────────────────
@@ -2253,6 +2254,16 @@ EOF
   #
   # -P -F hands back the new window's id, which is what every later call targets: exact, and
   # untouched by anything the user renames or re-numbers.
+  #
+  # What the trail is goes on its window in the same list (see "Trails" above): tmux runs one
+  # client's list to the end before it reads another's, so the agent's first hook (`trails
+  # state --id`) sees the conversation the trail carries. Set by a later call, a slow start
+  # let the hook find none and start a --said pass that rewrote records under whatever came
+  # next. @agent is the picked entry, tagged (YOLO) when armed, so the picker and `trails ls`
+  # can label the trail without inspecting the process; @trails_id is which conversation this
+  # is, empty for an agent that picks its own. A conversation resumed has been worked in
+  # (@trails_worked), so it goes back into the history when it ends, even if nothing is typed
+  # this time (see hist_add).
   # shellcheck disable=SC2086
   wid=$(tmux_door new-session -d -s "$sess" -n "$win" -c "$PWD" -P -F '#{window_id}' \
     sh -c "$WRAP" trails-wrap "$SELF" "$tid" "$sess" "$wrap_resume" "$cmd" $args \
@@ -2260,7 +2271,18 @@ EOF
     \; set-option -qw -t "=$sess:=$win" remain-on-exit-format '' \
     \; set-option -t "=$sess:" status off \
     \; set-option -t "=$sess:" set-titles on \
-    \; set-option -t "=$sess:" set-titles-string "$TRAIL_TITLE") || {
+    \; set-option -t "=$sess:" set-titles-string "$TRAIL_TITLE" \
+    \; set-option -w -t "=$sess:=$win" @agent "$1${2:+ (YOLO)}" \
+    \; set-option -w -t "=$sess:=$win" @trails_dir "$PWD" \
+    \; set-option -w -t "=$sess:=$win" @trails_ws "$ws" \
+    \; set-option -w -t "=$sess:=$win" @trails_session "$sess" \
+    \; set-option -w -t "=$sess:=$win" @trails_trail "$tid" \
+    \; set-option -w -t "=$sess:=$win" @trails_label "$label" \
+    \; set-option -w -t "=$sess:=$win" @trails_name "$name" \
+    \; set-option -w -t "=$sess:=$win" @trails_program "$(basename "$cmd")" \
+    \; set-option -w -t "=$sess:=$win" @trails_since "$(date +%s)" \
+    \; set-option -w -t "=$sess:=$win" @trails_id "$id" \
+    \; set-option -p -t "=$sess:=$win" @trails_worked "${3:+1}") || {
     if [ -n "$rec_prev" ]; then
       printf '%s\n' "$rec_prev" >"$(rec_path "$tid")"
     else
@@ -2276,23 +2298,6 @@ EOF
       exit 1
       ;;
   esac
-  # What the trail is, on its window (see "Trails" above). @agent is the picked entry,
-  # tagged (YOLO) when armed, so the picker and `trails ls` can label the trail without
-  # inspecting the process; @trails_id is which conversation this is, so rec_is_dead can
-  # tell this trail from a stranger that happens to share its name.
-  tmux set-option -w -t "$wid" @agent "$1${2:+ (YOLO)}" \
-    \; set-option -w -t "$wid" @trails_dir "$PWD" \
-    \; set-option -w -t "$wid" @trails_ws "$ws" \
-    \; set-option -w -t "$wid" @trails_session "$sess" \
-    \; set-option -w -t "$wid" @trails_trail "$tid" \
-    \; set-option -w -t "$wid" @trails_label "$label" \
-    \; set-option -w -t "$wid" @trails_name "$name" \
-    \; set-option -w -t "$wid" @trails_program "$(basename "$cmd")" \
-    \; set-option -w -t "$wid" @trails_since "$(date +%s)"
-  [ -n "$id" ] && tmux set-option -w -t "$wid" @trails_id "$id"
-  # A conversation resumed has been worked in, so it goes back into the history when it ends,
-  # even if nothing is typed this time (see hist_add).
-  [ -z "$3" ] || tmux set-option -p -t "$wid" @trails_worked 1
   launch_unlock
   ensure_window "$wid" "$sess" "$ws" >/dev/null || {
     tmux kill-session -t "=$sess" 2>/dev/null
