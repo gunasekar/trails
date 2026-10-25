@@ -12,6 +12,10 @@
 #   trails restore          bring back every session that died with tmux (a reboot, a
 #                           crash, kill-server), each resuming its conversation, detached.
 #                           See "Surviving tmux" below.
+#   trails server           the tmux server, for a service manager to keep running
+#                           (brew services start trails): it outlives any terminal, a
+#                           Force Quit included, and brings back the lost trails as it
+#                           starts. See server_run.
 #   trails config           the agents file, ~/.config/trails/config.json. See
 #                           "Agents" below.
 #   trails map [N]          several agents at once in one window. Pick them, or take the
@@ -2980,6 +2984,65 @@ restore_all() {
   done
 }
 
+# `trails server` — the tmux server itself, for a service manager to keep running
+# (`brew services start trails`: a launch agent on macOS, a systemd user unit on Linux).
+# A server a terminal started belongs, on macOS, to that app's coalition however it
+# detaches, and a Force Quit of the app takes it down with every agent in it; one a service
+# manager started belongs to no app.
+#
+# Through the login shell first, once: a service starts with a bare PATH (Homebrew's bin and
+# the system's), and the server's environment is every pane's, so an agent installed under
+# ~/.local/bin would not be found. TRAILS_SERVER_ENV says it is done; the tests set it, to
+# keep their own PATH.
+#
+# tmux -D runs in the foreground, with exit-empty off, but reads tmux.conf only when its
+# first client connects: a restore line there would wait for a terminal. So the restore runs
+# from here, a second in, and is that client. Its output is the service's log.
+#
+# Not exec'd: tmux -D exits 0 after a kill-server, and systemd restarts only a service that
+# failed. Ended without being asked, this exits 1, for both managers to start it again; asked
+# to stop (TERM), it stops the server and exits 0. While another server holds the socket (one
+# a terminal started), it exits 1 at once, and the manager tries again until that one goes.
+server_run() {
+  [ -z "${TMUX:-}" ] || {
+    echo "trails: server is the tmux server, for a service manager to run (brew services start trails); this is inside one" >&2
+    exit 1
+  }
+  if [ -z "${TRAILS_SERVER_ENV:-}" ]; then
+    TRAILS_SERVER_ENV=1
+    export TRAILS_SERVER_ENV
+    case $(uname -s) in
+      Darwin) sv_sh=$(dscl . -read "/Users/$(id -un)" UserShell 2>/dev/null | sed -n 's/^UserShell: //p') ;;
+      *) sv_sh=$(getent passwd "$(id -un)" 2>/dev/null | cut -d: -f7) ;;
+    esac
+    [ -x "${sv_sh:-}" ] || sv_sh=${SHELL:-/bin/sh}
+    # shellcheck disable=SC2016 # $0 is the login shell's, given as its argument
+    exec "$sv_sh" -l -c 'exec "$0" server' "$SELF"
+  fi
+  unset TRAILS_SERVER_ENV
+  command -v tmux >/dev/null 2>&1 || {
+    echo "trails: server needs tmux" >&2
+    exit 1
+  }
+  if tmux list-sessions >/dev/null 2>&1; then
+    echo "trails: a tmux server is running already, started by something else; trying again once it goes" >&2
+    exit 1
+  fi
+  (
+    sleep 1
+    "$SELF" restore
+  ) &
+  # In a subshell, as a function run in the background is: stopped by kill-server, not by its
+  # pid, which would be the subshell's.
+  tmux_door -D &
+  sv_pid=$!
+  trap 'tmux kill-server 2>/dev/null; wait "$sv_pid"; exit 0' TERM INT HUP
+  wait "$sv_pid"
+  sv_rc=$?
+  echo "trails: the tmux server ended (status $sv_rc); the service starts it again" >&2
+  exit 1
+}
+
 # ─── Recent trails ───────────────────────────────────────────────────────────
 # "Resume old": the trails that ended, from the history (see "History"), newest first. Only
 # those of an agent that is installed and can resume, ended in the last RECENT_DAYS days,
@@ -4621,6 +4684,9 @@ usage: trails [command]
   restore           bring back every trail that died with tmux (the lost ones), each
                     into its workspace; trails keys offers a line to run it whenever
                     tmux starts
+  server            the tmux server, for a service manager: brew services start trails
+                    keeps it running outside any terminal, and it restores what tmux
+                    lost as it starts
   ws [NAME]         pick a workspace, or go to NAME: switch (inside tmux) or attach to
                     its session, or its picker when nothing runs there
   ws list           the workspaces in the config, and the codebases each holds
@@ -4691,10 +4757,10 @@ esac
 
 # The agents, read once per run. Not for what never starts or names an agent — help, config,
 # the wrapper's --forget and the editor pane's --layout, which have to work even when the
-# config is broken. ls carries on
+# config is broken, and the server, which tmux needs whatever the config says. ls carries on
 # without them (only its closed rows need them), so a typo in the file can't blank what reads it.
 case $1 in
-  help | -h | --help | config | keys | --keys | note | checklist | diff | --forget | --layout | --peek) AGENTS= ;;
+  help | -h | --help | config | keys | --keys | note | checklist | diff | --forget | --layout | --peek | server) AGENTS= ;;
   ls | ws) AGENTS=$(load_agents) || AGENTS= ;;
   *) AGENTS=$(load_agents) || exit 1 ;;
 esac
@@ -4777,6 +4843,9 @@ case $1 in
   restore)
     restore_all "$2"
     exit 0
+    ;;
+  server)
+    server_run
     ;;
   # From the wrapper of a restore whose resume the agent refused after BOOT (see "Surviving
   # tmux"), run by the server: --refused TID SESSION. Once its session has gone, the trail
