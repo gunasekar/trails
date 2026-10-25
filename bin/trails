@@ -4759,7 +4759,7 @@ esac
 # config is broken, and boot, which tmux needs whatever the config says. ls carries on
 # without them (only its closed rows need them), so a typo in the file can't blank what reads it.
 case $1 in
-  help | -h | --help | config | keys | --keys | note | checklist | diff | --forget | --layout | --peek | boot | server) AGENTS= ;;
+  help | -h | --help | config | keys | --keys | note | checklist | diff | --forget | --layout | --peek | boot) AGENTS= ;;
   ls | ws) AGENTS=$(load_agents) || AGENTS= ;;
   *) AGENTS=$(load_agents) || exit 1 ;;
 esac
@@ -4843,9 +4843,7 @@ case $1 in
     restore_all "$2"
     exit 0
     ;;
-  # server: 1.9.0's name for boot, which a service started under it runs until brew services
-  # restarts it.
-  boot | server)
+  boot)
     boot_run
     ;;
   # From the wrapper of a restore whose resume the agent refused after BOOT (see "Surviving

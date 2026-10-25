@@ -51,7 +51,3 @@ wait_for 5 sh -c "! tmux list-sessions >/dev/null 2>&1" || fail "its server stil
 out=$(TMUX=/tmp/elsewhere,1,0 "$TRAILS" boot 2>&1)
 assert_eq "$?" 1 "inside tmux it refuses"
 assert_match "$out" "brew services start trails" "and says what it is for"
-
-# 1.9.0 called it server, and a service started then runs that until brew services restarts it.
-out=$(TMUX=/tmp/elsewhere,1,0 "$TRAILS" server 2>&1)
-assert_match "$out" "boot starts the tmux server" "server is still boot"
