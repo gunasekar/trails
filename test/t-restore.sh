@@ -85,7 +85,9 @@ tmux kill-server
 sleep 0.3
 tmux new-session -d -s default/solo sh
 out=$(cd "$T" && "$TRAILS" restore 2>&1)
-assert_match "$out" "restored default/solo as default/solo-2" "back under the next -N"
+# Once on CI it came back as default/proj, its name dropped; what held the name, if it fails again.
+printf '%s\n' "$out" | grep -q "restored default/solo as default/solo-2" ||
+  fail "back under the next -N: '$out'; name=solo in: $(grep -rlx name=solo "$STATE" | tr '\n' ' ')windows: $(tmux list-windows -a -F '#{session_name}:#{@trails_name}:#{@trails_trail}' | tr '\n' ' ')record: $(tr '\n' ' ' <"$solo_file" 2>/dev/null)"
 wait_for 5 screen_has default/solo-2 'agent id=' || fail "solo-2 never came up"
 assert_eq "$(tmux display-message -pt default/solo-2 '#{@trails_trail}')" "$solo_tid" "the same trail"
 assert_file "$solo_file" "its record where it was"

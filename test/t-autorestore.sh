@@ -16,8 +16,10 @@ line=$("$TRAILS" keys | sed -n 's/^# \(run-shell -b .* restore .*\)$/\1/p')
 assert_match "$line" "restore" "trails keys offers the line"
 printf '%s\n' "$line" >"$T/auto.conf"
 tmux -f "$T/auto.conf" new-session -d -s mine 'sleep 60'
+# The trail's options come after its session, in their own tmux call: wait for them, not it.
 wait_for 10 sh -c "tmux has-session -t '=default/payments' 2>/dev/null" || fail "nothing came back when tmux started"
-assert_eq "$(tmux display-message -pt '=default/payments:' '#{@trails_id}')" "$id" "back on its conversation"
+wait_for 5 sh -c "[ \"\$(tmux display-message -pt '=default/payments:' '#{@trails_id}' 2>/dev/null)\" = '$id' ]" ||
+  fail "back on its conversation: got '$(tmux display-message -pt '=default/payments:' '#{@trails_id}')', want '$id'"
 
 # On another tmux server started with the same line, the trails of the first are not lost:
 # nothing is started there, and the first's trail runs on, alone.
