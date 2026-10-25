@@ -22,7 +22,7 @@ server sat five hours with its trails lost, until a terminal attached.
 
 `trails server` runs the tmux server for a service manager, and the Homebrew formula
 declares it as a service, so `brew services start trails` installs and loads it: a
-launch agent (`homebrew.mxcl.trails`) on macOS, a systemd user unit on Linux.
+launch agent (`sh.brew.trails`) on macOS, a systemd user unit on Linux.
 
 - **Its environment is the login shell's.** A service starts with Homebrew's bin and
   the system's on `PATH`; the server's environment is every pane's, and an agent under
