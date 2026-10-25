@@ -116,11 +116,17 @@ assert_eq "$(cd "$T" && "$TRAILS" restore 2>&1)" "trails: nothing to restore" "n
 # comes back once.
 tmux kill-server
 sleep 0.3
-(cd "$T" && "$TRAILS" restore >/dev/null 2>&1) &
-(cd "$T" && "$TRAILS" restore >/dev/null 2>&1) &
+(cd "$T" && "$TRAILS" restore >"$T/restore-1.out" 2>&1) &
+(cd "$T" && "$TRAILS" restore >"$T/restore-2.out" 2>&1) &
 wait
 sleep 1
+both=$(cat "$T/restore-1.out" "$T/restore-2.out")
 for k in default/payments default/fast; do
   ktid=$(sed -n 's/^trail=//p' "$(trec "$k")")
   assert_eq "$(tmux list-windows -a -F '#{@trails_trail}' | grep -cxF "$ktid")" 1 "$k back once, under two restores"
+  # Said once: "restored" by the one that brought it back, and at most one "back already" from
+  # the other, never a "restored … as" with no session after it.
+  assert_eq "$(printf '%s\n' "$both" | grep -cx "restored $k")" 1 "$k said restored once: $both"
+  [ "$(printf '%s\n' "$both" | grep -c "$k is back already")" -le 1 ] || fail "$k said back already twice: $both"
 done
+if printf '%s\n' "$both" | grep -q ' as $'; then fail "a restore said 'as' and no session: $both"; fi
