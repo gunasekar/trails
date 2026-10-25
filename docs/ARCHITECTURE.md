@@ -463,17 +463,17 @@ session it had is taken. If claude refuses the ID (`No conversation found`, an a
 never typed into), it starts fresh in its place. If the agent can't start at all,
 the record is put back for next time. Companions are not restored.
 
-**The server itself** can be left to a service manager: `trails server`, which
+**The server itself** can be left to a service manager: `trails boot`, which
 `brew services start trails` runs ([ADR 21](decisions/0021-the-tmux-server-from-a-service-manager.md)).
 A tmux server a terminal started belongs, on macOS, to that app's coalition however
 it detaches, and a Force Quit of the app ends the coalition, the server included.
-`server_run` goes through the login shell once, for its environment (a service
+`boot_run` goes through the login shell once, for its environment (a service
 starts with a bare `PATH`, and the server's environment is every pane's), refuses
 while another server holds the socket, and starts `tmux -D` in the background with
 `trails restore` a second later. The restore matters: a `-D` server reads `tmux.conf`
 only when its first client connects, so a restore line there waits for a terminal,
 and this restore is that client. `tmux -D` exits 0 after a `kill-server`, and
-systemd restarts only a unit that failed, so `server_run` waits for it rather than
+systemd restarts only a unit that failed, so `boot_run` waits for it rather than
 exec'ing it, and exits 1 when it ends unasked; asked to stop (TERM), it kills the
 server and exits 0.
 

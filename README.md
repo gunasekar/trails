@@ -474,7 +474,7 @@ looked. To have the server belong to no app, let your service manager run it:
 brew services start trails
 ```
 
-That runs `trails server` at login: a launch agent on macOS, a systemd user
+That runs `trails boot` at login: a launch agent on macOS, a systemd user
 unit on Linux. It starts tmux, brings back the lost trails without waiting for
 a terminal, and starts tmux again after a crash or a `kill-server`. The server
 takes your login shell's environment, so put the `PATH` your agents need in
@@ -482,7 +482,7 @@ takes your login shell's environment, so put the `PATH` your agents need in
 `~/.zshrc`. `brew services stop trails` stops it, and with it every trail; they
 come back as lost, as after a reboot. While a server a terminal started is still
 up, the service waits for it to go. Its log is
-`$(brew --prefix)/var/log/trails-server.log`.
+`$(brew --prefix)/var/log/trails-boot.log`.
 
 ### The map
 
@@ -521,7 +521,7 @@ trails tells an editor's terminal by the variables editors set (`NVIM`,
 | `trails checklist [DIR]` / `note TEXT` | the checklist; add an item |
 | `trails ls [-a \| DIR]` | the trails, here, in `DIR` or everywhere |
 | `trails restore` | bring back every lost trail |
-| `trails server` | the tmux server, for `brew services start trails` to keep running |
+| `trails boot` | start tmux and the lost trails, for `brew services start trails` |
 | `trails map [N \| new]` | trails side by side in one window |
 | `trails keys` | the tmux.conf lines for the keys and the status line |
 | `trails state WORD [--id ID] [--agent PROGRAM]` | for an agent's hooks: `working`, `waiting` or `idle` |

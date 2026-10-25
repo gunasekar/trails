@@ -20,19 +20,20 @@ server sat five hours with its trails lost, until a terminal attached.
 
 ## Decision
 
-`trails server` runs the tmux server for a service manager, and the Homebrew formula
-declares it as a service, so `brew services start trails` installs and loads it: a
-launch agent (`sh.brew.trails`) on macOS, a systemd user unit on Linux.
+`trails boot` starts the tmux server, and stays as its parent, for a service manager;
+the Homebrew formula declares it as a service, so `brew services start trails`
+installs and loads it: a launch agent (`sh.brew.trails`) on macOS, a systemd user
+unit on Linux.
 
 - **Its environment is the login shell's.** A service starts with Homebrew's bin and
   the system's on `PATH`; the server's environment is every pane's, and an agent under
-  `~/.local/bin` would not be found. `trails server` re-runs itself once through the
+  `~/.local/bin` would not be found. `trails boot` re-runs itself once through the
   user's login shell (the account's, from `dscl` or `getent`).
 - **It restores, a second after starting tmux.** That restore is the server's first
   client, so it also makes the server read `tmux.conf`.
 - **It waits for tmux rather than exec'ing it.** `tmux -D` exits 0 after a
   `kill-server`, and Homebrew's systemd unit restarts on failure only. Ended unasked,
-  `trails server` exits 1; asked to stop, it kills the server and exits 0.
+  `trails boot` exits 1; asked to stop, it kills the server and exits 0.
 - **No retry loop of its own.** With another server on the socket (one a terminal
   started), it exits 1 at once, and the service manager's own restart tries again.
 - **Opt-in.** Installing trails changes nothing; `brew services start trails` is a
