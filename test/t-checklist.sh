@@ -67,7 +67,7 @@ line=$(grep -n '^- \[ \] second' "$NOTES" | cut -d: -f1)
 assert_match "$(sed -n "${line}p" "$NOTES")" '^- \[x\] second$' "ticked"
 "$TRAILS" checklist --toggle "$NOTES" "$((line + 1))"
 assert_eq "$(sed -n "$((line + 1))p" "$NOTES")" "  its detail" "a line that is no item, left alone"
-assert_eq "$(cd "$PROJ" && "$TRAILS" checklist --count "$PROJ")" "☑ 2/4 " "the count: open of all"
+assert_eq "$(cd "$PROJ" && "$TRAILS" checklist --count "$PROJ")" "☑ 2/4 · " "the count: open of all, and the separator before the clock"
 "$TRAILS" checklist --toggle "$NOTES" "$line"
 assert_match "$(sed -n "${line}p" "$NOTES")" '^- \[ \] second$' "and back"
 tmux run-shell "'$TRAILS' checklist --copy '$NOTES' $line"
@@ -104,7 +104,7 @@ assert_match "$(sed -n 3p "$T/vault/linked.md")" '^- \[x\] in the vault$' "ticke
 # or adding to the checklist does.
 mkdir -p "$PROJ/older/.scratch/trails"
 printf '# older: notes\n\n- [ ] one\n- [x] two\n' >"$PROJ/older/.scratch/trails/notes.md"
-assert_eq "$("$TRAILS" checklist --count "$PROJ/older")" "☑ 1/2 " "the old file counted"
+assert_eq "$("$TRAILS" checklist --count "$PROJ/older")" "☑ 1/2 · " "the old file counted"
 assert_file "$PROJ/older/.scratch/trails/notes.md" "and left where it is"
 
 # A directory that isn't there is refused, not made.
@@ -175,6 +175,7 @@ wait_for 5 test -e "$T/back" || fail "the list did not come back after the edito
 grep -q 'from the popup' "$T/back" || fail "the list came back without the items: $(cat "$T/back")"
 tmux set-environment -gu FZF_DUMP
 
-# trails keys offers the checklist on prefix N, and its count in the status line, before the clock.
+# trails keys offers the checklist on prefix N, and its count in the status line, after the
+# current trail's task and before the clock.
 assert_match "$("$TRAILS" keys)" "bind N display-popup .*\"'$TRAILS' checklist\"" "the binding"
-assert_match "$("$TRAILS" keys)" "^set -g status-right \"#\\('$TRAILS' checklist --count .*\\)%H:%M \"" "the count, then the clock"
+assert_match "$("$TRAILS" keys)" "^set -g status-right \"#\\{\\?@trails_window,.*\\}#\\('$TRAILS' checklist --count .*\\)%H:%M \"" "the task, the count, then the clock"

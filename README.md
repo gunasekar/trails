@@ -104,6 +104,7 @@ In tmux, after `prefix`, from `trails keys`:
 | `N` | the codebase's [checklist](#checklist) |
 | `M` | the [map](#the-map): up to four trails side by side |
 | `(` `)` | the previous and next workspace |
+| `R` | rename the trail you are on ([named trails](#named-trails)) |
 | `?` | these keys, in a popup |
 
 In the picker:
@@ -113,6 +114,7 @@ In the picker:
 | `enter` | open the row: attach, bring back a lost trail, resume a closed one, or start an agent |
 | `tab` | toggle YOLO (run everything unconfirmed) on an agent to start or a closed trail |
 | `ctrl-n` | name the trail you are about to start; on the workspaces, a new workspace |
+| `ctrl-r` | rename the running trail under the cursor; an empty name takes it away |
 | `ctrl-e` | the editor for the row's codebase |
 | `ctrl-/` | show or hide the preview: the trail's screen, kept live |
 | `ctrl-x` | end a running trail, close an editor or shell window, or forget a lost or closed one |
@@ -157,12 +159,17 @@ acme/checkout-3f9a      ← a trail: claude in ~/code/checkout, its ID t3f9a
 acme/checkout-b07e      ← another, in the same codebase
 ```
 
-The status line lists the running workspaces at the left, a click away, and the
-checklist's count before the clock:
+The status line lists the running workspaces at the left, a click away, and at
+the right what the current trail is working on, then the checklist's count before
+the clock:
 
 ```text
- acme  personal │ 1:checkout-3f9a  2:checkout-b07e*  3:billing·nvim   ☑ 2/5 14:05
+ acme  personal │ 1:checkout-3f9a  2:checkout-b07e*  3:billing·nvim   Fix the flaky cart-total test · ☑ 2/5 · 14:05
 ```
+
+The task is the title the agent gives its terminal, Claude's summary of the
+conversation, read as it changes and cut at 40 characters; a named trail has its
+name in its window instead.
 
 Plain tmux moves you around too: `tmux a -t acme` is the workspace and
 `tmux a -t acme/checkout-3f9a` one trail. An unnamed trail's session and window
@@ -456,6 +463,12 @@ it as `#payments`, and the agent gets the name too where its config says how
 (Claude runs with `--name payments`). An unnamed trail is `#` and its ID, `#3f9a`.
 A name comes back with the trail when it is resumed or restored.
 
+A trail can be named, or renamed, while it runs: when the work has moved on from
+what the agent's title says, `prefix R` (or `trails rename NAME` in it, ctrl-r in
+the picker) names it, and an empty name takes the name away. Its windows, its badge
+and its record take the name; its session keeps the one it started with until a
+restore brings it back under the name. The agent keeps the name it was started with.
+
 ### When tmux goes down
 
 After a reboot, a crash or a `kill-server`, the trails show up as *lost*, not
@@ -518,6 +531,7 @@ trails tells an editor's terminal by the variables editors set (`NVIM`,
 | `trails ws [NAME]` | pick a workspace, or go to `NAME` |
 | `trails ws list` / `of [DIR]` / `add NAME [DIR]` / `next`, `prev` | the workspaces; the one `DIR` belongs to; add `DIR` to `NAME`; the next or previous running one |
 | `trails new NAME [AGENT]` | start a trail named `NAME`, `-y` for YOLO |
+| `trails rename [TRAIL] NAME` | name the trail you are on, or `TRAIL` (its ID); `''` takes its name away |
 | `trails edit` / `shell` `[DIR]` | the editor or a shell beside the agent |
 | `trails diff [DIR]` | the codebase's changes, side by side |
 | `trails checklist [DIR]` / `note TEXT` | the checklist; add an item |
@@ -647,15 +661,17 @@ bind M run-shell "TRAILS_CLIENT=#{client_name} 'trails' map here"
 bind A display-popup -E -w 70% -h 70% -s bg=terminal -S bg=terminal,fg=brightblack "env TRAILS_PICKER=all 'trails' || { echo; echo press enter to close; read -r _; }"
 bind G run-shell "TRAILS_CLIENT=#{client_name} 'trails' diff"
 bind ? run-shell "TRAILS_CLIENT=#{client_name} 'trails' --keys"
+bind R command-prompt -p "rename trail:" "run-shell \"TRAILS_CLIENT=#{client_name} 'trails' rename '%%'\""
 set -g status-left-length 60
-set -g status-right "#('trails' checklist --count '#{?@trails_dir,#{@trails_dir},#{pane_current_path}}')%H:%M "
+set -g status-right-length 80
+set -g status-right "#{?@trails_window,…}#('trails' checklist --count '#{?@trails_dir,#{@trails_dir},#{pane_current_path}}')%H:%M "
 set -g status-left "#{S/n:#{?@trails_workspace,…}}│ "
 ```
 
 It prints trails' full path where these show `trails`, the full `status-left`
-format where they show `…`, and `bg=default` for `bg=terminal` before tmux 3.8.
-Both status lines replace yours: set yours after the `trails keys` line to keep
-them. Or paste only the lines you want, and paste again when they change.
+and `status-right` formats where they show `…`, and `bg=default` for
+`bg=terminal` before tmux 3.8. Both status lines replace yours: set yours after
+the `trails keys` line to keep them. Or paste only the lines you want, and paste again when they change.
 
 **A workspace in two terminals.** Terminals on one tmux session share its current
 window. For a second terminal that moves on its own, give it a session grouped

@@ -912,6 +912,19 @@ fi
 # with no glyph and no space (opencode's "OpenCode") always did.
 TASK_FMT='#{=45:#{?#{==:#{pane_title},#{host}},,#{s|^[^A-Za-z0-9 ]+ ||:pane_title}}}'
 
+# What the current trail is working on, at the right of the status line before the checklist's
+# count: "Fixing the flaky test · ☑ 2/5 · 14:05". Each item brings the " · " after it, so one
+# that shows nothing leaves no separator behind. Only for an unnamed trail: a named one's name, in
+# its window's name (augur·payments), says what it is for. Cut at 40 characters (ADR 23).
+#
+# Read off the trail's window, not the agent's: the agent pane there (@trails_pane agent) is a
+# client of the trail's session, and its title is that session's TRAIL_TITLE, "claude · task",
+# published as the agent changes its own. #{P:} finds that pane whichever pane is active, the
+# editor's included. The agent's half goes up to the first " · " ([^·]: agent names have none,
+# a task may); the title that only repeats the codebase (TRAIL_TITLE's fallback), tmux's
+# hostname seed, or an agent's empty one says nothing, and shows nothing.
+STATUS_TASK_FMT='#{?@trails_window,#{?#{m:*·*,#{window_name}},,#{P:#{?#{==:#{@trails_pane},agent},#{?#{||:#{==:#{pane_title},#{@ag} · #{@dir}},#{==:#{pane_title},#{host}}},,#{?#{s|^[^·]* · ||:pane_title},#{=/40/…:#{s|^[^·]* · ||:pane_title}} · ,}},}}},}'
+
 # The titles trails' sessions give the terminal they are shown in, set on each session as
 # trails makes it (set-titles and set-titles-string are session options), so they hold on
 # any tmux.conf and leave every other session's title to it.
@@ -3586,13 +3599,13 @@ checklist_copy() {
   fi
 }
 
-# For the status line: "☑ open/total " for the checklist of directory $1, nothing when it has
-# no items. Read on tmux's status-interval, so it does no more than count.
+# For the status line: "☑ open/total · " for the checklist of directory $1, the separator
+# before the clock with it, nothing when it has no items. Read on tmux's status-interval, so it does no more than count.
 checklist_count() {
   [ -d "${1:-}" ] || return 0
   cn_file=$(checklist_file "$1" look)
   [ -f "$cn_file" ] || return 0
-  awk '/^[-*] \[[ xX]\] / { n++; if (substr($0, 4, 1) == " ") o++ } END { if (n) printf "☑ %d/%d ", o, n }' "$cn_file"
+  awk '/^[-*] \[[ xX]\] / { n++; if (substr($0, 4, 1) == " ") o++ } END { if (n) printf "☑ %d/%d · ", o, n }' "$cn_file"
 }
 
 # Whether this fzf takes one of the newer options the lists use, asked of fzf itself (it exits
@@ -4007,8 +4020,10 @@ bind M run-shell "TRAILS_CLIENT=#{client_name} $kq map here"
 bind A display-popup -E -w 70% -h 70% -s bg=$tbg -S bg=$tbg,fg=brightblack "env TRAILS_PICKER=all $kq $khold"
 bind G run-shell "TRAILS_CLIENT=#{client_name} $kq diff"
 bind ? run-shell "TRAILS_CLIENT=#{client_name} $kq --keys"
+bind R command-prompt -p "rename trail:" "run-shell \"TRAILS_CLIENT=#{client_name} $kq rename '%%'\""
 set -g status-left-length 60
-set -g status-right "#($kq checklist --count '#{?@trails_dir,#{@trails_dir},#{pane_current_path}}')%H:%M "
+set -g status-right-length 80
+set -g status-right "$STATUS_TASK_FMT#($kq checklist --count '#{?@trails_dir,#{@trails_dir},#{pane_current_path}}')%H:%M "
 set -g status-left "${kws}│ "
 EOF
 }
@@ -4557,6 +4572,69 @@ check_name() {
   fi
 }
 
+# `trails rename [TRAIL] NAME`: name a running trail, or with NAME '' take its name away, when
+# the work in it has moved on from what its agent's title says (ADR 23). TRAIL is its ID
+# (t3f9a), or a window id (the picker's ctrl-r passes its row's); without one, the trail you are
+# on: the pane it is run in, or the terminal that pressed prefix R.
+#
+# A label, not an address: its name, its windows' names, its badge and its record's name= change;
+# its session does not. The wrapper, the trail's window and the record all hold the session's
+# name while it runs, and the wrapper's copy can't be reached to change: a session renamed under
+# it would find no window to give back when the agent exits, and kill the editor and the shell.
+# The next restore lands it on <workspace>/NAME, as any named trail, and only session= changes.
+# The agent keeps the name it was started with (session.name): it can't be reached either.
+rename_trail() {
+  rn_name=$1 rn_at=${2:-}
+  rn_wid=
+  case $rn_at in
+    '')
+      [ -n "$TMUX" ] || {
+        echo "trails: rename which trail? run it in one, or: trails rename TRAIL NAME (trails ls -a has the IDs)" >&2
+        exit 1
+      }
+      rn_here=${TMUX_PANE:-$CLIENT}
+      # shellcheck disable=SC2086 # the -t and its target are two words on purpose
+      rn_out=$(tmux display-message -p ${rn_here:+-t "$rn_here"} "#{@trails_window}${US}#{@trails_session}${US}#{session_name}" 2>/dev/null)
+      IFS="$US" read -r rn_cell rn_sess rn_sname <<EOF
+$rn_out
+EOF
+      # The trail's window in its workspace, or the agent's in the trail's session (an editor's
+      # terminal attached to it).
+      [ -n "$rn_cell" ] || { [ -n "$rn_sess" ] && [ "$rn_sess" = "$rn_sname" ] && rn_cell=$rn_sess; }
+      [ -z "$rn_cell" ] || rn_wid=$(agent_wid "$rn_cell")
+      ;;
+    @*) [ "$(tmux display-message -pt "$rn_at" '#{@trails_session}' 2>/dev/null)" = "$(tmux display-message -pt "$rn_at" '#{session_name}' 2>/dev/null)" ] && rn_wid=$rn_at ;;
+    *)
+      tid_ok "$rn_at" && rn_wid=$(tmux list-windows -a -F "#{@trails_trail}$TAB#{@trails_session}$TAB#{session_name}$TAB#{window_id}" 2>/dev/null |
+        awk -F"$TAB" -v t="$rn_at" '$1 == t && $2 == $3 { print $4; exit }')
+      ;;
+  esac
+  [ -n "$rn_wid" ] || {
+    echo "trails: ${rn_at:-this} is no running trail${rn_at:+ — trails ls -a has the IDs}" >&2
+    exit 1
+  }
+  rn_out=$(tmux display-message -pt "$rn_wid" "#{@trails_session}${US}#{@trails_ws}${US}#{@trails_label}${US}#{@trails_dir}${US}#{@trails_trail}${US}#{@trails_name}" 2>/dev/null)
+  IFS="$US" read -r rn_key rn_ws rn_label rn_dir rn_tid rn_old <<EOF
+$rn_out
+EOF
+  [ "$rn_name" != "$rn_old" ] || return 0
+  # Checked and set under the launch lock, so a trail started by that name meanwhile, or a second
+  # rename to it, sees this one. Checked in its codebase: a name that reads as one of its unnamed
+  # trails is refused there.
+  launch_lock
+  if [ -n "$rn_name" ]; then
+    (cd "$rn_dir" 2>/dev/null || :; check_name "$rn_name") || exit 1
+    rn_win=${rn_label}·$rn_name
+  else
+    rn_win=${rn_key#"$rn_ws"/}
+  fi
+  tmux set-option -w -t "$rn_wid" @trails_name "$rn_name" \; rename-window -t "$rn_wid" "$rn_win"
+  rn_cell=$(window_of "$rn_key" "$rn_ws")
+  [ -z "$rn_cell" ] || tmux rename-window -t "$rn_cell" "$rn_win"
+  rec_rewrite "$rn_tid" '/^name=/ { print "name=" ENVIRON["RR_V"]; next } 1' "$rn_name"
+  launch_unlock
+}
+
 # `trails new NAME [AGENT] [-y]`: start a named trail without the picker. AGENT is the
 # default agent when left out, -y runs it YOLO and without -y the config's mode decides,
 # the way a picker row starts.
@@ -4648,6 +4726,7 @@ In tmux, from trails keys (prefix, then):
   ( )               the previous and next workspace
   M                 the map: up to four trails side by side
   G                 this codebase's changes, side by side (trails diff)
+  R                 rename the trail you are on (trails rename)
 
 In the picker — "＋ new trail…", which lists the agents to start here (in a workspace,
 a codebase first, then its agents), then running and lost trails, then "↩ resume old
@@ -4657,6 +4736,8 @@ trails", which lists the ones that ended (esc comes back):
                     closed trail; "mode": "yolo" in the config starts new rows armed
   ctrl-n            in the agents list, name the trail you are about to start: type the
                     name, then enter (on the workspace picker: a new workspace)
+  ctrl-r            rename the running trail under the cursor: type the name, then
+                    enter; enter with none takes its name away
   ctrl-e            the editor for the row's codebase (trails edit)
   ctrl-/            show or hide the preview: the trail's screen as it is now
   ctrl-x            end a running trail, or forget a lost one; in the old trails,
@@ -4692,6 +4773,9 @@ usage: trails [command]
   new NAME [AGENT]  start a trail named NAME: its session is <workspace>/NAME, and
                     the agent takes the name too where its config says how
                     (session.name); -y for YOLO
+  rename [TRAIL] NAME
+                    name the trail you are on, or TRAIL (its ID), when the work in it
+                    has moved on; NAME '' takes its name away
   ls [-a | DIR]     this directory's trails, running or not; DIR's, or -a for
                     every directory — a table, or TSV when piped
   map here          prefix M: to the map; with none up, or on it, pick up to four
@@ -4766,7 +4850,7 @@ config_check() {
   return 1
 }
 case $1 in
-  help | -h | --help | config | keys | --keys | --forget | --layout | --peek) ;;
+  help | -h | --help | config | keys | --keys | --forget | --layout | --peek | rename) ;;
   ls) config_check || true ;;
   checklist) [ -n "$LIGHT" ] || config_check || exit 1 ;;
   *) config_check || exit 1 ;;
@@ -4777,7 +4861,7 @@ esac
 # config is broken, and boot, which tmux needs whatever the config says. ls carries on
 # without them (only its closed rows need them), so a typo in the file can't blank what reads it.
 case $1 in
-  help | -h | --help | config | keys | --keys | note | checklist | diff | --forget | --layout | --peek | boot) AGENTS= ;;
+  help | -h | --help | config | keys | --keys | note | checklist | diff | --forget | --layout | --peek | boot | rename) AGENTS= ;;
   ls | ws) AGENTS=$(load_agents) || AGENTS= ;;
   *) AGENTS=$(load_agents) || exit 1 ;;
 esac
@@ -4809,6 +4893,18 @@ case $1 in
   ls)
     shift
     list_sessions "$@"
+    exit 0
+    ;;
+  # Box-wide like ls, by the trail's ID; or the trail you are on.
+  rename)
+    case $# in
+      2) rename_trail "$2" ;;
+      3) rename_trail "$3" "$2" ;;
+      *)
+        echo "trails: rename takes a name, and the trail first if not this one — trails rename [TRAIL] NAME" >&2
+        exit 1
+        ;;
+    esac
     exit 0
     ;;
   # Above refuse_bad_cwd with ls, and for the same reason: it opens no agent, so
@@ -5205,6 +5301,10 @@ case ${TRAILS_PICKER:-} in
     elif [ -n "$x" ]; then
       set -- "$@" "$(hint_opt "# enter: open$new_keys · ctrl-e: editor · ctrl-/: preview · ctrl-x: $x$all_key · ?: keys$up")" \
         --bind="ctrl-x:execute-silent($0 --kill {2})+reload($0 --print-menu)"
+      # ctrl-r renames the running trail under the cursor, the query its name, as ctrl-n names
+      # a new one; enter with an empty query takes its name away.
+      printf '%s\n' "$MENU" | grep -q '^attach' &&
+        set -- "$@" --bind="ctrl-r:execute-silent(touch '$TRAILS_TMP/renaming')+change-prompt(Rename this trail: )+disable-search+clear-query"
     else
       set -- "$@" "$(hint_opt "# enter: open$new_keys · ctrl-e: editor · ctrl-/: preview$all_key · ?: keys$up")"
     fi
@@ -5237,6 +5337,7 @@ picked=$?
 # screens print the key that ended fzf next (--expect: ctrl-e, or empty for enter).
 query=
 named=
+renamed=
 key=
 case ${TRAILS_PICKER:-} in
   old | workspace-old)
@@ -5254,6 +5355,7 @@ case ${TRAILS_PICKER:-} in
     key=$(printf '%s\n' "$choice" | sed -n 2p)
     choice=$(printf '%s\n' "$choice" | sed 1,2d)
     [ -f "$TRAILS_TMP/naming" ] && named=1
+    [ -f "$TRAILS_TMP/renaming" ] && renamed=1
     ;;
 esac
 
@@ -5312,6 +5414,19 @@ if [ -n "$named" ] && [ "${TRAILS_PICKER:-}" = ws ]; then
   ws_add "$query" "$d" >&2 || exit 1
   cd "$d" || exit 1
   TRAILS_PICKER=here TRAILS_WS='' exec "$SELF"
+fi
+# ctrl-r: the running trail under the cursor takes the query as its name, and the picker comes
+# back with it.
+if [ -n "$renamed" ]; then
+  case $choice in
+    attach*) ;;
+    *)
+      echo "trails: ctrl-r renames a running trail — pick one to rename" >&2
+      exit 1
+      ;;
+  esac
+  rename_trail "$query" "$target"
+  exec "$SELF"
 fi
 if [ -n "$named" ]; then
   case $choice in

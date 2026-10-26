@@ -51,12 +51,14 @@ covered yet.
 | | YOLO: Tab, `"mode": "yolo"` | A `t-launch` · M5 |
 | | from an editor's terminal | A `t-inside`, `t-tools` · M8 |
 | | a second trail in a codebase (`#<ID>`) | A `t-picker` |
+| | renamed as it runs: `trails rename`, prefix R, ctrl-r | A `t-rename` |
 | Finding | codebase, workspace, workspaces screens | A `t-screens`, `t-picker` |
 | | `trails ws NAME` | A `t-screens` |
 | | `trails ls`, `-a`, `DIR`, piped | A `t-ls` |
 | | Esc up, ctrl-c out | A `t-screens`, `t-picker` |
 | Watching | states, from hooks | A `t-classify`, `t-hooks`, `t-ls` |
 | | preview: layout, follow, live refresh, wrap | M9 |
+| | the current trail's task in the status line | A `t-rename` |
 | | `trails map` | A `t-map` |
 | | every running trail: prefix A, ctrl-a, Esc back, ctrl-x from it | A `t-all` |
 | | `?`: the keys, `trails help keys` | A `t-edges` (the text) · checked by hand with real fzf |

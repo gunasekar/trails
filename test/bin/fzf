@@ -8,8 +8,8 @@
 #
 # With --print-query among the arguments it prints $FZF_QUERY first, as fzf does, which
 # is how the picker's ctrl-n carries a trail's name. $FZF_KEYS names the keys a test
-# "pressed" before Enter: ctrl-n runs the bound execute-silent, which is how the picker
-# learns a name was typed.
+# "pressed" before Enter: ctrl-n (or ctrl-r) runs the bound execute-silent, which is how the
+# picker learns a name was typed.
 # $FZF_KEYS may name a file instead: then its first line is this fzf's keys, taken off the
 # top, so one run's several fzfs each get their own.
 keys=${FZF_KEYS:-}
@@ -43,10 +43,13 @@ for a in "$@"; do
       xcmd=${a#--bind=ctrl-x:execute-silent(}
       xcmd=${xcmd%%)+*}
       ;;
-    --bind=ctrl-n:execute-silent\(*)
+    # ctrl-n and ctrl-r mark the query as a name, by the file their execute-silent touches.
+    --bind=ctrl-[nr]:execute-silent\(*)
+      bk=${a#--bind=}
+      bk=${bk%%:*}
       case ",$keys," in
-        *,ctrl-n,*)
-          cmd=${a#--bind=ctrl-n:execute-silent(}
+        *,"$bk",*)
+          cmd=${a#--bind="$bk":execute-silent(}
           cmd=${cmd%%)*}
           sh -c "$cmd"
           ;;

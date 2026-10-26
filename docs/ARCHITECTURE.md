@@ -87,8 +87,9 @@ says which.
 The agent's window, and the trail's window after it, is named `<codebase>-<ID>`
 for an unnamed trail, its trail ID without the `t` (`augur-3f9a`,
 [ADR 22](decisions/0022-an-unnamed-trail-is-named-by-its-id.md)), or
-`<codebase>·<name>` for a named one: the trail's key without its workspace, and
-not the agent, which the picker shows. The
+`<codebase>·<name>` for a named one: the trail's key without its workspace (a
+trail renamed while it runs keeps its session, below), and not the agent, which
+the picker shows. The
 codebase label is the directory's basename with `.`, `:` and spaces turned into
 `_`, or `<repo>@<branch>` for a worktree.
 
@@ -702,6 +703,27 @@ click, the one the terminal is on in reverse video (its `client_session`, or a
 `)` run `trails ws prev` / `next` (`ws_step`): the same list, by name, round the
 end, through `switch_to`, so a grouped terminal stays grouped.
 
+Its `status-right` starts with the current trail's task, before the checklist's
+count ([ADR 23](decisions/0023-the-task-in-the-status-line-and-rename.md)):
+`Fixing the flaky test · ☑ 2/5 · 14:05`, cut at 40 characters, with
+`status-right-length` raised to 80 to hold it. Nothing of trails runs for it
+either: `STATUS_TASK_FMT` finds the current window's agent pane with `#{P:}`,
+whichever pane is active, and reads its title, which is the trail's session's
+`<agent> · <task>`, so the task is the agent's terminal title as it changes. The
+agent's half goes up to the first ` · `; a title that only repeats the codebase,
+tmux's hostname seed or an empty one shows nothing, and so does a named trail, a
+`·` in its window's name, whose name says what it is for. At the right, not after
+the window's name: the window list stays the width it was.
+
+`prefix R` is tmux's `command-prompt` into `trails rename '%%'` (`rename_trail`),
+as ctrl-r is in the picker. A rename changes the name, not the address: the agent
+window's `@trails_name`, both windows' names, and the record's `name=`, under the
+launch lock and through `check_name` in the trail's codebase. The session stays, since
+the wrapper was handed its name at launch and gives the trail's window back by it
+when the agent exits; a session renamed under it would leave the editor and shell
+to die with the trail. A restore puts a renamed trail on `<workspace>/<name>`, as
+any named trail. `R` is free in tmux's default table (`r` is commonly the reload).
+
 ## Checklist
 
 A codebase's checklist is a Markdown file of its own, `- [ ]` and `- [x]` items
@@ -755,7 +777,8 @@ and a login shell's zsh reads a path's `=` and `~` its own way.
 
 The status line's count is `checklist_count` on tmux's `status-interval`: a
 `#()` job in the `status-right` that `trails keys` sets, given the window's
-`@trails_dir` (else the pane's directory), printing `☑ open/total ` or nothing.
+`@trails_dir` (else the pane's directory), printing `☑ open/total · ` or nothing: each item at the right brings its own separator,
+so one that shows nothing leaves none behind.
 Adding or ticking an item refreshes it at once (`refresh-client -S`).
 
 ## The map
@@ -840,7 +863,7 @@ tmux: switch-client, a nested editor client, the refused collision), restore,
 autorestore, map, workspace and wsmap (the config), wsbar (the status line),
 grouped (a second terminal on a workspace), all (every trail), edges, hooks
 (`trails state` and `--id`, the history, the plugin against the docs), checklist,
-diff, and the popup check behind D4 of the design. CI runs them after ShellCheck. Each test is
+diff, rename (the status line's task and renaming), and the popup check behind D4 of the design. CI runs them after ShellCheck. Each test is
 its own process on its own tmux server in a throwaway `HOME`: `TMUX_TMPDIR` puts
 the socket there, `XDG_CONFIG_HOME` and `XDG_STATE_HOME` give it a config and
 records of its own, and `TMUX`, `TERM_PROGRAM`, `NVIM` and `ZED_TERM` are unset so
