@@ -400,14 +400,14 @@ neither pane. Where nothing runs, the editor gets a window of its own,
 `trails edit` and `trails shell` do the same from a shell.
 
 **The diff beside the agent.** With [Hunk](https://hunk.dev) installed and the
-codebase a git repository, a trail's window shows the agent's changes live beside
-it: Hunk on the codebase, every changed file whole, side by side, reloading as the
-agent edits, and read-only. It opens by itself on a window 200 columns wide or more,
-and goes when the window narrows. The right side holds one thing at a time: the
+codebase a git repository, `prefix G` on a trail's window shows the agent's changes
+live beside it: Hunk on the codebase, every changed file whole, side by side,
+reloading as the agent edits, and read-only. Like the editor and the shell it is
+there when you ask, never by itself. The right side holds one thing at a time: the
 editor takes it from the diff, and when the editor closes the diff comes back; a
-shell goes under either. `prefix G` shows it on a narrower window or puts it away,
-and the window remembers which; so does quitting it with `q`. How it looks is your
-Hunk config's (`~/.config/hunk/config.toml`). [ADR 25](docs/decisions/0025-the-diff-beside-the-agent.md)
+shell goes under either. `prefix G` again, or `q` in Hunk, puts it away, and the
+window remembers which. How it looks is your Hunk config's
+(`~/.config/hunk/config.toml`). [ADR 25](docs/decisions/0025-the-diff-beside-the-agent.md)
 has the reasons.
 
 Elsewhere, or without Hunk, `prefix G` (`trails diff`) shows the codebase's changes side by side, in a popup:

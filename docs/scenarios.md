@@ -82,10 +82,10 @@ workspaces, `prefix E` the editor, `` prefix ` `` a shell, `prefix G` the diff,
    left. Again goes back.
 2. `` prefix ` `` / `trails shell`: a shell in a column on the right, 40% wide,
    or under the editor when it is open.
-3. On a wide window, the diff beside the agent: Hunk, live, whole files, side by
-   side; it gives way to the editor and comes back after. `prefix G` shows it or
-   puts it away; `trails diff` (and `prefix G` without Hunk) is a popup of the
-   changes, untracked files too.
+3. `prefix G`: the diff beside the agent, Hunk, live, whole files, side by side;
+   it gives way to the editor and comes back after. `G` again, or `q`, puts it
+   away. `trails diff` (and `prefix G` without Hunk) is a popup of the changes,
+   untracked files too.
 4. Where nothing runs, the editor in a window of its own (`checkout·nvim`).
 5. When the agent ends, the editor and shell stay, as the codebase's window.
 6. ctrl-e in the picker: the editor for the row's codebase.

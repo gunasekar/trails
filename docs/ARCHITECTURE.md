@@ -125,7 +125,10 @@ and the codebase label, as a map pane does: its own command is `tmux`, so a
 and diff panes carry `@trails_cmd` (the editor's name, `hunk`) for the same reason:
 their commands are compound lines, so the process in front is the shell running
 them. The window's format is
-`#{?@ag,#{@ag},#{?@trails_cmd,#{@trails_cmd},#{pane_current_command}}}`. An editor or shell window carries
+`#{?@ag,#{@ag},#{?@trails_cmd,#{@trails_cmd},#{pane_current_command}}}`
+(`PANE_LABEL_FMT`), set when the window is made and again by every `window_layout`,
+with the diff pane's label, so a window from before a change to either reads the
+current one without being rebuilt. An editor or shell window carries
 `@trails_tool` (`editor`, or `shell` for a released window that kept only a
 shell) with `@trails_dir`, `@trails_ws` and `@trails_label`.
 
@@ -663,19 +666,16 @@ setting of its own for that; the rest of how it looks is the user's
 
 `window_layout` decides it, since every change to a window's panes ends there: on a
 trail's window, with an agent and no editor, `diff_wanted` asks for hunk on the PATH,
-a git work tree at `@trails_dir`, and the window's `@trails_diff`: `on`, `off`, or
-unset, when the width decides (`DIFF_WIDTH`, 200 columns: 40% of it is 80, as narrow
-as an agent's screen goes). Wanted and missing, `diff_pane` makes it; not wanted and
-there, it is killed. The right side then holds the editor or else the diff, 60% wide,
+a git work tree at `@trails_dir`, and the window's `@trails_diff` set `on` by
+`prefix G`; never the width, since a pane that isn't needed costs memory (Hunk idles
+at ~120MB) and the agent's room, and the editor and shell are asked for too. Wanted
+and missing, `diff_pane` makes it; not wanted and there, it is killed. The right side then holds the editor or else the diff, 60% wide,
 and a shell goes under whichever. Two layouts at once can each make a diff pane, so
 `diff_pane` counts after splitting and the later one goes.
 
-The layout runs when a pane is made or ends, on every attach (`attach_to`, which
-brings a trail from before the diff into it), once a launched agent has survived its
-first seconds (not when its window is made: the diff beside an agent that died on
-arrival would keep the window open), and on `window-resized`, a window hook
-`diff_hook` sets on every trail's window: a window made detached is resized as a
-terminal shows it, and one moved to a wider screen crosses `DIFF_WIDTH`.
+The layout runs when a pane is made or ends, and on every attach (`attach_to`), which
+is where a window from before a change to the border format reads the current one,
+and a diff asked for and missing (its pane killed by hand) is made again.
 
 `prefix G` on a trail's window is `diff_toggle`: the diff there is put away
 (`@trails_diff off`), else asked for (`on`); when it still can't be shown (no hunk,
