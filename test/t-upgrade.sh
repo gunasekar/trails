@@ -3,6 +3,9 @@
 # 1.8's layout the first time anything reads them, once; a trail still running from before has
 # its window given its record's ID and reads running; and the wrapper 1.7 started, which
 # forgets by session, still closes its trail into the history.
+#
+# From 1.9 to 1.10: a trail with 1.9's eight-digit ID and -N session comes back as itself,
+# beside a new trail named by its four-digit ID (ADR 22).
 . "$REPO/test/lib.sh"
 t_setup
 
@@ -24,7 +27,7 @@ assert_no_file "$STATE/default/payments" "the old record moved"
 assert_no_file "$STATE/default/proj-9" "the lost one's too"
 [ -d "$STATE/default" ] && fail "the old workspace folder left behind"
 f=$(trec default/payments)
-assert_match "$f" "/sessions/proj/t[0-9a-f]{8}\$" "filed by ID under its codebase"
+assert_match "$f" "/sessions/proj/t[0-9a-f]{4}\$" "filed by ID under its codebase"
 assert_eq "$(sed -n 's/^id=//p' "$f")" "$id" "the same conversation"
 assert_eq "$(tmux display-message -pt default/payments '#{@trails_trail}')" "$(sed -n 's/^trail=//p' "$f")" "the running window given its record's ID"
 assert_match "$(printf '%s\n' "$out" | awk -F'\t' '$3 == "default/payments" { print $1 }')" '^running$' "it reads running"
@@ -40,3 +43,32 @@ tmux set-option -p -t default/payments @trails_worked 1
 "$TRAILS" --forget default/payments
 assert_no_file "$(trec default/payments)" "an old wrapper's --forget closes it"
 assert_file "$XDG_STATE_HOME/trails/history/$id" "into the history"
+
+# ── From 1.9: an eight-digit ID and a -N session ───────────────────────────────────────
+# A lost unnamed trail as 1.9 left it, the second in its codebase.
+old_tid=t1234abcd
+mkdir -p "$STATE/proj"
+: >"$HOME/.agent/conv-19"
+printf 'agent=stub\ndir=%s\nid=conv-19\nyolo=\ntask=Old work\nworkspace=default\nlabel=proj\nname=\nserver=default\ntrail=%s\nsession=default/proj-2\n' \
+  "$PROJ" "$old_tid" >"$STATE/proj/$old_tid"
+out=$(cd "$PROJ" && "$TRAILS" ls | cat)
+assert_eq "$(printf '%s\n' "$out" | awk -F'\t' '$3 == "default/proj-2" { print $1, $2, $10 }')" "stopped lost $old_tid" "1.9's record reads lost, its ID kept"
+
+# A new unnamed trail beside it takes an ID of its own, not proj-2, and leaves its record be.
+FZF_PICK='^agents	|stub · new trail' trails_bg
+wait_for 5 has_unnamed default proj || fail "no new unnamed trail: $(tmux ls)"
+new=$(unnamed default proj 1)
+assert_file "$STATE/proj/$old_tid" "1.9's record untouched"
+
+# Restored, it is the same trail under the same name, its ID still eight digits.
+assert_match "$(cd "$T" && "$TRAILS" restore 2>&1)" "^restored default/proj-2$" "restored under its own session"
+wait_for 5 screen_has default/proj-2 'agent id=conv-19' || fail "proj-2 never came back on its conversation"
+assert_eq "$(tmux display-message -pt default/proj-2 '#{@trails_trail}')" "$old_tid" "its ID kept"
+wait_for 5 sh -c "tmux list-windows -t default -F '#{window_name}' | grep -qx proj-2" || fail "no proj-2 window: $(tmux list-windows -t default -F '#{window_name}' | tr '\n' ' ')"
+# Both badges: #2 for the old one, #<ID> for the new.
+rm -f "$T/menu"
+FZF_PICK='' FZF_DUMP=$T/menu trails_bg
+wait_for 5 test -s "$T/menu" || fail "the picker never reached fzf"
+rows=$(sed 's/\x1b\[[0-9;]*m//g' "$T/menu" | grep '^attach' | cut -f3 | tr '\n' '|')
+assert_match "$rows" "#2" "the 1.9 trail's badge"
+assert_match "$rows" "#${new#default/proj-}" "the new trail's badge"

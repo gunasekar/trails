@@ -1,6 +1,7 @@
 # 20. A trail has an ID of its own
 
-- Status: accepted
+- Status: accepted, amended by [ADR 22](0022-an-unnamed-trail-is-named-by-its-id.md):
+  the ID is `t` and four hex digits, and an unnamed trail's session is named by it
 - Date: 2026-10
 - Supersedes the part of [ADR 3](0003-restore-records-and-wrapper.md) that names a
   record by its trail's session

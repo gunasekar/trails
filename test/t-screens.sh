@@ -59,12 +59,14 @@ wait_for 10 sh -c "[ \"\$(tmux list-clients -F '#{session_name} #{window_name}' 
 rm -f "$T/d3"
 printf '%s\n' '^workspace	personal' 'new trail…' '\.dotfiles$' 'stub · new trail' >"$T/p3"
 DRIVER_DIR=$T FZF_PICKS=$T/p3 FZF_DUMP=$T/d3 driver "$TRAILS"
-wait_for 5 screen_has personal/_dotfiles 'agent id=' || fail "no trail in personal: $(plain "$T/d3")"
+wait_for 5 has_unnamed personal _dotfiles || fail "no trail in personal: $(plain "$T/d3")"
+dots=$(unnamed personal _dotfiles 1)
+wait_for 5 screen_has "$dots" 'agent id=' || fail "the agent never started in personal"
 assert_eq "$(dumped "$T/d3" 2 | cut -f1 | tr '\n' ' ')" "browse " "personal's screen: only the way to a new trail"
 assert_match "$(dumped "$T/d3" 2 | cut -f3)" 'new trail…  \(1 codebase\)$' "the count"
 assert_eq "$(dumped "$T/d3" 3 | cut -f1 | tr '\n' ' ')" "$T/.dotfiles browse:$T " "its codebase, then browse…, not every folder under ~"
 assert_eq "$(dumped "$T/d3" 4 | cut -f1,2 | tr '\t\n' '  ')" "new stub new other " "then the agents, and nothing else"
-assert_eq "$(tmux list-windows -t personal -F '#{window_name}')" "_dotfiles" "the trail's window"
+assert_eq "$(tmux list-windows -t personal -F '#{window_name}')" "${dots#personal/}" "the trail's window"
 
 # From a shell in the workspace session: lattiq's screen, its trails with a codebase column,
 # and "＋ new trail…" — no rows per codebase and agent.
@@ -97,7 +99,7 @@ wait_shell "$shp" || fail "the shell never came back"
 rm -f "$T/d4w"
 printf '%s\n' 'new trail…' 'browse…' '^up' '^up' 'elsewhere/$' 'spike/$' '^use' '^default' 'stub · new trail' >"$T/p4w"
 type_in "$shp" "FZF_PICKS=$T/p4w FZF_DUMP=$T/d4w $TRAILS"
-wait_for 10 has_session default/spike || fail "no trail in spike: $(plain "$T/d4w" | tail -n 12 | tr '\n' '|')"
+wait_for 10 has_unnamed default spike || fail "no trail in spike: $(plain "$T/d4w" | tail -n 12 | tr '\n' '|')"
 assert_eq "$(dumped "$T/d4w" 3 | cut -f1 | tr '\n' ' ')" "use up in in in " "the walk from ~/work/lattiq"
 assert_eq "$(dumped "$T/d4w" 8 | cut -f1 | tr '\n' ' ')" "default lattiq personal " "default first, then where you browsed from"
 assert_match "$(dumped "$T/d4w" 8 | head -n 1 | cut -f2)" '^default +not added to a workspace$' "says what default means"
@@ -108,18 +110,20 @@ assert_eq "$(jq -r '[.workspaces[] | if type == "array" then .[] else .codebases
 wait_shell "$shp" || fail "the shell never came back"
 printf '%s\n' 'new trail…' 'ledger$' 'stub · new trail' >"$T/p4b"
 type_in "$shp" "FZF_PICKS=$T/p4b $TRAILS"
-wait_for 10 has_session lattiq/ledger || fail "no trail in ledger"
+wait_for 10 has_unnamed lattiq ledger || fail "no trail in ledger"
+ledger=$(unnamed lattiq ledger 1)
 wait_shell "$shp" || fail "the shell never came back"
 printf '%s\n' 'new trail…' '	    augur ' 'other · new trail' >"$T/p4c"
 type_in "$shp" "FZF_PICKS=$T/p4c $TRAILS"
-wait_for 10 has_session lattiq/augur ||
+wait_for 10 has_unnamed lattiq augur ||
   fail "no second trail in augur; windows: $(tmux list-windows -t lattiq -F '#{window_name}' | tr '\n' ' '); pane: $(tmux capture-pane -pt "$shp" | grep -v '^$' | tail -3 | tr '\n' '|')"
-wait_for 5 screen_has lattiq/augur 'agent (other)' || fail "the other agent never started"
+augur=$(unnamed lattiq augur 1)
+wait_for 5 screen_has "$augur" 'agent (other)' || fail "the other agent never started"
 # The trails' windows only, not the shell this test types into, whatever it is called.
 wins() { tmux list-windows -t lattiq -F '#{?@trails_window,#{window_name},}' | grep . | sort | tr '\n' ' '; }
 wait_for 5 sh -c "[ \"\$(tmux list-windows -t lattiq -F '#{@trails_window}' | grep -c .)\" -ge 3 ]" || true
-assert_eq "$(wins)" "augur augur·api ledger " "its window"
-wait_for 5 sh -c "tmux list-clients -F '#{session_name} #{window_name}' | grep -qx 'lattiq augur'" ||
+assert_eq "$(wins)" "$(printf '%s\n' "${augur#lattiq/}" augur·api "${ledger#lattiq/}" | sort | tr '\n' ' ')" "its window"
+wait_for 5 sh -c "tmux list-clients -F '#{session_name} #{window_name}' | grep -qx 'lattiq ${augur#lattiq/}'" ||
   fail "the client was not switched to the new trail"
 
 # A trail in a folder deeper than the tree lists belongs to its workspace directory's workspace
@@ -171,7 +175,8 @@ assert_eq "$(jq -r '.workspaces.newws.codebases[0]' "$XDG_CONFIG_HOME/trails/con
 # adds it there, and the codebase's screen follows.
 printf '%s\n' '^personal' '^agents' 'stub · new trail' >"$T/p6"
 DRIVER_DIR=$T/stray FZF_PICKS=$T/p6 driver "$TRAILS"
-wait_for 5 screen_has personal/stray 'agent id=' || fail "no trail in stray"
+wait_for 5 has_unnamed personal stray || fail "no trail in stray"
+wait_for 5 screen_has "$(unnamed personal stray 1)" 'agent id=' || fail "the agent never started in stray"
 # shellcheck disable=SC2088
 assert_eq "$(jq -r '.workspaces.personal.codebases | join(",")' "$XDG_CONFIG_HOME/trails/config.json")" "~/.dotfiles,~/stray" "stray added to personal"
 

@@ -144,7 +144,7 @@ cp "$T/cfg.keep" "$XDG_CONFIG_HOME/trails/config.json"
 
 # A closed named trail whose name an unnamed trail's session holds now comes back unnamed,
 # rather than refused.
-tmux new-session -d -s default/proj # held, as an unnamed trail in codebase proj would hold it
+tmux new-session -d -s default/proj # held, as a session of yours, or an unnamed trail from before 1.10, would hold it
 named=44444444-5555-6666-7777-888888888888
 : >"$HOME/.agent/$named"
 printf 'agent=stub\ndir=%s\nid=%s\nyolo=\ntask=Named one\nworkspace=default\nlabel=proj\nname=proj\nended=%s\n' \

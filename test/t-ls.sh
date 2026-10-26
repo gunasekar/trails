@@ -14,7 +14,7 @@ assert_eq "$(printf '%s\n' "$row" | wc -l | tr -d ' ')" 1 "one row here"
 assert_eq "$(printf '%s\n' "$row" | awk -F'\t' '{ print NF }')" 11 "eleven fields"
 assert_eq "$(printf '%s\n' "$row" | cut -f1,3,4,5,6,7,8,9,10)" \
   "running	default/payments	stub	-	$PROJ	$id	-	default	$tid" "the fixed fields, the trail's ID before the title"
-assert_match "$tid" '^t[0-9a-f]{8}$' "a trail ID"
+assert_match "$tid" '^t[0-9a-f]{4}$' "a trail ID"
 assert_match "$(printf '%s\n' "$row" | cut -f2)" '^(your-turn|working)$' "a state"
 assert_eq "$(printf '%s\n' "$row" | cut -f11)" "payments ready" "the title"
 

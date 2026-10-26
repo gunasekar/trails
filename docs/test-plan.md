@@ -50,7 +50,7 @@ covered yet.
 | | named: `trails new`, ctrl-n | A `t-launch`, `t-picker` |
 | | YOLO: Tab, `"mode": "yolo"` | A `t-launch` · M5 |
 | | from an editor's terminal | A `t-inside`, `t-tools` · M8 |
-| | a second trail in a codebase (`#2`) | A `t-picker` |
+| | a second trail in a codebase (`#<ID>`) | A `t-picker` |
 | Finding | codebase, workspace, workspaces screens | A `t-screens`, `t-picker` |
 | | `trails ws NAME` | A `t-screens` |
 | | `trails ls`, `-a`, `DIR`, piped | A `t-ls` |

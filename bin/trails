@@ -630,7 +630,7 @@ available_agents() {
 
 # ─── Trails ──────────────────────────────────────────────────────────────────
 # A trail is one agent in one codebase. It is a session of its own, named
-# <workspace>/<codebase>[-N] or <workspace>/<name>, holding one window with the agent in it
+# <workspace>/<codebase>-<ID> or <workspace>/<name>, holding one window with the agent in it
 # and nothing else: what an editor attaches to. Its workspace — a session named after the
 # workspace, marked @trails_workspace — shows it through a window of its own: the trail's
 # window, named like the agent's, whose first pane is a nested tmux client attached to the
@@ -646,7 +646,8 @@ available_agents() {
 #   @trails_id     its conversation, the one its record holds
 #   @trails_dir    the directory it runs in, verbatim from $PWD at launch
 #   @trails_ws     its workspace: the session it was made in
-#   @trails_session  its session's name, which is also its record's key
+#   @trails_session  its session's name, its address in tmux
+#   @trails_trail  its trail ID, its record's name (ADR 20)
 #   @trails_label  the codebase label its windows and session are named from
 #   @trails_name   the name you gave it, if any
 #   @trails_program  its agent's command, by name: which hooks speak for it (trails state)
@@ -675,8 +676,9 @@ codebase_label() {
   label_of "$1"
 }
 
-# A trail's badge in the picker and `trails ls`: #<name> for one you named, #N for the Nth
-# unnamed trail of its codebase, - for the first. $1 is its key, its session's name, $2 its
+# A trail's badge in the picker and `trails ls`: #<name> for one you named, #<ID> for an
+# unnamed one (#3f9a, its session augur-3f9a). Trails from before 1.10 have #N for the Nth
+# unnamed trail of a codebase and - for the first. $1 is its key, its session's name, $2 its
 # codebase label, $3 its name if any. A trail you named is the one case where
 # the badge is the name to call it by — `tmux a -t lattiq/payments`.
 trail_badge() {
@@ -688,7 +690,7 @@ trail_badge() {
   rest=${tb#"$2"-}
   if [ "$tb" = "$2" ]; then
     printf -- -
-  elif [ "$rest" != "$tb" ] && [ -n "$rest" ] && [ "$rest" = "${rest%%[!0-9]*}" ]; then
+  elif [ "$rest" != "$tb" ] && [ -n "$rest" ] && [ "$rest" = "${rest%%[!0-9a-f-]*}" ]; then
     printf '#%s' "$rest"
   else
     printf '#%s' "$tb"
@@ -1086,9 +1088,9 @@ rank_dot() {
 #
 #   life       running (the trail is there) or stopped (it isn't)
 #   state      a STATES id: needs-you, your-turn, unknown, working · lost, closed
-#   session    what to attach to: the trail's session (lattiq/augur-2); for a lost one the
+#   session    what to attach to: the trail's session (lattiq/augur-3f9a); for a lost one the
 #              session it had; - for a trail that ended
-#   trail      its trail ID (t3f9a0c1e), - for one that ended
+#   trail      its trail ID (t3f9a), - for one that ended
 #   yolo       yolo or -
 #   when       when an ended trail ended (Unix time), - otherwise
 #   workspace  the trail's workspace; for an ended one, the one its directory belongs to
@@ -1139,7 +1141,7 @@ ls_rows() {
 # trail in columns — a tab jumps to the next 8-stop, so a TSV on screen is a ragged grid.
 # `[ -t 1 ]` tells them apart with no flag: a caller's `$(...)` is a pipe.
 #
-#   #2       ● needs you  claude · yolo  lattiq    ~/code/api             Rework the retry budget
+#   #3f9a    ● needs you  claude · yolo  lattiq    ~/code/api             Rework the retry budget
 #            ● your turn  claude         personal  ~/.dotfiles            Fix the flaky test
 #            ○ lost       claude · yolo  lattiq    ~/code/foundry         Improve observability
 #            ○ closed     claude         lattiq    ~/notes      2h ago    Weekly review
@@ -1247,7 +1249,7 @@ list_sessions() {
 # directory's, with an argument that workspace's, or with --all every one, its codebase
 # column then workspace/codebase. The key is worth hiding — on one
 # codebase's screen `lattiq/augur` would repeat on every row — and what differs survives
-# as a `#2` or `#name` badge; the window id is the target, what ctrl-x and the preview act on.
+# as a `#3f9a` or `#name` badge; the window id is the target, what ctrl-x and the preview act on.
 live_trails() {
   sessions | while IFS="$TAB" read -r wid key ws label dir cb badge task; do
     case ${1:-} in
@@ -1312,12 +1314,12 @@ session_taken() {
   tmux has-session -t "=$1" 2>/dev/null && return 0
   tmux list-windows -a -F '#{@trails_session}' 2>/dev/null | grep -qxF "$1" && return 0
   [ -d "$STATE_DIR" ] || return 1
-  grep -rlxF -e "session=$1" "$STATE_DIR" 2>/dev/null | grep '/t[0-9a-f]\{8\}$' |
+  grep -rlxF -e "session=$1" "$STATE_DIR" 2>/dev/null | grep -E "/$TID_RE\$" |
     grep -qvxF "$(rec_path "${2:-}")"
 }
 
-# The first free session name for an unnamed trail of codebase $2 in workspace $1: ws/label,
-# then ws/label-2 and on.
+# The first free session name for $2 in workspace $1, for a restore that finds its own taken:
+# ws/$2, then ws/$2-2 and on.
 next_session() {
   session_taken "$1/$2" "${3:-}" || {
     printf '%s/%s' "$1" "$2"
@@ -1336,7 +1338,7 @@ next_session() {
 trail_name_taken() {
   tmux list-windows -a -F '#{@trails_name}' 2>/dev/null | grep -qxF -e "$1" && return 0
   [ -d "$STATE_DIR" ] || return 1
-  grep -rlxF -e "name=$1" "$STATE_DIR" 2>/dev/null | grep '/t[0-9a-f]\{8\}$' |
+  grep -rlxF -e "name=$1" "$STATE_DIR" 2>/dev/null | grep -E "/$TID_RE\$" |
     grep -qvxF "$(rec_path "${2:-}")"
 }
 
@@ -2145,7 +2147,7 @@ EOF
 
   # Its name, if it has one: the one you gave, the one its record kept, or for a closed
   # trail resumed the one its history kept. Kept only if free — a lost #payments comes back as
-  # lattiq/payments, not lattiq/augur-2 — and a restore counts its own record as free.
+  # lattiq/payments, not lattiq/augur-3f9a — and a restore counts its own record as free.
   label=$(codebase_label "$PWD")
   name=
   if [ -z "$3" ] && [ -n "$TRAILS_NAME" ]; then
@@ -2179,12 +2181,18 @@ EOF
     launch_unlock
     exit 3
   fi
+  # A new trail's ID was made before the lock: another launch may have taken it since.
+  if [ -z "$4" ]; then
+    while ! tid_free "$tid"; do
+      tid=$(new_tid)
+    done
+  fi
 
-  # Its session: ws/name for a named trail, else ws/label, or ws/label-N for the Nth unnamed
-  # one here. A restore asks for its old session back, and gets it unless something has since
-  # taken it — a fresh agent you started in that codebase after the reboot, say — or its
-  # workspace has changed under it; then it lands on the next free -N like any second trail
-  # would. Its record stays where it is, under its ID: only its session= changes.
+  # Its session: ws/name for a named trail, else ws/label-ID, its ID without the t (ADR 22).
+  # A restore asks for its old session back, and gets it unless something has since taken it
+  # or its workspace has changed under it; then it lands on its name, or label-ID, in the
+  # workspace it has now, with a -N only if a session of yours holds that already. Its record
+  # stays where it is, under its ID: only its session= changes.
   if [ -n "$name" ]; then
     sess=$ws/$name
     if session_taken "$sess" "$4"; then
@@ -2199,17 +2207,24 @@ EOF
     fi
   elif [ -n "$was" ] && [ "${was%%/*}" = "$ws" ] && ! session_taken "$was" "$4"; then
     sess=$was
+  elif [ -n "$4" ]; then
+    sess=$(next_session "$ws" "$label-${tid#t}" "$4")
   else
-    sess=$(next_session "$ws" "$label" "$4")
+    # A new trail's ID is free among the trails, not among sessions: one of yours by that
+    # name, however unlikely, makes it pick another.
+    while session_taken "$ws/$label-${tid#t}"; do
+      tid=$(new_tid)
+    done
+    sess=$ws/$label-${tid#t}
   fi
-  # The window's name, for the status line and choose-tree: augur, augur-2 for the second,
+  # The window's name, for the status line and choose-tree: augur-3f9a, as its session, or
   # augur·payments for one you named. Not the agent: which one runs is the trail's business,
-  # and the picker says it. The -N is the session's, so the two agree.
-  win=$label${name:+·$name}
-  case $sess in
-    "$ws/$label"-[0-9]*) win=$win-${sess##*-} ;;
-    *) ;;
-  esac
+  # and the picker says it.
+  if [ -n "$name" ]; then
+    win=${label}·$name
+  else
+    win=${sess#"$ws"/}
+  fi
 
   # Written before the agent starts, not after it survives BOOT: the wrapper's --forget is
   # what clears it, and that only works if the record is already there when the agent exits.
@@ -2533,9 +2548,9 @@ attach_key() {
 # kill-server — every agent goes with it. The conversations survive (each CLI keeps its
 # transcripts on disk); what dies is the knowledge of which conversation was which session,
 # because that lived only in tmux. So write it down outside tmux, one small file per trail,
-# keyed by its session's name:
+# named by its trail ID under its codebase (ADR 20):
 #
-#   ~/.local/state/trails/sessions/lattiq/augur-2   agent= dir= id= yolo= task= workspace= label= name=
+#   ~/.local/state/trails/sessions/code-augur/t3f9a   agent= dir= id= yolo= task= workspace= label= name=
 #
 # and bring trails back from it: lost rows in the picker, or `trails restore` for the lot.
 # The workspace in the record is a fallback: a restore puts the trail where the config says
@@ -2616,21 +2631,27 @@ new_id() {
   esac
 }
 
-# A trail's ID: t and eight hex digits, made at launch and kept until the trail ends, a restore
-# included (ADR 20). Its record is sessions/<codebase>/<ID>, the codebase as path_key names it,
-# the checklist's name for it under "data"; the folder is for reading, and nothing depends on
-# it: a record is found by its ID alone. Not the conversation ID, which a /clear changes, nor
-# the tmux address (lattiq/augur-2), which a restore may change and a later trail may reuse.
+# A trail's ID: t and four hex digits, made at launch and kept until the trail ends, a restore
+# included (ADR 20). An unnamed trail's session and window are named by it, augur-3f9a (ADR 22).
+# Its record is sessions/<codebase>/<ID>, the codebase as path_key names it, the checklist's
+# name for it under "data"; the folder is for reading, and nothing depends on it: a record is
+# found by its ID alone. Not the conversation ID, which a /clear changes, nor the tmux address,
+# which a restore may change. Four digits are unique among the trails there are now, which is
+# all an ID has to be: new_tid makes another while a record or a running window has it. 1.8
+# made eight, and those are still read: a trail keeps its ID until it ends.
+TID_RE='t([0-9a-f]{4}|[0-9a-f]{8})'
 tid_ok() {
   case $1 in
+    t[0-9a-f][0-9a-f][0-9a-f][0-9a-f]) return 0 ;;
     t[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) return 0 ;;
     *) return 1 ;;
   esac
 }
+tid_free() { [ "$(rec_path "$1")" = "$STATE_DIR/.no-such-record" ] && ! trail_back "$1"; }
 new_tid() {
   while :; do
-    nt=t$(new_id uuid | tr -d - | cut -c1-8)
-    [ "$(rec_path "$nt")" = "$STATE_DIR/.no-such-record" ] && break
+    nt=t$(new_id uuid | cut -c1-4)
+    tid_free "$nt" && break
   done
   printf '%s' "$nt"
 }
@@ -2657,7 +2678,7 @@ rec_home() { printf '%s/%s/%s' "$STATE_DIR" "$(path_key "$(codebase_root "$2")")
 # The record whose trail runs, or last ran, as tmux session $1.
 rec_of_session() {
   [ -d "$STATE_DIR" ] || return 0
-  grep -rlxF -e "session=$1" "$STATE_DIR" 2>/dev/null | grep '/t[0-9a-f]\{8\}$' | head -n 1 | xargs basename 2>/dev/null
+  grep -rlxF -e "session=$1" "$STATE_DIR" 2>/dev/null | grep -E "/$TID_RE\$" | head -n 1 | xargs basename 2>/dev/null
 }
 
 # Records from before 1.8, sessions/<workspace>/<name> and no trail=, each given an ID and
@@ -2749,7 +2770,7 @@ rec_close() {
 # Every record's trail ID, one per line.
 rec_keys() {
   [ -d "$STATE_DIR" ] || return 0
-  find "$STATE_DIR" -mindepth 2 -maxdepth 2 -type f -name 't????????' 2>/dev/null |
+  find "$STATE_DIR" -mindepth 2 -maxdepth 2 -type f \( -name 't????' -o -name 't????????' \) 2>/dev/null |
     sed 's|.*/||' | while read -r rk; do tid_ok "$rk" && printf '%s\n' "$rk"; done
 }
 
@@ -4036,9 +4057,9 @@ EOF
 # of nothing. Neither end is free, and the active view is the better one to keep whole.
 
 # One name, so exactly one map — a decision, not an oversight, and the difference
-# matters because the fix for it is sitting right there in this file. next_session() gives
-# agent sessions their -2 because each holds a live conversation that cannot be recreated:
-# ~/a/foo and ~/b/foo both want trails-foo, neither can yield, so they coexist. A map
+# matters because the fix for it is sitting right there in this file. Agent sessions carry
+# their trail's ID because each holds a live conversation that cannot be recreated: two
+# trails in one codebase both want it, neither can yield, so they coexist. A map
 # holds nothing, so that pressure has no counterpart here — nothing collides, because
 # there is nothing to lose. Reaching for next_session() when a second map "collides"
 # would be solving a problem the design does not have, and would cost the thing a fixed
@@ -4172,7 +4193,7 @@ map_agent() { tmux display-message -pt "$1" '#{@agent}' 2>/dev/null; }
 # working sort list_sessions() and live_trails() use, so pane 1 of the grid is always the one
 # to look at first.
 #
-# Each row shows its trail's key — lattiq/augur-2 — since box-wide the codebase and the
+# Each row shows its trail's key — lattiq/augur-3f9a — since box-wide the codebase and the
 # workspace are what tell trails apart.
 map_menu() {
   sessions | classify | while IFS="$TAB" read -r state _wid key _ws label _dir _cb _badge task; do
@@ -4505,38 +4526,35 @@ map() {
 # A name for a new trail, checked before anything starts: it names the trail's session
 # (<workspace>/<name>) and becomes the agent's own name where its config gives it a flag for
 # one (session.name), so it must be a word both take, and free. Letters, digits, - and _: tmux
-# refuses . and :, and a space would need quoting at every `tmux a -t`. Not digits alone,
-# which would read as the #2 badge of an unnamed trail. Free means no trail and no record
+# refuses . and :, and a space would need quoting at every `tmux a -t`. Not digits alone, nor
+# four hex digits, which would read as an unnamed trail's badge (#2 from before 1.10, #3f9a
+# now). Free means no trail and no record
 # hold it (trail_name_taken), so a lost trail keeps its name until it is restored or forgotten.
 check_name() {
-  # An unnamed trail's session is <workspace>/<codebase>, then -2, -3: a name like the second
-  # reads as one of them, and the codebase's own name, while an unnamed trail holds it, would
-  # be numbered as if it were one.
+  # An unnamed trail's session is <workspace>/<codebase>-<ID> (before 1.10 <codebase>, then
+  # -2, -3): a name like that reads as one of them, and the codebase's own name, while a trail
+  # from before holds it, would be numbered as if it were one.
   cn_label=$(codebase_label "$PWD")
   case $1 in
-    '') echo "trails: a name can't be empty" >&2 ;;
-    -*) echo "trails: '$1' won't do as a name — it can't start with -" >&2 ;;
-    *[!A-Za-z0-9_-]*) echo "trails: '$1' won't do as a name — letters, digits, - and _ only" >&2 ;;
-    "$cn_label"-[0-9]*) echo "trails: '$1' reads as an unnamed trail of $cn_label — name it something else" >&2 ;;
+    '') echo "trails: a name can't be empty" >&2; return 1 ;;
+    -*) echo "trails: '$1' won't do as a name — it can't start with -" >&2; return 1 ;;
+    *[!A-Za-z0-9_-]*) echo "trails: '$1' won't do as a name — letters, digits, - and _ only" >&2; return 1 ;;
+    "$cn_label"-*[!0-9a-f-]*) ;;
+    "$cn_label"-*) echo "trails: '$1' reads as an unnamed trail of $cn_label — name it something else" >&2; return 1 ;;
     "$cn_label")
       if tmux list-sessions -F '#{session_name}' 2>/dev/null | grep -qx -e "[^/]*/$1"; then
         echo "trails: '$1' is an unnamed trail of $cn_label's already — name it something else" >&2
-      elif trail_name_taken "$1"; then
-        echo "trails: '$1' is taken — trails ls -a shows what by" >&2
-      else
-        return 0
+        return 1
       fi
       ;;
-    *[!0-9]*)
-      if trail_name_taken "$1"; then
-        echo "trails: '$1' is taken — trails ls -a shows what by" >&2
-      else
-        return 0
-      fi
-      ;;
-    *) echo "trails: '$1' is all digits, which reads as the #N of an unnamed trail" >&2 ;;
+    [0-9a-f][0-9a-f][0-9a-f][0-9a-f]) echo "trails: '$1' reads as the #ID of an unnamed trail — name it something else" >&2; return 1 ;;
+    *[!0-9]*) ;;
+    *) echo "trails: '$1' is all digits, which reads as the #N of an unnamed trail" >&2; return 1 ;;
   esac
-  return 1
+  if trail_name_taken "$1"; then
+    echo "trails: '$1' is taken — trails ls -a shows what by" >&2
+    return 1
+  fi
 }
 
 # `trails new NAME [AGENT] [-y]`: start a named trail without the picker. AGENT is the

@@ -36,6 +36,8 @@ printf '%s\n' '' ctrl-n >"$T/kx"
 printf '%s\n' '^agents' 'stub · new trail' >"$T/px"
 assert_match "$(cd "$PROJ" && FZF_KEYS=$T/kx FZF_QUERY=-x FZF_PICKS=$T/px "$TRAILS" 2>&1 </dev/null)" "can't start with -" "ctrl-n with a name starting with -"
 assert_match "$(nm proj-5)" "reads as an unnamed trail" "a name like an unnamed trail's"
+assert_match "$(nm proj-3f9a)" "reads as an unnamed trail" "a name like an unnamed trail's session"
+assert_match "$(nm beef)" "reads as the #ID of an unnamed trail" "a name like an unnamed trail's badge"
 
 # ── Two at once ────────────────────────────────────────────────────────────────────────
 # One name started twice at once: one runs, one is refused, and the record is the runner's.

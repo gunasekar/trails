@@ -93,6 +93,20 @@ assert_eq "$(tmux display-message -pt default/solo-2 '#{@trails_trail}')" "$solo
 assert_file "$solo_file" "its record where it was"
 assert_eq "$(sed -n 's/^session=//p' "$solo_file")" default/solo-2 "its session rewritten"
 
+# An unnamed trail comes back under its session, named by its ID: the same name, as the same
+# trail.
+FZF_PICK='^agents	|stub · new trail' trails_bg
+wait_for 5 has_unnamed default proj || fail "no unnamed trail: $(tmux ls)"
+un=$(unnamed default proj 1)
+un_tid=$(tmux display-message -pt "$un" '#{@trails_trail}')
+assert_eq "$un" "default/proj-${un_tid#t}" "its session, named by its ID"
+tmux kill-server
+sleep 0.3
+out=$(cd "$T" && "$TRAILS" restore 2>&1)
+printf '%s\n' "$out" | grep -qx "restored $un" || fail "not back under its own session: '$out'"
+wait_for 5 screen_has "$un" 'agent id=' || fail "$un never came back"
+assert_eq "$(tmux display-message -pt "$un" '#{@trails_trail}')" "$un_tid" "the same trail"
+
 # A restore the agent refuses after BOOT (claude, with MCP servers to start first): trails has
 # said "restored" by then, and the wrapper keeps the record, so it would come back lost and be
 # refused again by every restore. Instead the trail starts fresh in its place, as itself.

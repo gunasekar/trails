@@ -58,7 +58,7 @@ assert_eq "$(client_at "$client" '#{session_name} #{window_id}')" "default $win"
 # and the session it runs as; the window carries the same ID.
 rec=$(trec default/payments)
 assert_file "$rec" "the record"
-assert_match "$rec" "/sessions/proj/t[0-9a-f]{8}\$" "filed by ID under its codebase"
+assert_match "$rec" "/sessions/proj/t[0-9a-f]{4}\$" "filed by ID under its codebase"
 assert_eq "$(sed -n 's/^trail=//p' "$rec")" "$(opts '#{@trails_trail}')" "the window carries its ID"
 assert_eq "$(sed -n 's/^session=//p' "$rec")" default/payments "record session"
 assert_eq "$(sed -n 's/^agent=//p' "$rec")" stub "record agent"

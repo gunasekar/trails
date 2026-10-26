@@ -77,10 +77,10 @@ recommended for the diff, and `curl` keeps the picker's preview live.
    ~/code/checkout $ trails
    checkout (acme) ▸ Pick a trail: █   # enter: open · ctrl-e: editor · ctrl-/: preview · ctrl-x: end · ?: keys · esc: up
      ＋ new trail…
-   ▌ ● needs you  claude · yolo  Add idempotency keys to payment retries
-     ● your turn  claude    #2   Fix the flaky cart-total test
-     ● working    codex          Migrate orders to Postgres 17
-     ○ lost       claude         Spike: replay Stripe webhooks
+   ▌ ● needs you  claude · yolo  #3f9a  Add idempotency keys to payment retries
+     ● your turn  claude         #b07e  Fix the flaky cart-total test
+     ● working    codex          #c41a  Migrate orders to Postgres 17
+     ○ lost       claude         #9d2e  Spike: replay Stripe webhooks
      ↩ resume old trails  (3 ended)
    ```
 
@@ -150,22 +150,24 @@ each trail is a small session of its own holding the agent alone:
 
 ```text
 acme                    ← workspace: a window per trail
-├─ checkout             ← shows acme/checkout; the editor and a shell beside it
-├─ checkout-2           ← shows acme/checkout-2
+├─ checkout-3f9a        ← shows acme/checkout-3f9a; the editor and a shell beside it
+├─ checkout-b07e        ← shows acme/checkout-b07e
 └─ billing·nvim         ← the editor alone, nothing running in billing
-acme/checkout           ← a trail: claude in ~/code/checkout
-acme/checkout-2         ← another, in the same codebase
+acme/checkout-3f9a      ← a trail: claude in ~/code/checkout, its ID t3f9a
+acme/checkout-b07e      ← another, in the same codebase
 ```
 
 The status line lists the running workspaces at the left, a click away, and the
 checklist's count before the clock:
 
 ```text
- acme  personal │ 1:checkout  2:checkout-2*  3:billing·nvim            ☑ 2/5 14:05
+ acme  personal │ 1:checkout-3f9a  2:checkout-b07e*  3:billing·nvim   ☑ 2/5 14:05
 ```
 
 Plain tmux moves you around too: `tmux a -t acme` is the workspace and
-`tmux a -t acme/checkout` one trail.
+`tmux a -t acme/checkout-3f9a` one trail. An unnamed trail's session and window
+carry its ID, four hex digits that stay with it through a restore and are never
+another trail's while it lives.
 
 ### The picker
 
@@ -451,8 +453,8 @@ from its path under your home folder as Claude names a project
 
 Its session is `acme/payments`, its window `checkout·payments`, the picker shows
 it as `#payments`, and the agent gets the name too where its config says how
-(Claude runs with `--name payments`). An unnamed second trail in a codebase is
-`#2`. A name comes back with the trail when it is resumed or restored.
+(Claude runs with `--name payments`). An unnamed trail is `#` and its ID, `#3f9a`.
+A name comes back with the trail when it is resumed or restored.
 
 ### When tmux goes down
 
@@ -620,11 +622,11 @@ life  state  session  agent  yolo  dir  id  when  workspace  trail  title
 |---|---|
 | `life` | `running` or `stopped` |
 | `state` | `needs-you`, `your-turn`, `unknown`, `working` · `lost`, `closed` |
-| `session` | the trail's session (`acme/checkout-2`); for a lost one, the session it had; `-` for one that ended |
+| `session` | the trail's session (`acme/checkout-3f9a`); for a lost one, the session it had; `-` for one that ended |
 | `yolo` | `yolo` or `-` |
 | `when` | when an ended trail ended (Unix time), else `-` |
 | `workspace` | the trail's workspace |
-| `trail` | its trail ID (`t3f9a0c1e`), the same through a restore; `-` for one that ended |
+| `trail` | its trail ID (`t3f9a`; `t` and eight hex digits for a trail started before 1.10), the same through a restore; `-` for one that ended |
 
 `TRAILS_RECENT_MAX=0` skips the history, for a poll that wants running trails only.
 

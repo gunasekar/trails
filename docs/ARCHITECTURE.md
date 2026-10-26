@@ -74,7 +74,7 @@ not in trails.
 |---|---|---|
 | Codebase | one directory; a git worktree is its own codebase | none |
 | Workspace | a user-chosen set of codebases | a session named after it, marked `@trails_workspace` |
-| Trail | one agent working in one codebase | a session of its own, `<workspace>/<codebase>[-N]`, `status off`, holding one window with the agent in it: what an editor attaches to, one trail and nothing else |
+| Trail | one agent working in one codebase | a session of its own, `<workspace>/<codebase>-<ID>` or `<workspace>/<name>`, `status off`, holding one window with the agent in it: what an editor attaches to, one trail and nothing else |
 | The trail's window | how the workspace shows a trail | a window in the workspace session named like the agent's, marked `@trails_window`, whose first pane is a nested tmux client of the trail's session |
 | Agent, editor and shell panes | the agent, with your editor and a shell beside it | panes of the trail's window, marked `@trails_pane` `agent`, `editor` or `shell` |
 | Editor or shell window | your editor or shell with no trail in the codebase, or left when one ended | a window `<codebase>·nvim` or `<codebase>·shell` marked `@trails_tool` (`editor` or `shell`); a *tool window* in the code |
@@ -84,8 +84,9 @@ The words are tmux's own, plus trail. A trail has two windows: the agent's, in
 the trail's session, and the trail's, in the workspace. Where it matters the text
 says which.
 
-The agent's window, and the trail's window after it, is named `<codebase>`,
-`<codebase>-N` for the Nth unnamed trail in that codebase, or
+The agent's window, and the trail's window after it, is named `<codebase>-<ID>`
+for an unnamed trail, its trail ID without the `t` (`augur-3f9a`,
+[ADR 22](decisions/0022-an-unnamed-trail-is-named-by-its-id.md)), or
 `<codebase>·<name>` for a named one: the trail's key without its workspace, and
 not the agent, which the picker shows. The
 codebase label is the directory's basename with `.`, `:` and spaces turned into
@@ -214,8 +215,8 @@ badge task`, and the pass also keeps every record's task and conversation curren
 one workspace's for the picker, `ls_rows` the lot for `trails ls`, `map_menu` for
 the map.
 
-The badge (`#2`, `#payments`, `-`) is read off the key against the codebase label
-and the name, never off a name alone.
+The badge (`#3f9a`, `#payments`; `#2` and `-` for unnamed trails from before 1.10)
+is read off the key against the codebase label and the name, never off a name alone.
 
 What tmux is asked for comes back with its fields between `$US`, the unit
 separator, never `|` (a directory may hold one) nor a tab (the shell reads a tab
@@ -228,8 +229,9 @@ command substitution of its own: its IFS would split the substitution's words.
 
 A key trails is handed (by the picker, the map) is checked by `key_ok`: a
 `WORKSPACE/NAME`, and nothing with `..` or a leading `/`. A record is named by a trail
-ID, `t` and eight hex digits (`tid_ok`), and `rec_path` finds nothing for anything
-else, so no argument reaches outside the records' directory.
+ID, `t` and four hex digits, or eight for one from 1.8 or 1.9 (`tid_ok`), and
+`rec_path` finds nothing for anything else, so no argument reaches outside the
+records' directory.
 
 ## Agents
 
@@ -361,7 +363,7 @@ So `trails` writes that down outside tmux, one file per trail, named by the trai
 ID under its codebase's folder ([ADR 20](decisions/0020-a-trail-has-an-id-of-its-own.md)):
 
 ```text
-~/.local/state/trails/sessions/code-augur/t3f9a0c1e
+~/.local/state/trails/sessions/code-augur/t3f9a
 agent=claude
 dir=/Users/me/code/augur
 id=15fcb95c-19cc-49dc-a7fc-7a7dd032e5c9
@@ -371,17 +373,23 @@ workspace=lattiq
 label=augur
 name=
 server=default
-trail=t3f9a0c1e
-session=lattiq/augur-2
+trail=t3f9a
+session=lattiq/augur-3f9a
 ```
 
-**A trail's ID is its own.** `launch` makes it (`new_tid`, from a UUID) and puts it on
-the trail's window as `@trails_trail`; a restore keeps it, a resume from the history
-makes a new one. The folder is `path_key` of the codebase root, the checklist's name
+**A trail's ID is its own.** `launch` makes it (`new_tid`, four hex digits from a
+UUID) and puts it on the trail's window as `@trails_trail`; a restore keeps it, a
+resume from the history makes a new one. It only has to be unique among the trails
+there are, running or lost, so `new_tid` makes another while a record or a window
+has it, and `launch` asks again under its lock, since two launches can draw the same
+one before either writes its record. An unnamed trail's session is named by it
+(`<workspace>/<codebase>-<ID>`), so a new trail never needs a free number found for it. The folder is `path_key` of the codebase root, the checklist's name
 for it, and is for reading: `rec_path` finds a record by its ID alone
 (`sessions/*/<id>`), and nothing depends on where it sits. The session, `session=`,
 is the trail's address in tmux and may change under it: a restore that finds its
-session taken lands on the next `-N`, and only that line changes. Asking which
+session taken (by a session of your own, or its workspace moved) lands on its name, or
+`<codebase>-<ID>`, in the workspace it has now, with a `-N` only if that is taken too,
+and only that line changes. Asking which
 record runs as a session (`rec_of_session`, `session_taken`) greps `session=`.
 
 **Records from before 1.8** were `sessions/<workspace>/<name>` with no `trail=`.
@@ -452,8 +460,8 @@ ID (`trail_back`), so the second finds it back and stops.
 no session has its name. Otherwise a session you created by hand under the same name
 would hide it. The trail's window killed is nothing to a record: the trail lives in its
 session. A
-dead record also keeps its name reserved, so a fresh agent lands on `-2` and
-can't overwrite it.
+dead record also keeps its ID and its session's name reserved, so a fresh trail gets
+another and can't overwrite it.
 
 `trails restore` brings back every dead record, detached, in its own directory,
 into the workspace the config gives that directory now (the record's workspace

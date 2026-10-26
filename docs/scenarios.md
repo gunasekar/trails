@@ -54,7 +54,7 @@ workspaces, `prefix e` the editor, `` prefix ` `` a shell, `prefix G` the diff,
    it the default, when Tab is how you start one prompting.
 7. From an editor's terminal (VS Code, Cursor, Zed, Neovim): the editor sees
    that one trail.
-8. A second in the same codebase: a sibling, marked `#2`.
+8. A second in the same codebase: a sibling with an ID of its own, marked `#3f9a`.
 
 ### Finding and moving
 

@@ -144,6 +144,15 @@ client_at() {
 
 has_session() { tmux has-session -t "=$1" 2>/dev/null; }
 no_session() { ! tmux has-session -t "=$1" 2>/dev/null; }
+# The sessions of codebase $2's unnamed trails in workspace $1, oldest first: an unnamed
+# trail's session is <workspace>/<codebase>-<its ID>, the ID four hex digits (ADR 22). $3 picks
+# one, 1 for the oldest; without it, every one.
+unnamed() {
+  tmux list-sessions -F '#{session_created} #{session_name}' 2>/dev/null |
+    awk -v p="$1/$2-" 'index($2, p) == 1 && substr($2, length(p) + 1) ~ /^[0-9a-f][0-9a-f][0-9a-f][0-9a-f]$/' |
+    sort -n -s -k1,1 | cut -d' ' -f2 | sed -n "${3:-1,\$}p"
+}
+has_unnamed() { [ -n "$(unnamed "$@")" ]; }
 screen() { tmux capture-pane -pt "$1" 2>/dev/null; }
 screen_has() { screen "$1" | grep -q "$2"; }
 

@@ -37,29 +37,37 @@ assert_eq "$(awk '/^--- /{n=$2;next} n==3' "$T/agents" | cut -f1 | head -n 1)" a
 # Through both screens, "＋ new trail…" then "stub · new trail".
 NEW='^agents	|stub · new trail'
 
-# Enter on "＋ new trail…", then "stub · new trail", starts one: the window proj in default, the session default/proj.
+# Enter on "＋ new trail…", then "stub · new trail", starts one: the session default/proj-<ID>, and
+# a window of that name in default.
 FZF_PICK="$NEW" trails_bg
-wait_for 5 has_session default/proj || fail "no session default/proj"
-wait_for 5 screen_has default/proj 'agent id=' || fail "agent never started"
-assert_eq "$(tmux list-windows -t default -F '#{window_name}')" "proj" "the window"
-wid=$(tmux display-message -pt default/proj '#{window_id}')
+wait_for 5 has_unnamed default proj || fail "no session default/proj-<ID>: $(tmux ls)"
+s1=$(unnamed default proj 1)
+wait_for 5 screen_has "$s1" 'agent id=' || fail "agent never started"
+tid1=$(tmux display-message -pt "$s1" '#{@trails_trail}')
+assert_eq "$s1" "default/proj-${tid1#t}" "the session named by the trail's ID"
+assert_eq "$(tmux list-windows -t default -F '#{window_name}')" "proj-${tid1#t}" "the window"
+wid=$(tmux display-message -pt "$s1" '#{window_id}')
 
 # It is now an attach row, under "＋ new trail…", targeting its window.
 rows=$(menu)
 assert_eq "$(printf '%s\n' "$rows" | sed -n 2p | cut -f1,2)" "attach	$wid" "attach row under the new one"
 assert_match "$(printf '%s\n' "$rows" | sed -n 2p | cut -f3)" '● (your turn|working) +stub' "drawn with its state"
 
-# A second unnamed trail here is the -2 sibling, and wears #2.
+# A second unnamed trail here has an ID of its own, and wears it as its badge.
 FZF_PICK="$NEW" trails_bg
-wait_for 5 has_session default/proj-2 || fail "no session default/proj-2"
-wait_for 5 sh -c "[ \"\$(tmux list-windows -t default -F '#{window_name}' | sort | tr '\n' ' ')\" = 'proj proj-2 ' ]" || fail "no sibling window: $(tmux list-windows -t default -F '#{window_name}' | tr '\n' ' ')"
+# Not the first: two sessions made in one second sort by name.
+second() { unnamed default proj | grep -vxF "$s1"; }
+wait_for 5 second || fail "no second session: $(tmux ls)"
+s2=$(second)
+id2=${s2#default/proj-}
+wait_for 5 sh -c "[ \"\$(tmux list-windows -t default -F '#{window_name}' | sort | tr '\n' ' ')\" = '$(printf '%s\n' "proj-${tid1#t}" "proj-$id2" | sort | tr '\n' ' ')' ]" || fail "no sibling window: $(tmux list-windows -t default -F '#{window_name}' | tr '\n' ' ')"
 rows=$(menu)
 assert_match "$(printf '%s\n' "$rows" | grep -c '^attach')" '^2$' "two attach rows"
-assert_match "$(printf '%s\n' "$rows" | grep '^attach' | cut -f3 | tr '\n' '|')" '#2' "the #2 badge"
+assert_match "$(printf '%s\n' "$rows" | grep '^attach' | cut -f3 | tr '\n' '|')" "#$id2" "the #ID badge"
 
 # Enter on an attach row lands in the workspace with that window selected.
-FZF_PICK='#2' trails_bg
-wait_for 5 sh -c "tmux list-clients -F '#{session_name} #{window_name}' | grep -q 'default proj-2'" ||
+FZF_PICK="#$id2" trails_bg
+wait_for 5 sh -c "tmux list-clients -F '#{session_name} #{window_name}' | grep -q 'default proj-$id2'" ||
   fail "picking a running trail did not attach to it"
 
 # ctrl-n, a name, Enter on an agent's row: the trail takes the name.
@@ -68,11 +76,11 @@ wait_for 5 has_session default/billing || fail "no session default/billing"
 wait_for 5 screen_has default/billing 'name=billing' || fail "the name never reached the agent"
 
 # ctrl-x on a running row ends it: window, session and record.
-wid2=$(tmux display-message -pt default/proj-2 '#{window_id}')
+wid2=$(tmux display-message -pt "$s2" '#{window_id}')
 (cd "$PROJ" && "$TRAILS" --kill "$wid2")
-wait_for 3 no_session default/proj-2 || fail "ctrl-x left the session"
-wait_for 5 sh -c "[ \"\$(tmux list-windows -t default -F '#{window_name}' | sort | tr '\n' ' ')\" = 'proj proj·billing ' ]" || fail "the trail's window stayed: $(tmux list-windows -t default -F '#{window_name}' | tr '\n' ' ')"
-assert_no_file "$(trec default/proj-2)" "the record went"
+wait_for 3 no_session "$s2" || fail "ctrl-x left the session"
+wait_for 5 sh -c "[ \"\$(tmux list-windows -t default -F '#{window_name}' | sort | tr '\n' ' ')\" = '$(printf '%s\n' "proj-${tid1#t}" 'proj·billing' | sort | tr '\n' ' ')' ]" || fail "the trail's window stayed: $(tmux list-windows -t default -F '#{window_name}' | tr '\n' ' ')"
+assert_no_file "$(trec "$s2")" "the record went"
 
 # Esc starts nothing. The test's own driver terminals come and go (the one attached to the
 # trail ctrl-x just ended closes in its own time), so only the rest are compared.
@@ -86,10 +94,11 @@ assert_eq "$(trail_sessions)" "$before" "Esc leaves sessions alone"
 # command, which is a shell line, and must survive it.
 mkdir -p "$T/it's"
 DRIVER_DIR="$T/it's" FZF_PICK="$NEW" FZF_QUERY='' FZF_KEY='' FZF_KEYS='' trails_bg
-wait_for 5 has_session "default/it's" || fail "no session for it's: $(tmux capture-pane -pS- -t "driver-$DRIVERS" 2>&1 | grep -v '^$' | tail -4 | tr '\n' '|')"
-wait_for 5 screen_has "default/it's" 'agent id=' || fail "the agent never started in it's"
-qwin() { tmux list-windows -t default -F '#{@trails_window}' | grep -qxF "default/it's"; }
-qcli() { [ "$(tmux list-clients -t "=default/it's" 2>/dev/null | wc -l | tr -d ' ')" -ge 1 ]; }
+wait_for 5 has_unnamed default "it's" || fail "no session for it's: $(tmux capture-pane -pS- -t "driver-$DRIVERS" 2>&1 | grep -v '^$' | tail -4 | tr '\n' '|')"
+qs=$(unnamed default "it's" 1)
+wait_for 5 screen_has "$qs" 'agent id=' || fail "the agent never started in it's"
+qwin() { tmux list-windows -t default -F '#{@trails_window}' | grep -qxF "$qs"; }
+qcli() { [ "$(tmux list-clients -t "=$qs" 2>/dev/null | wc -l | tr -d ' ')" -ge 1 ]; }
 wait_for 5 qwin || fail "no trail's window for it's"
 wait_for 5 qcli || fail "the window's pane is not a client of the session"
 
