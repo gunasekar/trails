@@ -84,8 +84,8 @@ recommended for the diff, and `curl` keeps the picker's preview live.
      ↩ resume old trails  (3 ended)
    ```
 
-From then on it is keys: `prefix P` for this workspace's trails, `e` for the
-editor beside the agent, `G` for its diff. `prefix ?` lists them all. The
+From then on it is keys: `prefix P` for this workspace's trails, `E` for the
+editor beside the agent, `G` for its diff. `prefix H` lists them all. The
 everyday loop, and every other way trails is used, are in
 [docs/scenarios.md](docs/scenarios.md).
 
@@ -98,14 +98,14 @@ In tmux, after `prefix`, from `trails keys`:
 | `P` | this workspace's trails, in a popup: the picker |
 | `W` | the workspaces |
 | `A` | every running trail, in every workspace |
-| `e` | the editor beside the agent; again, back where you were |
+| `E` | the editor beside the agent; again, back where you were |
 | `` ` `` | a shell beside the agent; again, back |
 | `G` | the codebase's changes, side by side ([the diff](#the-editor-a-shell-and-the-diff)) |
 | `N` | the codebase's [checklist](#checklist) |
 | `M` | the [map](#the-map): up to four trails side by side |
-| `(` `)` | the previous and next workspace |
+| `K` `J` | the previous and next workspace |
 | `R` | rename the trail you are on ([named trails](#named-trails)) |
-| `?` | these keys, in a popup |
+| `H` | these keys, in a popup |
 
 In the picker:
 
@@ -122,10 +122,12 @@ In the picker:
 | `?` | the keys and what the states mean |
 | `esc` | up a level: a codebase to its workspace, a workspace to the workspaces, then out |
 
-`P`, `W`, `A`, `e`, `` ` ``, `N` and `G` are unbound in tmux's defaults. `(` and
-`)` replace tmux's cycling through every session, `?` its list of bindings (still
-`:list-keys`), and `M` clearing the marked pane (still `prefix m` on it). A line
-after the `trails keys` one that binds the same key wins.
+Every trails key is a capital letter, but `` ` `` for the shell, so tmux's own
+keys stay tmux's: `?` still lists every binding, `(` and `)` still cycle through
+every session. `P`, `W`, `A`, `N`, `G`, `R`, `H`, `J` and `K` are unbound in
+tmux's defaults; `E` replaces spreading the panes out evenly (still
+`:select-layout -E`), and `M` clearing the marked pane (still `prefix m` on it). A
+line after the `trails keys` one that binds the same key wins.
 
 ## Using it
 
@@ -379,7 +381,7 @@ is the hook's job: trails takes what it is given.
 
 ### The editor, a shell and the diff
 
-`prefix e` opens your editor (`$EDITOR`, nvim if unset) and `` prefix ` `` a
+`prefix E` opens your editor (`$EDITOR`, nvim if unset) and `` prefix ` `` a
 shell, beside the agent, as panes of the trail's window in the codebase. Pressed
 again, each takes you back where you were. They go where they go whichever you
 open first:
@@ -652,15 +654,15 @@ life  state  session  agent  yolo  dir  id  when  workspace  trail  title
 ```text
 bind P display-popup -E -w 60% -h 70% -s bg=terminal -S bg=terminal,fg=brightblack "'trails' || { echo; echo press enter to close; read -r _; }"
 bind W display-popup -E -w 60% -h 50% -s bg=terminal -S bg=terminal,fg=brightblack "'trails' ws || { echo; echo press enter to close; read -r _; }"
-bind e run-shell "TRAILS_CLIENT=#{client_name} 'trails' edit"
+bind E run-shell "TRAILS_CLIENT=#{client_name} 'trails' edit"
 bind ` run-shell "TRAILS_CLIENT=#{client_name} 'trails' shell"
 bind N display-popup -E -w 60% -h 50% -s bg=terminal -S bg=terminal,fg=brightblack "'trails' checklist"
-bind ( run-shell "TRAILS_CLIENT=#{client_name} 'trails' ws prev"
-bind ) run-shell "TRAILS_CLIENT=#{client_name} 'trails' ws next"
+bind K run-shell "TRAILS_CLIENT=#{client_name} 'trails' ws prev"
+bind J run-shell "TRAILS_CLIENT=#{client_name} 'trails' ws next"
 bind M run-shell "TRAILS_CLIENT=#{client_name} 'trails' map here"
 bind A display-popup -E -w 70% -h 70% -s bg=terminal -S bg=terminal,fg=brightblack "env TRAILS_PICKER=all 'trails' || { echo; echo press enter to close; read -r _; }"
 bind G run-shell "TRAILS_CLIENT=#{client_name} 'trails' diff"
-bind ? run-shell "TRAILS_CLIENT=#{client_name} 'trails' --keys"
+bind H run-shell "TRAILS_CLIENT=#{client_name} 'trails' --keys"
 bind R command-prompt -p "rename trail:" "run-shell \"TRAILS_CLIENT=#{client_name} 'trails' rename '%%'\""
 set -g status-left-length 60
 set -g status-right-length 80

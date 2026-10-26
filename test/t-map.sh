@@ -74,7 +74,7 @@ tmux -L keysone -f "$T/one.conf" new-session -d 'sleep 10'
 wait_for 5 sh -c "tmux -L keysone list-keys -T prefix N >/dev/null 2>&1" || fail "the one line loaded no keys"
 assert_match "$(tmux -L keysone show -gv status-left)" "trails_workspace" "and the status line"
 tmux -L keysone kill-server 2>/dev/null
-assert_match "$("$TRAILS" keys)" "^bind e run-shell \"TRAILS_CLIENT=#{client_name} '$TRAILS' edit\"$" "the editor binding names the pressing client"
+assert_match "$("$TRAILS" keys)" "^bind E run-shell \"TRAILS_CLIENT=#{client_name} '$TRAILS' edit\"$" "the editor binding names the pressing client"
 case $(tmux -V) in
   "tmux 3."[0-7]*) assert_match "$("$TRAILS" keys)" 'bind P .* -s bg=default ' "default is the terminal's before 3.8" ;;
   *) assert_match "$("$TRAILS" keys)" 'bind P .* -s bg=terminal ' "terminal is the terminal's from 3.8" ;;

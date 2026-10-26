@@ -118,9 +118,9 @@ Sleep 2s
 Enter
 # Four agents, four projects, one window.
 Sleep 16s
-# The map is in the status line beside the workspaces: prefix ) to acme, prefix M back.
+# The map is in the status line beside the workspaces: prefix J to acme, prefix M back.
 Ctrl+B
-Type ")"
+Type "J"
 Sleep 3s
 Ctrl+B
 Type "M"

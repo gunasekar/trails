@@ -547,8 +547,8 @@ codebase.
 `?` on every screen runs `trails --keys` (fzf's `execute`): `trails help keys`
 (`keys_help`, also the middle of `trails help`) in a popup over the picker's pane, or
 in `less` in place when the picker is itself in a popup, since tmux shows one popup at a
-time and refuses a second silently. `q` comes back to the list as it was. `prefix ?`,
-from `trails keys`, shows the same in a popup, in place of tmux's list of every binding.
+time and refuses a second silently. `q` comes back to the list as it was. `prefix H`,
+from `trails keys`, shows the same in a popup, beside tmux's `?` for every binding.
 
 Esc goes up a level on every screen (D4 in `docs/design/picker-consolidation.md`):
 the screens name it in `--expect`, so fzf reports it as a key, and the dispatch
@@ -677,11 +677,17 @@ and the picker's dim text is unreadable on it. The colour's name is chosen by
 `tmux -V`: in a style `bg=default` means the base style's background, which for
 a popup is `popup-style` itself, so on 3.8 it keeps the grey; 3.8 added
 `bg=terminal` for the terminal's own, and a tmux before it rejects the word.
-`prefix P`, `W`, `A`, `e`, `` ` ``, `N` and `G` are free in tmux 3.8's default table (`n` is
-next-window, `g` and `D` are taken); `P` is "pick a trail", the backtick for the shell is the editors'
-own toggle-terminal key, `N` is the checklist, `A` all trails and `G` the git diff. `(` and `)` take tmux's cycling
-through every session for the workspaces alone, and `M` takes clearing the marked
-pane (which `prefix m` on it still does) for the map.
+Every key trails binds is a capital letter, but the backtick for the shell, which is
+the editors' own toggle-terminal key: trails' keys read apart from tmux's and from a
+tmux.conf's own, which are mostly lower case
+([ADR 24](decisions/0024-trails-keys-are-capitals.md)). `prefix P`, `W`, `A`, `N`,
+`G`, `R`, `H`, `J` and `K` are free in tmux 3.8's default table (`C`, `D`, `L` and
+`T` are taken); `P` is "pick a trail", `N` the checklist, `A` all trails, `G` the
+git diff, `R` rename, `H` help (trails' keys, beside tmux's `?` for every binding),
+and `K` and `J` the previous and next workspace, vim's up and down, beside tmux's
+`(` and `)` for every session. `E` for the editor takes spreading the panes out
+evenly (still `:select-layout -E`), and `M` for the map takes clearing the marked
+pane (which `prefix m` on it still does).
 
 `run-shell "trails keys | tmux source-file -"` in tmux.conf loads them all each time
 tmux reads it, so they follow an upgrade; the lines it prints that say so are tmux
@@ -699,8 +705,8 @@ the pane.
 `#{S/n:…}` loop over the sessions marked `@trails_workspace`, each in a
 `range=session|ID` that tmux's stock `MouseDown1Status` binding switches to on a
 click, the one the terminal is on in reverse video (its `client_session`, or a
-`<workspace>~N` grouped with it). Nothing of trails runs for it. `prefix (` and
-`)` run `trails ws prev` / `next` (`ws_step`): the same list, by name, round the
+`<workspace>~N` grouped with it). Nothing of trails runs for it. `prefix K` and
+`J` run `trails ws prev` / `next` (`ws_step`): the same list, by name, round the
 end, through `switch_to`, so a grouped terminal stays grouped.
 
 Its `status-right` starts with the current trail's task, before the checklist's
@@ -839,7 +845,7 @@ afterwards). The demo's tmux runs through a wrapper that loads the demo's own
 config, a plain status line with `trails keys` after it, so the recording machine's
 tmux.conf is not in the shot and the keys are the ones being released. Each of
 those bindings is wrapped to name itself for a few seconds in a yellow badge at the
-right of the status line (`prefix e · editor`), since a GIF cannot show a key
+right of the status line (`prefix E · editor`), since a GIF cannot show a key
 press. The tape's
 shell has `TMUX` and `TMUX_PANE` unset, since VHS run from inside tmux would hand
 them down. Two ended trails are seeded into trails' own (sandboxed) history for

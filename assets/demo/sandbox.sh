@@ -69,12 +69,12 @@ chmod +x "$demo/bin/tmux"
   echo 'set -g set-titles on'
   echo 'set -g set-titles-string "#{?@agent,#{@agent} · #{?#{==:#{pane_title},#{host}},#{b:pane_current_path},#{s|^[^ ]+ ||:pane_title}},#S:#W}"'
   # The keys, each also naming itself at the right of the status line for a few seconds, so
-  # the recording shows what was pressed: `bind e CMD` becomes `bind e { set the badge ; CMD }`.
+  # the recording shows what was pressed: `bind E CMD` becomes `bind E { set the badge ; CMD }`.
   "$here/../../bin/trails" keys | awk '
     BEGIN {
-      what["P"] = "trails"; what["W"] = "workspaces"; what["e"] = "editor"; what["`"] = "shell"
-      what["N"] = "note"; what["("] = "previous workspace"; what[")"] = "next workspace"; what["M"] = "map"
-      what["G"] = "diff"; what["A"] = "all trails"; what["?"] = "keys"
+      what["P"] = "trails"; what["W"] = "workspaces"; what["E"] = "editor"; what["`"] = "shell"
+      what["N"] = "note"; what["K"] = "previous workspace"; what["J"] = "next workspace"; what["M"] = "map"
+      what["G"] = "diff"; what["A"] = "all trails"; what["H"] = "keys"; what["R"] = "rename"
     }
     $1 == "bind" && ($2 in what) {
       k = $2; cmd = $0; sub(/^bind [^ ]+ /, "", cmd)

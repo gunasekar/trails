@@ -44,17 +44,17 @@ assert_eq "$(tmux list-sessions -F '#{session_name}' | sort | tr '\n' ' ')" "def
 # on the terminal that shows it, never on that nested client: switched to the workspace, it
 # would show the window it sits in. The editor opens in the trail's window, the nested client
 # still shows the trail's session, and the terminal is where it was.
-tmux bind e run-shell "EDITOR=ed TRAILS_CLIENT=#{client_name} '$TRAILS' edit"
+tmux bind E run-shell "EDITOR=ed TRAILS_CLIENT=#{client_name} '$TRAILS' edit"
 win=$(tmux list-windows -t default -F '#{window_id} #{@trails_window}' | awk '$2 == "default/payments" { print $1 }')
 apane=$(tmux list-panes -t "$win" -F '#{pane_id} #{@trails_pane}' | awk '$2 == "agent" { print $1 }')
 inner=$(tmux list-clients -F '#{client_name} #{client_tty}' | awk -v t="$(tmux display-message -pt "$apane" '#{pane_tty}')" '$2 == t { print $1 }')
 [ -n "$inner" ] || fail "no nested client in the trail's window"
-tmux send-keys -t "$apane" C-b e
+tmux send-keys -t "$apane" C-b E
 wait_for 5 sh -c "[ \"\$(tmux list-panes -t '$win' | wc -l | tr -d ' ')\" = 2 ]" || fail "the key in the nested client opened no editor"
 sleep 0.5
 assert_eq "$(tmux list-clients -F '#{client_name} #{session_name}' | awk -v c="$inner" '$1 == c { print $2 }')" default/payments "the nested client still shows the trail"
 assert_eq "$(where)" 'default proj·payments' "the terminal stayed on the trail's window"
-tmux unbind e
+tmux unbind E
 
 # D1: a session by the workspace's name that is not a workspace is refused, and nothing is made.
 mkdir -p "$T/acme"

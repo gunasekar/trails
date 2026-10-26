@@ -162,4 +162,7 @@ assert_match "$keys" "^In the picker" "the picker's keys"
 assert_match "$keys" "^  \? +these keys; q comes back" "? among them"
 assert_match "$keys" "^In tmux, from trails keys" "and the tmux ones"
 assert_eq "$("$TRAILS" help | grep -c '^In tmux, from trails keys')" 1 "trails help has them, once"
-assert_match "$("$TRAILS" keys)" '^bind \? run-shell "TRAILS_CLIENT=#{client_name} .* --keys"$' "prefix ? shows them"
+assert_match "$("$TRAILS" keys)" '^bind H run-shell "TRAILS_CLIENT=#{client_name} .* --keys"$' "prefix H shows them"
+# Every key trails binds is a capital letter, but ` for the shell (ADR 24): tmux's own lower-case
+# keys and symbols stay tmux's.
+assert_eq "$("$TRAILS" keys | awk '$1 == "bind" { print $2 }' | grep -v '^[A-Z]$' | tr '\n' ' ')" '` ' "capitals only, and the backtick"

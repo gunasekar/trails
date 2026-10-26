@@ -8,8 +8,8 @@ grouped by what you are doing. The [README](../README.md) has the detail of
 each command and key.
 
 Keys are the ones `trails keys` prints: `prefix P` the picker, `prefix W` the
-workspaces, `prefix e` the editor, `` prefix ` `` a shell, `prefix G` the diff,
-`prefix N` the checklist, `prefix M` the map; `prefix ?` lists them all.
+workspaces, `prefix E` the editor, `` prefix ` `` a shell, `prefix G` the diff,
+`prefix N` the checklist, `prefix M` the map; `prefix H` lists them all.
 
 ## The everyday loop
 
@@ -20,7 +20,7 @@ workspaces, `prefix e` the editor, `` prefix ` `` a shell, `prefix G` the diff,
 | 3 | Start a trail in this codebase | `trails` in the repo, or `prefix P`: **＋ new trail…**, then an agent |
 | 4 | Start a trail in another codebase of the workspace | `prefix P`: **＋ new trail…**, the codebase, then an agent |
 | 5 | Move between trails and workspaces | `prefix P` for this workspace's trails, `prefix W` for the workspaces, or tmux's own window keys |
-| 6 | Read or change the code beside the agent | `prefix e` for the editor, `` prefix ` `` for a shell |
+| 6 | Read or change the code beside the agent | `prefix E` for the editor, `` prefix ` `` for a shell |
 | 7 | Come back after a break: lid closed, Wi-Fi dropped, a reboot | As in 1. After a reboot or a tmux crash, `trails restore` first |
 | 8 | Finish, or pick old work back up | Quit the agent, or ctrl-x on its row; **↩ resume old trails** for what ended |
 
@@ -78,7 +78,7 @@ workspaces, `prefix e` the editor, `` prefix ` `` a shell, `prefix G` the diff,
 
 ### Beside the agent
 
-1. `prefix e` / `trails edit`: the editor on the right 60%, the agent on the
+1. `prefix E` / `trails edit`: the editor on the right 60%, the agent on the
    left. Again goes back.
 2. `` prefix ` `` / `trails shell`: a shell in a column on the right, 40% wide,
    or under the editor when it is open.

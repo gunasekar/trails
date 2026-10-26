@@ -85,17 +85,17 @@ Enter
 Sleep 2.5s
 # The editor beside the agent, then a shell along the bottom: one key each.
 Ctrl+B
-Type "e"
+Type "E"
 Sleep 3.5s
 Ctrl+B
 Type "`"
 Sleep 3.5s
-# To the next workspace and back, with prefix ) and (.
+# To the next workspace and back, with prefix J and K.
 Ctrl+B
-Type ")"
+Type "J"
 Sleep 3s
 Ctrl+B
-Type "("
+Type "K"
 Sleep 3s
 Hide
 Ctrl+B

@@ -1,6 +1,6 @@
 #!/bin/sh
 # Workspaces at the status line's left, as `trails keys` sets it: the running ones by name,
-# the one a terminal is on in reverse video, no trail's own session among them; and prefix ( and )
+# the one a terminal is on in reverse video, no trail's own session among them; and prefix K and J
 # (`trails ws prev` / `next`) moving a terminal through them, round the end.
 . "$REPO/test/lib.sh"
 t_setup

@@ -90,7 +90,7 @@ Each on the real machine, in Ghostty, with `trails keys` pasted into tmux.conf.
 |---|---|---|
 | M1 | From another machine: `ssh host -t trails`, pick a workspace, `prefix W` to another, detach, reconnect | The workspaces list; attached on the trail that most wants you; switched without reconnecting; the one you were in marked on return |
 | M2 | Ask claude something that needs a permission; let another finish its turn | `● needs you` and `● your turn` in the picker, the cursor on the one that needs you |
-| M3 | In a trail: `prefix e`, again, `` prefix ` ``, quit the agent | Editor right 60%, agent left; back to the agent; shell under the editor (a 40% column on the right with no editor); editor and shell kept as the codebase's window |
+| M3 | In a trail: `prefix E`, again, `` prefix ` ``, quit the agent | Editor right 60%, agent left; back to the agent; shell under the editor (a 40% column on the right with no editor); editor and shell kept as the codebase's window |
 | M4 | `tmux kill-server`, then `trails`, then `trails restore` | Trails shown `○ lost`; each back on its conversation, in its workspace |
 | M5 | End a claude trail, then **↩ resume old trails**, Tab on it, Enter | Listed as closed; Tab flips YOLO; resumes on its conversation |
 | M6 | `brew install` or `bin/trails` on PATH; `trails keys` into tmux.conf, reload | Every line accepted, every key works |

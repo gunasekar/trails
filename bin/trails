@@ -1938,8 +1938,8 @@ ask_workspace() {
 # `trails ws next` / `prev`: the terminal to the workspace after, or before, the one it is on,
 # in the order the status line lists them (by name, as tmux's #{S/n:} sorts), round the end.
 # Running workspaces only: one with nothing running has no session to go to. Bound to
-# prefix ( and ) by `trails keys`, in place of tmux's cycling through every session, each
-# trail's own among them.
+# prefix K and J by `trails keys` (ADR 24), beside tmux's own ( and ), which cycle through every
+# session, each trail's own among them.
 ws_step() {
   [ -n "$TMUX" ] || {
     echo "trails: ws $1 moves a terminal that is in tmux — run it from one, or bind it (trails keys)" >&2
@@ -3935,13 +3935,14 @@ diff_cmd() {
 # the picker, the workspace picker and every running trail in a popup, which leaves no
 # window behind, the editor and the shell, a note in a popup, the previous and next
 # workspace, the map, the diff, and the workspaces and the map at the status line's left.
-# P, W, A, e, `, N and G are free in tmux 3.8's default prefix table (p is previous-window, T
-# pane title, E even layout, n next-window, g and D taken, so none of those); P for "pick a
-# trail", A for all trails, ` for the shell because that is the editors' own toggle-terminal
-# key, N for a note, G for the git diff. ? takes tmux's own list of every binding (still
-# :list-keys) for trails' keys alone. ( and ) take tmux's cycling through every session, each
-# trail's own among them, for the workspaces alone; M takes clearing the marked pane, which
-# prefix m on it still does, for the map.
+# Every key trails binds is a capital letter, so trails' keys read apart from tmux's and your own
+# (ADR 24), but for ` for the shell, the editors' own toggle-terminal key. P, W, A, N, G, R, H,
+# J and K are free in tmux 3.8's default prefix table (C, D, L and T are taken); P for "pick a
+# trail", W the workspaces, A all trails, N a note, G the git diff, R rename, H help: trails'
+# keys alone, beside tmux's ? for every binding. K and J the previous and next workspace, vim's
+# up and down, beside tmux's ( and ), which cycle through every session. Two take tmux's own:
+# E for the editor takes spreading the panes out evenly (still :select-layout -E), and M for
+# the map takes clearing the marked pane, which prefix m on it still does.
 #
 # By this script's own absolute path, not a bare `trails`: run-shell and display-popup run
 # with the server's PATH, which a server started by launchd or over ssh may not share with
@@ -4011,15 +4012,15 @@ keys() {
 # run-shell -b "$kq restore >/dev/null 2>&1"
 bind P display-popup -E -w 60% -h 70% -s bg=$tbg -S bg=$tbg,fg=brightblack "$kq $khold"
 bind W display-popup -E -w 60% -h 50% -s bg=$tbg -S bg=$tbg,fg=brightblack "$kq ws $khold"
-bind e run-shell "TRAILS_CLIENT=#{client_name} $kq edit"
+bind E run-shell "TRAILS_CLIENT=#{client_name} $kq edit"
 bind \` run-shell "TRAILS_CLIENT=#{client_name} $kq shell"
 bind N display-popup -E -w 60% -h 50% -s bg=$tbg -S bg=$tbg,fg=brightblack "$kq checklist"
-bind ( run-shell "TRAILS_CLIENT=#{client_name} $kq ws prev"
-bind ) run-shell "TRAILS_CLIENT=#{client_name} $kq ws next"
+bind K run-shell "TRAILS_CLIENT=#{client_name} $kq ws prev"
+bind J run-shell "TRAILS_CLIENT=#{client_name} $kq ws next"
 bind M run-shell "TRAILS_CLIENT=#{client_name} $kq map here"
 bind A display-popup -E -w 70% -h 70% -s bg=$tbg -S bg=$tbg,fg=brightblack "env TRAILS_PICKER=all $kq $khold"
 bind G run-shell "TRAILS_CLIENT=#{client_name} $kq diff"
-bind ? run-shell "TRAILS_CLIENT=#{client_name} $kq --keys"
+bind H run-shell "TRAILS_CLIENT=#{client_name} $kq --keys"
 bind R command-prompt -p "rename trail:" "run-shell \"TRAILS_CLIENT=#{client_name} $kq rename '%%'\""
 set -g status-left-length 60
 set -g status-right-length 80
@@ -4715,15 +4716,15 @@ keys_popup_size() {
 keys_help() {
   cat <<'EOF'
 In tmux, from trails keys (prefix, then):
-  ?                 these keys, in a popup
+  H                 these keys, in a popup
   P                 this workspace's trails, in a popup (the picker)
   W                 the workspaces
   A                 every running trail, in every workspace
-  e                 the editor beside the agent, on the right; again, back
+  E                 the editor beside the agent, on the right; again, back
   `                 a shell beside the agent, on the right; again, back
   N                 this codebase's checklist: type a new item, or move to one to
                     read it whole; space ticks it, enter copies it
-  ( )               the previous and next workspace
+  K J               the previous and next workspace
   M                 the map: up to four trails side by side
   G                 this codebase's changes, side by side (trails diff)
   R                 rename the trail you are on (trails rename)
@@ -4794,7 +4795,7 @@ usage: trails [command]
   ws of [DIR]       the workspace DIR (here) belongs to
   ws add NAME [DIR] put DIR (here) in workspace NAME, creating it if new
   ws next | prev    the terminal to the next or previous running workspace, as the
-                    status line lists them (prefix ( and ), from trails keys)
+                    status line lists them (prefix K and J, from trails keys)
   edit | shell      the editor ($EDITOR) or a shell beside the agent, on the right,
                     as panes of the trail's window in the workspace (the editor alone
                     in a window of its own when nothing runs there): made once, then
@@ -5026,7 +5027,7 @@ case $1 in
     [ -z "$fg_tid" ] || rec_close "$fg_tid" "${TMUX_PANE:-}"
     exit 0
     ;;
-  # prefix ? and ? in the picker: the keys, in a popup the size of them, on the terminal that
+  # prefix H and ? in the picker: the keys, in a popup the size of them, on the terminal that
   # pressed the key (a run-shell job's TRAILS_CLIENT) or over the pane the picker runs in;
   # in less in place where the picker itself is in a popup (prefix P), since tmux shows one
   # popup at a time and refuses a second without a word, or outside tmux.
