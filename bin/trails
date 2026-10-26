@@ -3936,10 +3936,11 @@ diff_cmd() {
 # window behind, the editor and the shell, a note in a popup, the previous and next
 # workspace, the map, the diff, and the workspaces and the map at the status line's left.
 # Every key trails binds is a capital letter, so trails' keys read apart from tmux's and your own
-# (ADR 24), but for ` for the shell, the editors' own toggle-terminal key. P, W, A, N, G, R, H,
-# J and K are free in tmux 3.8's default prefix table (C, D, L and T are taken); P for "pick a
-# trail", W the workspaces, A all trails, N a note, G the git diff, R rename, H help: trails'
-# keys alone, beside tmux's ? for every binding. K and J the previous and next workspace, vim's
+# (ADR 24), but for ` for the shell, the editors' own toggle-terminal key. P, W, A, N, G, R, J
+# and K are free in tmux 3.8's default prefix table (C, D, L and T are taken); P for "pick a
+# trail", W the workspaces, A all trails, N a note, G the git diff, R rename. No key for trails'
+# own help: tmux's ? lists trails' keys with its own, by their notes, and ? in the picker has the
+# rest (trails help keys). K and J the previous and next workspace, vim's
 # up and down, beside tmux's ( and ), which cycle through every session. Two take tmux's own:
 # E for the editor takes spreading the panes out evenly (still :select-layout -E), and M for
 # the map takes clearing the marked pane, which prefix m on it still does.
@@ -4023,7 +4024,6 @@ bind -N "trails: the next workspace" J run-shell "TRAILS_CLIENT=#{client_name} $
 bind -N "trails: the map" M run-shell "TRAILS_CLIENT=#{client_name} $kq map here"
 bind -N "trails: every running trail" A display-popup -E -w 70% -h 70% -s bg=$tbg -S bg=$tbg,fg=brightblack "env TRAILS_PICKER=all $kq $khold"
 bind -N "trails: this codebase's changes" G run-shell "TRAILS_CLIENT=#{client_name} $kq diff"
-bind -N "trails: trails' keys and states" H run-shell "TRAILS_CLIENT=#{client_name} $kq --keys"
 bind -N "trails: rename this trail" R command-prompt -p "rename trail:" "run-shell \"TRAILS_CLIENT=#{client_name} $kq rename '%%'\""
 set -g status-left-length 60
 set -g status-right-length 80
@@ -4718,8 +4718,7 @@ keys_popup_size() {
 
 keys_help() {
   cat <<'EOF'
-In tmux, from trails keys (prefix, then):
-  H                 these keys, in a popup
+In tmux, from trails keys (prefix, then; tmux's own ? lists them too):
   P                 this workspace's trails, in a popup (the picker)
   W                 the workspaces
   A                 every running trail, in every workspace
@@ -5030,8 +5029,8 @@ case $1 in
     [ -z "$fg_tid" ] || rec_close "$fg_tid" "${TMUX_PANE:-}"
     exit 0
     ;;
-  # prefix H and ? in the picker: the keys, in a popup the size of them, on the terminal that
-  # pressed the key (a run-shell job's TRAILS_CLIENT) or over the pane the picker runs in;
+  # ? in the picker: the keys, in a popup the size of them, on the terminal that pressed a key
+  # (a run-shell job's TRAILS_CLIENT) or over the pane the picker runs in;
   # in less in place where the picker itself is in a popup (prefix P), since tmux shows one
   # popup at a time and refuses a second without a word, or outside tmux.
   --keys)

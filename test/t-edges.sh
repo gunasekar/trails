@@ -162,10 +162,11 @@ assert_match "$keys" "^In the picker" "the picker's keys"
 assert_match "$keys" "^  \? +these keys; q comes back" "? among them"
 assert_match "$keys" "^In tmux, from trails keys" "and the tmux ones"
 assert_eq "$("$TRAILS" help | grep -c '^In tmux, from trails keys')" 1 "trails help has them, once"
-assert_match "$("$TRAILS" keys)" '^bind -N "[^"]*" H run-shell "TRAILS_CLIENT=#{client_name} .* --keys"$' "prefix H shows them"
+# No key of trails' own for them: tmux's ? lists trails' keys with its own (ADR 24).
+assert_eq "$("$TRAILS" keys | grep -c -e ' --keys"$' -e '^bind -N "[^"]*" H ')" 0 "no prefix H"
 # Every key trails binds is a capital letter, but ` for the shell (ADR 24): tmux's own lower-case
 # keys and symbols stay tmux's.
 assert_eq "$("$TRAILS" keys | sed -n 's/^bind -N "[^"]*" \([^ ]*\) .*/\1/p' | grep -v '^[A-Z]$' | tr '\n' ' ')" '` ' "capitals only, and the backtick"
 # Every one with a note, so tmux's own list of keys (prefix ?, list-keys -N) shows it.
 assert_eq "$("$TRAILS" keys | grep '^bind ' | grep -cv '^bind -N "trails: [^"]*" ')" 0 "every binding noted"
-assert_eq "$("$TRAILS" keys | grep -c '^bind -N "trails: ')" 12 "all twelve"
+assert_eq "$("$TRAILS" keys | grep -c '^bind -N "trails: ')" 11 "all eleven"

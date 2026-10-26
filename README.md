@@ -85,7 +85,8 @@ recommended for the diff, and `curl` keeps the picker's preview live.
    ```
 
 From then on it is keys: `prefix P` for this workspace's trails, `E` for the
-editor beside the agent, `G` for its diff. `prefix H` lists them all. The
+editor beside the agent, `G` for its diff. `prefix ?` lists them all, trails'
+as `trails: …`. The
 everyday loop, and every other way trails is used, are in
 [docs/scenarios.md](docs/scenarios.md).
 
@@ -105,7 +106,6 @@ In tmux, after `prefix`, from `trails keys`:
 | `M` | the [map](#the-map): up to four trails side by side |
 | `K` `J` | the previous and next workspace |
 | `R` | rename the trail you are on ([named trails](#named-trails)) |
-| `H` | these keys, in a popup |
 
 In the picker:
 
@@ -124,8 +124,8 @@ In the picker:
 
 Every trails key is a capital letter, but `` ` `` for the shell, so tmux's own
 keys stay tmux's: `?` still lists every binding, trails' among them as
-`trails: …`, and `(` and `)` still cycle through every session. `P`, `W`, `A`, `N`, `G`, `R`, `H`, `J` and `K` are unbound in
-tmux's defaults; `E` replaces spreading the panes out evenly (still
+`trails: …`, and `(` and `)` still cycle through every session. `P`, `W`, `A`,
+`N`, `G`, `R`, `J` and `K` are unbound in tmux's defaults; `E` replaces spreading the panes out evenly (still
 `:select-layout -E`), and `M` clearing the marked pane (still `prefix m` on it). A
 line after the `trails keys` one that binds the same key wins.
 
@@ -662,7 +662,6 @@ bind -N "trails: the next workspace" J run-shell "TRAILS_CLIENT=#{client_name} '
 bind -N "trails: the map" M run-shell "TRAILS_CLIENT=#{client_name} 'trails' map here"
 bind -N "trails: every running trail" A display-popup -E -w 70% -h 70% -s bg=terminal -S bg=terminal,fg=brightblack "env TRAILS_PICKER=all 'trails' || { echo; echo press enter to close; read -r _; }"
 bind -N "trails: this codebase's changes" G run-shell "TRAILS_CLIENT=#{client_name} 'trails' diff"
-bind -N "trails: trails' keys and states" H run-shell "TRAILS_CLIENT=#{client_name} 'trails' --keys"
 bind -N "trails: rename this trail" R command-prompt -p "rename trail:" "run-shell \"TRAILS_CLIENT=#{client_name} 'trails' rename '%%'\""
 set -g status-left-length 60
 set -g status-right-length 80

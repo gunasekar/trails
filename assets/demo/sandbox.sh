@@ -74,7 +74,7 @@ chmod +x "$demo/bin/tmux"
     BEGIN {
       what["P"] = "trails"; what["W"] = "workspaces"; what["E"] = "editor"; what["`"] = "shell"
       what["N"] = "note"; what["K"] = "previous workspace"; what["J"] = "next workspace"; what["M"] = "map"
-      what["G"] = "diff"; what["A"] = "all trails"; what["H"] = "keys"; what["R"] = "rename"
+      what["G"] = "diff"; what["A"] = "all trails"; what["R"] = "rename"
     }
     # Read past the note (bind -N "trails: …" KEY CMD): the key is the word after it.
     $1 == "bind" { line = $0; sub(/^bind -N "[^"]*" /, "bind ", line); split(line, w, " ") }

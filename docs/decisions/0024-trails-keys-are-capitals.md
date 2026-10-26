@@ -1,6 +1,7 @@
 # 24. trails' keys are capital letters
 
-- Status: accepted
+- Status: accepted. Amended in 1.12: `H` is gone, since `prefix ?` lists trails' keys
+  among tmux's own by their notes (`bind -N`)
 - Date: 2026-10
 
 ## Context

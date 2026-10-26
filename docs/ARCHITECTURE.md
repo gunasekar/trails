@@ -547,8 +547,8 @@ codebase.
 `?` on every screen runs `trails --keys` (fzf's `execute`): `trails help keys`
 (`keys_help`, also the middle of `trails help`) in a popup over the picker's pane, or
 in `less` in place when the picker is itself in a popup, since tmux shows one popup at a
-time and refuses a second silently. `q` comes back to the list as it was. `prefix H`,
-from `trails keys`, shows the same in a popup, beside tmux's `?` for every binding.
+time and refuses a second silently. `q` comes back to the list as it was. In tmux,
+`prefix ?` lists trails' keys among tmux's own, by their notes (below).
 
 Esc goes up a level on every screen (D4 in `docs/design/picker-consolidation.md`):
 the screens name it in `--expect`, so fzf reports it as a key, and the dispatch
@@ -681,15 +681,15 @@ Every key trails binds is a capital letter, but the backtick for the shell, whic
 the editors' own toggle-terminal key: trails' keys read apart from tmux's and from a
 tmux.conf's own, which are mostly lower case
 ([ADR 24](decisions/0024-trails-keys-are-capitals.md)). `prefix P`, `W`, `A`, `N`,
-`G`, `R`, `H`, `J` and `K` are free in tmux 3.8's default table (`C`, `D`, `L` and
-`T` are taken); `P` is "pick a trail", `N` the checklist, `A` all trails, `G` the
-git diff, `R` rename, `H` help (trails' keys, beside tmux's `?` for every binding),
-and `K` and `J` the previous and next workspace, vim's up and down, beside tmux's
+`G`, `R`, `J` and `K` are free in tmux 3.8's default table (`C`, `D`, `L` and `T`
+are taken); `P` is "pick a trail", `N` the checklist, `A` all trails, `G` the git
+diff, `R` rename, and `K` and `J` the previous and next workspace, vim's up and down, beside tmux's
 `(` and `)` for every session. `E` for the editor takes spreading the panes out
 evenly (still `:select-layout -E`), and `M` for the map takes clearing the marked
-pane (which `prefix m` on it still does). Each is bound with a note (`bind -N "trails: …"`): tmux's
-`prefix ?` is `list-keys -N`, which lists only the keys that have one, so without
-it trails' keys were missing from tmux's own list.
+pane (which `prefix m` on it still does). Each is bound with a note (`bind -N
+"trails: …"`): tmux's `prefix ?` is `list-keys -N`, which lists only the keys that
+have one, so without it trails' keys were missing from tmux's own list. With it,
+trails needs no help key of its own (1.11 had `H`); the picker's `?` has the rest.
 
 `run-shell "trails keys | tmux source-file -"` in tmux.conf loads them all each time
 tmux reads it, so they follow an upgrade; the lines it prints that say so are tmux

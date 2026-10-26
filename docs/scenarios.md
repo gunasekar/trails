@@ -9,7 +9,7 @@ each command and key.
 
 Keys are the ones `trails keys` prints: `prefix P` the picker, `prefix W` the
 workspaces, `prefix E` the editor, `` prefix ` `` a shell, `prefix G` the diff,
-`prefix N` the checklist, `prefix M` the map; `prefix H` lists them all.
+`prefix N` the checklist, `prefix M` the map; `prefix ?` lists them all.
 
 ## The everyday loop
 
