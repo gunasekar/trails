@@ -687,7 +687,9 @@ git diff, `R` rename, `H` help (trails' keys, beside tmux's `?` for every bindin
 and `K` and `J` the previous and next workspace, vim's up and down, beside tmux's
 `(` and `)` for every session. `E` for the editor takes spreading the panes out
 evenly (still `:select-layout -E`), and `M` for the map takes clearing the marked
-pane (which `prefix m` on it still does).
+pane (which `prefix m` on it still does). Each is bound with a note (`bind -N "trails: …"`): tmux's
+`prefix ?` is `list-keys -N`, which lists only the keys that have one, so without
+it trails' keys were missing from tmux's own list.
 
 `run-shell "trails keys | tmux source-file -"` in tmux.conf loads them all each time
 tmux reads it, so they follow an upgrade; the lines it prints that say so are tmux

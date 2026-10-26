@@ -44,7 +44,7 @@ git stash pop -q
 # The viewer keeps its environment too: a popup's process has the server's, without the
 # key job's TRAILS_CLIENT, so one shown in the job instead (unseen) gives itself away.
 cfg "\"cat >$T/seen; env >$T/env\""
-"$TRAILS" keys | grep -q '^bind G run-shell "TRAILS_CLIENT=#{client_name} .* diff"$' || fail "no prefix G in trails keys"
+"$TRAILS" keys | grep -q '^bind -N "[^"]*" G run-shell "TRAILS_CLIENT=#{client_name} .* diff"$' || fail "no prefix G in trails keys"
 trails_bg new payments
 wait_for 5 screen_has default/payments 'agent id=' || fail "agent never started"
 driver_attached || fail "the terminal never attached"

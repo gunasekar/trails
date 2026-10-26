@@ -123,8 +123,8 @@ In the picker:
 | `esc` | up a level: a codebase to its workspace, a workspace to the workspaces, then out |
 
 Every trails key is a capital letter, but `` ` `` for the shell, so tmux's own
-keys stay tmux's: `?` still lists every binding, `(` and `)` still cycle through
-every session. `P`, `W`, `A`, `N`, `G`, `R`, `H`, `J` and `K` are unbound in
+keys stay tmux's: `?` still lists every binding, trails' among them as
+`trails: …`, and `(` and `)` still cycle through every session. `P`, `W`, `A`, `N`, `G`, `R`, `H`, `J` and `K` are unbound in
 tmux's defaults; `E` replaces spreading the panes out evenly (still
 `:select-layout -E`), and `M` clearing the marked pane (still `prefix m` on it). A
 line after the `trails keys` one that binds the same key wins.
@@ -652,18 +652,18 @@ life  state  session  agent  yolo  dir  id  when  workspace  trail  title
 <summary><b>The tmux lines</b> <code>trails keys</code> prints</summary>
 
 ```text
-bind P display-popup -E -w 60% -h 70% -s bg=terminal -S bg=terminal,fg=brightblack "'trails' || { echo; echo press enter to close; read -r _; }"
-bind W display-popup -E -w 60% -h 50% -s bg=terminal -S bg=terminal,fg=brightblack "'trails' ws || { echo; echo press enter to close; read -r _; }"
-bind E run-shell "TRAILS_CLIENT=#{client_name} 'trails' edit"
-bind ` run-shell "TRAILS_CLIENT=#{client_name} 'trails' shell"
-bind N display-popup -E -w 60% -h 50% -s bg=terminal -S bg=terminal,fg=brightblack "'trails' checklist"
-bind K run-shell "TRAILS_CLIENT=#{client_name} 'trails' ws prev"
-bind J run-shell "TRAILS_CLIENT=#{client_name} 'trails' ws next"
-bind M run-shell "TRAILS_CLIENT=#{client_name} 'trails' map here"
-bind A display-popup -E -w 70% -h 70% -s bg=terminal -S bg=terminal,fg=brightblack "env TRAILS_PICKER=all 'trails' || { echo; echo press enter to close; read -r _; }"
-bind G run-shell "TRAILS_CLIENT=#{client_name} 'trails' diff"
-bind H run-shell "TRAILS_CLIENT=#{client_name} 'trails' --keys"
-bind R command-prompt -p "rename trail:" "run-shell \"TRAILS_CLIENT=#{client_name} 'trails' rename '%%'\""
+bind -N "trails: this workspace's trails, the picker" P display-popup -E -w 60% -h 70% -s bg=terminal -S bg=terminal,fg=brightblack "'trails' || { echo; echo press enter to close; read -r _; }"
+bind -N "trails: the workspaces" W display-popup -E -w 60% -h 50% -s bg=terminal -S bg=terminal,fg=brightblack "'trails' ws || { echo; echo press enter to close; read -r _; }"
+bind -N "trails: the editor beside the agent" E run-shell "TRAILS_CLIENT=#{client_name} 'trails' edit"
+bind -N "trails: a shell beside the agent" ` run-shell "TRAILS_CLIENT=#{client_name} 'trails' shell"
+bind -N "trails: this codebase's checklist" N display-popup -E -w 60% -h 50% -s bg=terminal -S bg=terminal,fg=brightblack "'trails' checklist"
+bind -N "trails: the previous workspace" K run-shell "TRAILS_CLIENT=#{client_name} 'trails' ws prev"
+bind -N "trails: the next workspace" J run-shell "TRAILS_CLIENT=#{client_name} 'trails' ws next"
+bind -N "trails: the map" M run-shell "TRAILS_CLIENT=#{client_name} 'trails' map here"
+bind -N "trails: every running trail" A display-popup -E -w 70% -h 70% -s bg=terminal -S bg=terminal,fg=brightblack "env TRAILS_PICKER=all 'trails' || { echo; echo press enter to close; read -r _; }"
+bind -N "trails: this codebase's changes" G run-shell "TRAILS_CLIENT=#{client_name} 'trails' diff"
+bind -N "trails: trails' keys and states" H run-shell "TRAILS_CLIENT=#{client_name} 'trails' --keys"
+bind -N "trails: rename this trail" R command-prompt -p "rename trail:" "run-shell \"TRAILS_CLIENT=#{client_name} 'trails' rename '%%'\""
 set -g status-left-length 60
 set -g status-right-length 80
 set -g status-right "#{?@trails_window,…}#('trails' checklist --count '#{?@trails_dir,#{@trails_dir},#{pane_current_path}}')%H:%M "

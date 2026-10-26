@@ -45,4 +45,4 @@ wid=$(tmux list-windows -a -F '#{window_id} #{@trails_session}' | awk '$2 == "al
 wait_for 3 sh -c "! tmux has-session -t '=alpha/t1' 2>/dev/null" || fail "ctrl-x on the all screen left alpha/t1"
 
 # prefix A, in trails keys.
-assert_match "$("$TRAILS" keys)" '^bind A display-popup .*TRAILS_PICKER=all' "prefix A bound"
+assert_match "$("$TRAILS" keys)" '^bind -N "[^"]*" A display-popup .*TRAILS_PICKER=all' "prefix A bound"

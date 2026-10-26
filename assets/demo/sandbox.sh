@@ -76,8 +76,10 @@ chmod +x "$demo/bin/tmux"
       what["N"] = "note"; what["K"] = "previous workspace"; what["J"] = "next workspace"; what["M"] = "map"
       what["G"] = "diff"; what["A"] = "all trails"; what["H"] = "keys"; what["R"] = "rename"
     }
-    $1 == "bind" && ($2 in what) {
-      k = $2; cmd = $0; sub(/^bind [^ ]+ /, "", cmd)
+    # Read past the note (bind -N "trails: …" KEY CMD): the key is the word after it.
+    $1 == "bind" { line = $0; sub(/^bind -N "[^"]*" /, "bind ", line); split(line, w, " ") }
+    $1 == "bind" && (w[2] in what) {
+      k = w[2]; cmd = line; sub(/^bind [^ ]+ /, "", cmd)
       printf "bind %s { set -g @demo_key \"prefix %s · %s\" ; run-shell -b \"sleep 2.5; tmux set -g @demo_key \x27\x27\" ; %s }\n", (k == "`" ? "\\`" : k), k, what[k], cmd
       next
     }

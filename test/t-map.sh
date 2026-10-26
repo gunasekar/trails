@@ -62,7 +62,7 @@ assert_no_file "$(trec default/payments)" "the record went"
 
 # trails keys prints bindings, and changes nothing.
 before=$(tmux list-keys | wc -l)
-assert_match "$("$TRAILS" keys)" "^bind P display-popup .* \"'$TRAILS' [|][|] .*press enter to close.*\"$" "the picker binding, by absolute path, waiting on a failure"
+assert_match "$("$TRAILS" keys)" "^bind -N \"[^\"]*\" P display-popup .* \"'$TRAILS' [|][|] .*press enter to close.*\"$" "the picker binding, by absolute path, waiting on a failure"
 # Every line is one tmux takes, on a server of its own.
 "$TRAILS" keys | grep -v '^#' >"$T/keys.conf"
 tmux -L keyscheck -f /dev/null new-session -d 'sleep 10'
@@ -74,9 +74,9 @@ tmux -L keysone -f "$T/one.conf" new-session -d 'sleep 10'
 wait_for 5 sh -c "tmux -L keysone list-keys -T prefix N >/dev/null 2>&1" || fail "the one line loaded no keys"
 assert_match "$(tmux -L keysone show -gv status-left)" "trails_workspace" "and the status line"
 tmux -L keysone kill-server 2>/dev/null
-assert_match "$("$TRAILS" keys)" "^bind E run-shell \"TRAILS_CLIENT=#{client_name} '$TRAILS' edit\"$" "the editor binding names the pressing client"
+assert_match "$("$TRAILS" keys)" "^bind -N \"[^\"]*\" E run-shell \"TRAILS_CLIENT=#{client_name} '$TRAILS' edit\"$" "the editor binding names the pressing client"
 case $(tmux -V) in
-  "tmux 3."[0-7]*) assert_match "$("$TRAILS" keys)" 'bind P .* -s bg=default ' "default is the terminal's before 3.8" ;;
-  *) assert_match "$("$TRAILS" keys)" 'bind P .* -s bg=terminal ' "terminal is the terminal's from 3.8" ;;
+  "tmux 3."[0-7]*) assert_match "$("$TRAILS" keys)" 'bind -N "[^"]*" P .* -s bg=default ' "default is the terminal's before 3.8" ;;
+  *) assert_match "$("$TRAILS" keys)" 'bind -N "[^"]*" P .* -s bg=terminal ' "terminal is the terminal's from 3.8" ;;
 esac
 assert_eq "$(tmux list-keys | wc -l)" "$before" "nothing bound"

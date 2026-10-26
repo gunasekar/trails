@@ -177,5 +177,5 @@ tmux set-environment -gu FZF_DUMP
 
 # trails keys offers the checklist on prefix N, and its count in the status line, after the
 # current trail's task and before the clock.
-assert_match "$("$TRAILS" keys)" "bind N display-popup .*\"'$TRAILS' checklist\"" "the binding"
+assert_match "$("$TRAILS" keys)" "bind -N \"[^\"]*\" N display-popup .*\"'$TRAILS' checklist\"" "the binding"
 assert_match "$("$TRAILS" keys)" "^set -g status-right \"#\\{\\?@trails_window,.*\\}#\\('$TRAILS' checklist --count .*\\)%H:%M \"" "the task, the count, then the clock"
