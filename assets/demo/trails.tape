@@ -1,6 +1,6 @@
 # trails from one terminal: the workspaces, a workspace's trails with the live preview, the
-# diff beside the agent, then the editor in its place and a shell under it, and the status
-# line's workspaces, moved between with a key.
+# diff beside the agent, then the editor in its place and a shell under it, the status line's
+# workspaces, moved between with a key, and the map: every trail side by side.
 #
 #   vhs assets/demo/trails.tape      (from the repo root; writes assets/trails.gif)
 #
@@ -93,7 +93,7 @@ Sleep 5s
 # The editor takes the diff's place, then a shell along the bottom: one key each.
 Ctrl+B
 Type "E"
-Sleep 3.5s
+Sleep 4s
 Ctrl+B
 Type "`"
 Sleep 3.5s
@@ -104,6 +104,13 @@ Sleep 3s
 Ctrl+B
 Type "K"
 Sleep 3s
+# The map: prefix M offers every trail in every workspace, ticked; enter puts them side by side.
+Ctrl+B
+Type "M"
+Wait+Screen@20s /tab: pick a trail/
+Sleep 3s
+Enter
+Sleep 8s
 Hide
 Ctrl+B
 Type "d"

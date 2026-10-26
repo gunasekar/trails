@@ -11,7 +11,7 @@ configure) runs in a tmux session of its own, a *trail*, grouped by workspace.
 `trails` shows what is running and what is waiting on you, opens the one you
 pick, and brings them back after tmux or the machine goes down.
 
-![From one terminal: the workspaces, a workspace's trails with a live preview, the diff beside the agent, then the editor in its place and a shell under it, and the workspaces in the status line](assets/trails.gif)
+![From one terminal: the workspaces, a workspace's trails with a live preview, the diff beside the agent, then the editor in its place and a shell under it, the workspaces in the status line, and the map](assets/trails.gif)
 
 ## Its opinions
 

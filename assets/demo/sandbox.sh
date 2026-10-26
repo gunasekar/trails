@@ -52,6 +52,10 @@ mkdir -p "$project/payments" "$TMUX_TMPDIR" "$demo/bin" "$XDG_CONFIG_HOME/trails
 if [ -f "$HOME/.config/hunk/config.toml" ]; then
   mkdir -p "$XDG_CONFIG_HOME/hunk" && cp "$HOME/.config/hunk/config.toml" "$XDG_CONFIG_HOME/hunk/"
 fi
+# And Neovim its own config, linked in, so the editor beside the agent is the one the
+# machine has (its tree, its colours); its plugins stay where they are, XDG_DATA_HOME being
+# left alone. The demo's nvim (below) opens README.md with the tree where trails hands it `.`.
+[ -d "$HOME/.config/nvim" ] && ln -sfn "$HOME/.config/nvim" "$XDG_CONFIG_HOME/nvim"
 ln -s "$here/agent" "$demo/bin/codex"
 printf '#!/bin/sh\nexec "%s" --settings "%s" "$@"\n' "$real_claude" "$here/../../plugins/trails/hooks/hooks.json" >"$demo/bin/claude"
 chmod +x "$demo/bin/claude"
@@ -65,6 +69,13 @@ chmod +x "$demo/bin/tmux"
   echo 'set -g default-shell /bin/sh'
   echo "set -g default-command '$SHELL'"
   echo 'set -g focus-events on'  # or Claude Code's welcome screen asks for it
+  # Every pane labelled once a window splits (trails names them: the agent, hunk, the editor),
+  # as a tmux.conf that shows borders would; a window of one pane has nothing to tell apart.
+  echo 'set -g pane-border-status off'
+  echo 'set -g pane-border-lines heavy'
+  echo "set-hook -g after-split-window 'set -w pane-border-status top'"
+  echo "set-hook -g pane-exited 'if -F \"#{==:#{window_panes},1}\" \"set -w pane-border-status off\"'"
+  echo "set-hook -g after-kill-pane 'if -F \"#{==:#{window_panes},1}\" \"set -w pane-border-status off\"'"
   echo 'set -g status-style "bg=default"'
   echo 'set -g status-left " #S "'
   echo 'set -g status-left-length 30'
@@ -92,8 +103,15 @@ chmod +x "$demo/bin/tmux"
   echo 'set -g status-right-length 40'
   echo 'set -g status-right "#{?@demo_key,#[fg=black#,bg=yellow#,bold] #{@demo_key} #[default] ,}"'
 } >"$demo/tmux.conf"
-# The demos' editor: Neovim with no personal config, as the nvim() below runs it.
-export EDITOR="nvim --clean"
+# The demos' editor: the machine's Neovim and config, opened on README.md with the tree beside
+# it where trails hands it the directory, as a person opening the project would.
+real_nvim=$(command -v nvim) || {
+  echo "trails demo: needs nvim on PATH" >&2
+  return 1 2>/dev/null || exit 1
+}
+printf '#!/bin/sh\n[ "$1" = . ] && [ $# -eq 1 ] && set -- -c "Neotree show" README.md\nexec "%s" "$@"\n' "$real_nvim" >"$demo/bin/nvim"
+chmod +x "$demo/bin/nvim"
+export EDITOR=nvim
 
 # The agents by full path, not by name: a terminal that runs its command through the user's
 # login shell (Neovim's :terminal does) can reorder PATH, and the real claude would then run
@@ -124,6 +142,16 @@ done
 
 # Something for claude to work on, and to have open in the Neovim demo: a package that builds
 # and has a test, so the agent can show it working rather than explain why it can't.
+cat >"$project/README.md" <<'MD'
+# checkout
+
+The checkout service: takes a cart to a paid order. `payments/` talks to the
+processor, with `Retry` around every send.
+
+## Running
+
+    go test ./...
+MD
 cat >"$project/go.mod" <<'GO'
 module example.com/checkout
 
