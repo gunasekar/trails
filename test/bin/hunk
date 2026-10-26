@@ -1,0 +1,12 @@
+#!/bin/sh
+# A stand-in for Hunk, for the diff beside the agent: says where it opened, with what, and how
+# much context git was told to give it, then waits for "q", Hunk's quit. With HUNK_FAILS naming a
+# file, it notes its start there and fails at once, as a Hunk that can't start would.
+if [ -n "${HUNK_FAILS:-}" ]; then
+  echo start >>"$HUNK_FAILS"
+  exit 3
+fi
+printf 'hunk %s in %s context=%s\n' "$*" "$PWD" "${GIT_CONFIG_VALUE_0:-}"
+while read -r line; do
+  [ "$line" = q ] && exit 0
+done

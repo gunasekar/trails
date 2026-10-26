@@ -76,7 +76,7 @@ not in trails.
 | Workspace | a user-chosen set of codebases | a session named after it, marked `@trails_workspace` |
 | Trail | one agent working in one codebase | a session of its own, `<workspace>/<codebase>-<ID>` or `<workspace>/<name>`, `status off`, holding one window with the agent in it: what an editor attaches to, one trail and nothing else |
 | The trail's window | how the workspace shows a trail | a window in the workspace session named like the agent's, marked `@trails_window`, whose first pane is a nested tmux client of the trail's session |
-| Agent, editor and shell panes | the agent, with your editor and a shell beside it | panes of the trail's window, marked `@trails_pane` `agent`, `editor` or `shell` |
+| Agent, editor, shell and diff panes | the agent, with your editor, a shell and the live diff beside it | panes of the trail's window, marked `@trails_pane` `agent`, `editor`, `shell` or `diff` |
 | Editor or shell window | your editor or shell with no trail in the codebase, or left when one ended | a window `<codebase>·nvim` or `<codebase>·shell` marked `@trails_tool` (`editor` or `shell`); a *tool window* in the code |
 | Map | several agents side by side | panes, each a nested client of a trail's session, in a window no editor attaches to |
 
@@ -649,11 +649,57 @@ dropped. Run by the agent's wrapper on exit and by ctrl-x before it kills the
 session. An editor's terminal is shown no editor or shell rows in
 the picker.
 
+## The diff beside the agent
+
+A trail's window can hold a fourth pane kind, `diff` (`@trails_pane diff`): Hunk on
+the codebase, run as `hunk diff --watch` with git's `diff.context` set to 99999 for
+that one run through `GIT_CONFIG_COUNT`/`KEY_0`/`VALUE_0`, so every changed file is
+shown whole ([ADR 25](decisions/0025-the-diff-beside-the-agent.md)). Hunk has no
+setting of its own for that; the rest of how it looks is the user's
+`~/.config/hunk`.
+
+`window_layout` decides it, since every change to a window's panes ends there: on a
+trail's window, with an agent and no editor, `diff_wanted` asks for hunk on the PATH,
+a git work tree at `@trails_dir`, and the window's `@trails_diff`: `on`, `off`, or
+unset, when the width decides (`DIFF_WIDTH`, 200 columns: 40% of it is 80, as narrow
+as an agent's screen goes). Wanted and missing, `diff_pane` makes it; not wanted and
+there, it is killed. The right side then holds the editor or else the diff, 60% wide,
+and a shell goes under whichever. Two layouts at once can each make a diff pane, so
+`diff_pane` counts after splitting and the later one goes.
+
+The layout runs when a pane is made or ends, on every attach (`attach_to`, which
+brings a trail from before the diff into it), once a launched agent has survived its
+first seconds (not when its window is made: the diff beside an agent that died on
+arrival would keep the window open), and on `window-resized`, a window hook
+`diff_hook` sets on every trail's window: a window made detached is resized as a
+terminal shows it, and one moved to a wider screen crosses `DIFF_WIDTH`.
+
+`prefix G` on a trail's window is `diff_toggle`: the diff there is put away
+(`@trails_diff off`), else asked for (`on`); when it still can't be shown (no hunk,
+no repository, the editor on the right) the ask is forgotten and `diff_cmd` opens
+the popup below instead. Hunk ending by itself, quit with `q` or failed, sets `off`
+too, by the pane's own command, and asks for a layout from outside the pane, as the
+editor's does: a Hunk that can't start is then not started again by that layout,
+round and round. A pane killed by a layout takes its shell with it, and sets
+nothing. `window_release` kills the diff before it looks at what else the window
+holds, so an agent leaving takes it, and the window, with it.
+
+The pane runs with `allow-passthrough off`, set on itself by its own id before Hunk
+starts. Hunk opens by asking the terminal what it can do (device attributes, a kitty
+graphics probe) in tmux's passthrough wrapping; with passthrough on, as a tmux.conf
+sets it for images, tmux forwards the questions to the terminal and the answers come
+back to tmux, which knows nothing of them and types them into the client's active
+pane. That is the agent's, the diff being made behind it, and Claude read one answer
+(`ESC P…`) as alt-p, its model picker. Off on that pane, the questions stop at tmux.
+By the pane's own id because a bare `set -p` from a command in an inactive pane lands
+on the active one.
+
 ## The diff
 
 `trails diff` (`diff_cmd`) finds the codebase as `trails edit` does (`diff_dir`):
 `DIR`, else the window you are on (`@trails_dir`), else the pane's directory, else
-`$PWD`. From `prefix G`, a run-shell job with no terminal, it opens a popup on the
+`$PWD`. From `prefix G`, a run-shell job with no terminal, on a window that is no
+trail's (or when the diff beside the agent can't be shown), it opens a popup on the
 terminal that pressed the key, 90% of it, running `trails diff --show DIR`; from a
 shell it runs there. `diff_show` builds the diff in the codebase: `git diff HEAD`
 (the empty tree's hash before a first commit), then each untracked file not
@@ -871,7 +917,8 @@ tmux: switch-client, a nested editor client, the refused collision), restore,
 autorestore, map, workspace and wsmap (the config), wsbar (the status line),
 grouped (a second terminal on a workspace), all (every trail), edges, hooks
 (`trails state` and `--id`, the history, the plugin against the docs), checklist,
-diff, rename (the status line's task and renaming), and the popup check behind D4 of the design. CI runs them after ShellCheck. Each test is
+diff, diffpane (the diff beside the agent), rename (the status line's task and
+renaming), and the popup check behind D4 of the design. CI runs them after ShellCheck. Each test is
 its own process on its own tmux server in a throwaway `HOME`: `TMUX_TMPDIR` puts
 the socket there, `XDG_CONFIG_HOME` and `XDG_STATE_HOME` give it a config and
 records of its own, and `TMUX`, `TERM_PROGRAM`, `NVIM` and `ZED_TERM` are unset so

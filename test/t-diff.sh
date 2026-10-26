@@ -50,8 +50,11 @@ wait_for 5 screen_has default/payments 'agent id=' || fail "agent never started"
 driver_attached || fail "the terminal never attached"
 term=$(tmux list-clients -F '#{client_name} #{session_name}' | awk '$2 == "default" { print $1; exit }')
 sock=$(tmux display-message -p '#{socket_path}')
+# On a trail's window prefix G is the diff beside the agent (t-diffpane); on any other, the popup.
+plain=$(tmux new-window -d -P -F '#{window_id}' -t default: -c "$PROJ" sh)
+tmux switch-client -c "$term" -t "$plain"
 rm -f "$T/seen"
 tmux run-shell "env TMUX='$sock,1,0' TMUX_PANE=%999 TRAILS_CLIENT='$term' '$TRAILS' diff"
 wait_for 5 test -s "$T/seen" || fail "the popup showed nothing"
-assert_match "$(cat "$T/seen")" "^diff --git a/n.txt b/n.txt" "the trail's codebase, in the popup"
+assert_match "$(cat "$T/seen")" "^diff --git a/n.txt b/n.txt" "the codebase, in the popup"
 ! grep -q '^TRAILS_CLIENT=' "$T/env" || fail "shown in the key's job, where nobody sees it, not in a popup"

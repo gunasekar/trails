@@ -101,7 +101,7 @@ In tmux, after `prefix`, from `trails keys`:
 | `A` | every running trail, in every workspace |
 | `E` | the editor beside the agent; again, back where you were |
 | `` ` `` | a shell beside the agent; again, back |
-| `G` | the codebase's changes, side by side ([the diff](#the-editor-a-shell-and-the-diff)) |
+| `G` | the diff beside the agent, shown or put away ([the diff](#the-editor-a-shell-and-the-diff)) |
 | `N` | the codebase's [checklist](#checklist) |
 | `M` | the [map](#the-map): up to four trails side by side |
 | `K` `J` | the previous and next workspace |
@@ -388,17 +388,29 @@ open first:
 
 | Open | Layout |
 |---|---|
-| the agent | the whole window |
+| the agent | the whole window, or beside the diff on a wide one (below) |
 | agent and shell | the agent on the left 60%, the shell on the right 40% |
 | agent and editor | the agent on the left 40%, the editor on the right 60% |
-| all three | the agent on the left, full height; the shell under the editor, a quarter high |
+| agent and diff | the agent on the left 40%, the diff on the right 60% |
+| with a shell too | the agent on the left, full height; the shell under the editor or the diff, a quarter high |
 
 The trail's own session holds the agent alone, so an editor attached to it sees
 neither pane. Where nothing runs, the editor gets a window of its own,
 `checkout·nvim`. When a trail ends, its editor and shell stay, as that window.
 `trails edit` and `trails shell` do the same from a shell.
 
-`prefix G` (`trails diff`) shows the codebase's changes side by side, in a popup:
+**The diff beside the agent.** With [Hunk](https://hunk.dev) installed and the
+codebase a git repository, a trail's window shows the agent's changes live beside
+it: Hunk on the codebase, every changed file whole, side by side, reloading as the
+agent edits, and read-only. It opens by itself on a window 200 columns wide or more,
+and goes when the window narrows. The right side holds one thing at a time: the
+editor takes it from the diff, and when the editor closes the diff comes back; a
+shell goes under either. `prefix G` shows it on a narrower window or puts it away,
+and the window remembers which; so does quitting it with `q`. How it looks is your
+Hunk config's (`~/.config/hunk/config.toml`). [ADR 25](docs/decisions/0025-the-diff-beside-the-agent.md)
+has the reasons.
+
+Elsewhere, or without Hunk, `prefix G` (`trails diff`) shows the codebase's changes side by side, in a popup:
 the working tree against `HEAD`, staged or not, and the files the agent made that
 git doesn't track yet. Nothing is staged to show them; `q` closes it. It uses
 delta when it is installed, else `less`, and the config's `diff` picks another:
@@ -535,7 +547,7 @@ trails tells an editor's terminal by the variables editors set (`NVIM`,
 | `trails new NAME [AGENT]` | start a trail named `NAME`, `-y` for YOLO |
 | `trails rename [TRAIL] NAME` | name the trail you are on, or `TRAIL` (its ID); `''` takes its name away |
 | `trails edit` / `shell` `[DIR]` | the editor or a shell beside the agent |
-| `trails diff [DIR]` | the codebase's changes, side by side |
+| `trails diff [DIR]` | the codebase's changes, side by side; from `prefix G`, the diff beside the agent |
 | `trails checklist [DIR]` / `note TEXT` | the checklist; add an item |
 | `trails ls [-a \| DIR]` | the trails, here, in `DIR` or everywhere |
 | `trails restore` | bring back every lost trail |
@@ -661,7 +673,7 @@ bind -N "trails: the previous workspace" K run-shell "TRAILS_CLIENT=#{client_nam
 bind -N "trails: the next workspace" J run-shell "TRAILS_CLIENT=#{client_name} 'trails' ws next"
 bind -N "trails: the map" M run-shell "TRAILS_CLIENT=#{client_name} 'trails' map here"
 bind -N "trails: every running trail" A display-popup -E -w 70% -h 70% -s bg=terminal -S bg=terminal,fg=brightblack "env TRAILS_PICKER=all 'trails' || { echo; echo press enter to close; read -r _; }"
-bind -N "trails: this codebase's changes" G run-shell "TRAILS_CLIENT=#{client_name} 'trails' diff"
+bind -N "trails: the diff beside the agent, shown or put away" G run-shell "TRAILS_CLIENT=#{client_name} 'trails' diff"
 bind -N "trails: rename this trail" R command-prompt -p "rename trail:" "run-shell \"TRAILS_CLIENT=#{client_name} 'trails' rename '%%'\""
 set -g status-left-length 60
 set -g status-right-length 80

@@ -654,7 +654,7 @@ available_agents() {
 #   @trails_since  when it started, Unix time
 #
 # The trail's window carries @trails_window (the trail's key) with @trails_dir, @trails_ws and
-# @trails_label, and each of its panes @trails_pane: agent, editor or shell (window_layout says
+# @trails_label, and each of its panes @trails_pane: agent, editor, shell or diff (window_layout says
 # where each goes).
 
 # tmux forbids '.' and ':' in names (both are target separators), and spaces make `tmux a -t
@@ -2357,6 +2357,10 @@ EOF
   # Survived, so back to the default: quitting the agent should close the window, not
   # leave a dead pane the picker would keep listing.
   tmux set-option -w -t "$wid" remain-on-exit off
+  # Laid out now, not as the trail's window was made: the diff beside an agent that died on
+  # arrival would keep that window open with nothing in it to show.
+  lw_win=$(window_of "$sess" "$ws")
+  [ -z "$lw_win" ] || window_layout "$lw_win"
   # A closed trail resumed is a running one again: out of the history, which holds only the
   # ended ones. Only now, so a resume that died on arrival is still there to try again.
   [ -z "$3" ] || hist_forget "$3"
@@ -2454,6 +2458,9 @@ window_release() {
   # workspace is this anyway.
   cr_win=$(window_of "$1" "${1%%/*}")
   [ -n "$cr_win" ] || return 0
+  # The diff goes with the agent: it is the trail's, not yours to keep.
+  tmux list-panes -t "$cr_win" -F '#{pane_id} #{@trails_pane}' 2>/dev/null |
+    awk '$2 == "diff" { print $1 }' | while read -r cr_d; do tmux kill-pane -t "$cr_d" 2>/dev/null; done
   tmux list-panes -t "$cr_win" -F '#{@trails_pane}' 2>/dev/null | grep -qvx agent || return 0
   tmux set-option -wqu -t "$cr_win" @trails_window \
     \; set-option -w -t "$cr_win" @trails_tool shell
@@ -2481,37 +2488,131 @@ tool_remark() {
 }
 
 # Where the panes of window $1 go, from which of them it has (by @trails_pane). The agent
-# alone fills it. With an editor pane, the agent keeps the left 40% and the editor takes the
-# right 60%, and a shell sits under the editor only, a quarter of the window high. With no
-# editor pane, the shell is a column on the right, 40% wide, full height. A window the agent
-# has left (window_release) keeps the same rules without it: the shell under the editor.
+# alone fills it. Beside it the right side holds one thing at a time, 60% wide, the agent
+# keeping the left 40%: the editor, or else the diff (diff_wanted, made and ended here, so
+# whatever leaves the slot brings it back). A shell sits under that one, a quarter of the
+# window high; with neither, it is a column on the right, 40% wide, full height. A window
+# the agent has left (window_release) keeps the same rules without it, and without the diff.
 #
 # move-pane (tmux 3.2) puts a pane where it belongs whether it was there already or not, so
-# this runs after every pane is made and after the editor pane exits, and never needs to know
-# what the layout was. Sizes are set after, with resize-pane: a size given to move-pane is
-# taken from the pane it splits, which may be too small to give it.
+# this runs after every pane is made, after the editor or the diff ends, and as the window
+# is resized (the hook diff_hook sets), and never needs to know what the layout was. Sizes are
+# set after, with resize-pane: a size given to move-pane is taken from the pane it splits,
+# which may be too small to give it.
 window_layout() {
-  cl_v='' cl_e='' cl_s=''
+  [ -n "$1" ] || return 0
+  cl_v='' cl_e='' cl_s='' cl_d=''
   for cl_row in $(tmux list-panes -t "$1" -F '#{pane_id}=#{@trails_pane}' 2>/dev/null); do
     case $cl_row in
       *=view | *=agent) cl_v=${cl_row%%=*} ;;
       *=edit | *=editor) cl_e=${cl_row%%=*} ;;
       *=shell) cl_s=${cl_row%%=*} ;;
+      *=diff) cl_d=${cl_row%%=*} ;;
       *) ;;
     esac
   done
   cl_w=$(tmux display-message -pt "$1" '#{window_width}' 2>/dev/null)
   cl_h=$(tmux display-message -pt "$1" '#{window_height}' 2>/dev/null)
   [ -n "$cl_w" ] && [ -n "$cl_h" ] || return 0
-  if [ -n "$cl_e" ]; then
-    [ -z "$cl_v" ] || tmux move-pane -d -h -s "$cl_e" -t "$cl_v" 2>/dev/null
-    [ -z "$cl_s" ] || tmux move-pane -d -v -s "$cl_s" -t "$cl_e" 2>/dev/null
-    [ -z "$cl_v" ] || tmux resize-pane -t "$cl_e" -x $((cl_w * 60 / 100)) 2>/dev/null
+  [ -z "$cl_v" ] || diff_hook "$1"
+  if [ -n "$cl_v" ] && [ -z "$cl_e" ] && diff_wanted "$1" "$cl_w"; then
+    [ -n "$cl_d" ] || cl_d=$(diff_pane "$1")
+  elif [ -n "$cl_d" ]; then
+    tmux kill-pane -t "$cl_d" 2>/dev/null
+    cl_d=
+  fi
+  cl_r=${cl_e:-$cl_d}
+  if [ -n "$cl_r" ]; then
+    [ -z "$cl_v" ] || tmux move-pane -d -h -s "$cl_r" -t "$cl_v" 2>/dev/null
+    [ -z "$cl_s" ] || tmux move-pane -d -v -s "$cl_s" -t "$cl_r" 2>/dev/null
+    [ -z "$cl_v" ] || tmux resize-pane -t "$cl_r" -x $((cl_w * 60 / 100)) 2>/dev/null
     [ -z "$cl_s" ] || tmux resize-pane -t "$cl_s" -y $((cl_h / 4)) 2>/dev/null
   elif [ -n "$cl_s" ] && [ -n "$cl_v" ]; then
     tmux move-pane -d -h -f -s "$cl_s" -t "$cl_v" 2>/dev/null
     tmux resize-pane -t "$cl_s" -x $((cl_w * 40 / 100)) 2>/dev/null
   fi
+}
+
+# ─── The diff beside the agent ───────────────────────────────────────────────
+# A trail's window shows the codebase's changes beside the agent, live, in Hunk (ADR 25): a
+# review-only viewer that reloads as the agent edits, whole files side by side. It takes the
+# right side when nothing else has it, on a window wide enough to give the agent 40% and the
+# diff the rest (DIFF_WIDTH columns: 40% of 200 is 80, as narrow as an agent's screen goes);
+# prefix G (diff_cmd) shows it on a narrower one, or puts it away, and the window remembers
+# which (@trails_diff on or off; unset, the width decides). The editor takes the right side
+# from it, and when the editor ends it comes back. Not on a window whose codebase isn't a
+# git repository, and not without hunk: then prefix G is the popup it always was.
+DIFF_WIDTH=200
+
+# Does window $1, $2 columns wide, want the diff?
+diff_wanted() {
+  command -v hunk >/dev/null 2>&1 || return 1
+  dw_dir=$(tmux display-message -pt "$1" '#{@trails_dir}' 2>/dev/null)
+  [ -n "$dw_dir" ] && git -C "$dw_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 1
+  case $(tmux display-message -pt "$1" '#{@trails_diff}' 2>/dev/null) in
+    on) return 0 ;;
+    off) return 1 ;;
+    *) [ "$2" -ge "$DIFF_WIDTH" ] 2>/dev/null ;;
+  esac
+}
+
+# The diff pane in window $1, made: Hunk on the trail's codebase, every changed file whole
+# (git's diff.context, set for this one run through the environment: Hunk has no setting of its
+# own for it), watching. Your ~/.config/hunk says how it looks. Prints the pane's id.
+#
+# Ended by itself, quit with q or failed, it stays away (@trails_diff off) until prefix G, so a
+# Hunk that can't start isn't started again by the layout its end asks for; killed by a layout,
+# its shell goes with it and sets nothing. Two layouts at once (a resize while the editor ends)
+# can each make one: the later goes.
+#
+# allow-passthrough is off on the pane, set before Hunk starts. As it starts, Hunk asks the
+# terminal what it can do (device attributes, kitty graphics), wrapped for tmux to pass through,
+# and with passthrough on (a tmux.conf's, for images) the terminal's answers come back to tmux,
+# which knows nothing of them and types them into the active pane: the agent's, since this one
+# is made behind it. Claude read one as alt-p and opened its model picker. Off, the questions
+# stop at tmux, and Hunk draws without the answers. The pane sets it on itself by its own id: a
+# bare -p from a command run in a pane that isn't active lands on the active one, the agent's.
+diff_pane() {
+  dp_dir=$(tmux display-message -pt "$1" '#{@trails_dir}' 2>/dev/null)
+  dp=$(tmux split-window -d -h -t "$1" -c "$dp_dir" -P -F '#{pane_id}' \
+    "tmux set-option -p -t \"\$TMUX_PANE\" allow-passthrough off; env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=diff.context GIT_CONFIG_VALUE_0=99999 hunk diff --watch; tmux set-option -w -t '$1' @trails_diff off; tmux run-shell -b \"sleep 0.3; $(shq "$SELF") --layout $1\"") || return 0
+  tmux set-option -p -t "$dp" @trails_pane diff
+  dp_n=$(tmux list-panes -t "$1" -F '#{@trails_pane}' 2>/dev/null | grep -cx diff)
+  if [ "$dp_n" -gt 1 ]; then
+    tmux kill-pane -t "$dp" 2>/dev/null
+    tmux list-panes -t "$1" -F '#{pane_id} #{@trails_pane}' 2>/dev/null | awk '$2 == "diff" { print $1; exit }'
+    return 0
+  fi
+  printf '%s' "$dp"
+}
+
+# Window $1 lays itself out again when it is resized: a trail's window made detached, at tmux's
+# default size, is resized as a terminal shows it, and one moved between a laptop and a wide
+# screen crosses DIFF_WIDTH. A window hook, so it ends with the window.
+diff_hook() {
+  tmux set-hook -w -t "$1" window-resized "run-shell -b \"$(shq "$SELF") --layout $1\"" 2>/dev/null
+}
+
+# prefix G on trail window $1: the diff shown, or put away, and the window remembers which.
+# Fails when it can't be shown (no hunk, no git repository, or the editor has the right side),
+# for diff_cmd to open its popup instead, and forgets the ask: the editor's end should not bring
+# a diff the width wouldn't.
+diff_toggle() {
+  if tmux list-panes -t "$1" -F '#{@trails_pane}' 2>/dev/null | grep -qx diff; then
+    tmux set-option -w -t "$1" @trails_diff off
+    window_layout "$1"
+    return 0
+  fi
+  dt_was=$(tmux display-message -pt "$1" '#{@trails_diff}' 2>/dev/null)
+  tmux set-option -w -t "$1" @trails_diff on
+  window_layout "$1"
+  tmux list-panes -t "$1" -F '#{@trails_pane}' 2>/dev/null | grep -qx diff && return 0
+  if [ -n "$dt_was" ]; then
+    tmux set-option -w -t "$1" @trails_diff "$dt_was"
+  else
+    tmux set-option -wu -t "$1" @trails_diff
+  fi
+  return 1
 }
 
 # The last step of every route into a trail, launched or picked: show it in the terminal
@@ -2527,7 +2628,10 @@ window_layout() {
 # @dir/@ag in the map so its border reads like its neighbours'.
 attach_to() {
   at_wid=$1 at_key=$2 at_ws=$3
-  at_target="=$at_ws:$(ensure_window "$at_wid" "$at_key" "$at_ws")" || exit 1
+  at_win=$(ensure_window "$at_wid" "$at_key" "$at_ws") || exit 1
+  # Every route in lays the window out again: a trail from before the diff gets it here.
+  window_layout "$at_win"
+  at_target="=$at_ws:$at_win"
   if [ -n "$TMUX" ]; then
     if [ -n "$IN_MAP" ] || from_editor; then
       if [ -n "$IN_MAP" ]; then
@@ -3814,8 +3918,9 @@ checklist_cmd() {
 
 # ─── The diff ────────────────────────────────────────────────────────────────
 # `trails diff [DIR]`: a codebase's changes, side by side, to read what an agent did. prefix G
-# (trails keys) shows them in a popup over the workspace, since side by side wants the
-# width; from a shell it is the terminal itself.
+# (trails keys) on a trail's window shows or puts away the diff beside the agent (see "The diff
+# beside the agent"); anywhere else, or without Hunk, it shows them in a popup over the
+# workspace, since side by side wants the width; from a shell it is the terminal itself.
 #
 # The codebase is the one `trails edit` would pick: DIR; else the window you are on, a trail's
 # window naming its codebase; else the pane's directory; else $PWD. The changes are the
@@ -3920,8 +4025,12 @@ diff_cmd() {
     (cd "$dir" && sh -c "${dcfg#*"$TAB"}") >/dev/null 2>&1
     exit 0
   fi
-  # From prefix G, a run-shell job, with no terminal of its own: a popup on the one that pressed it.
+  # From prefix G, a run-shell job, with no terminal of its own: on a trail's window, the diff
+  # beside the agent shown or put away (diff_toggle); anywhere else, or when it can't be shown,
+  # a popup on the terminal that pressed it.
   if [ -n "$TMUX" ] && [ -z "${TMUX_PANE:-}" ] && [ -n "$CLIENT" ]; then
+    dt_win=$(tmux display-message -p -t "$CLIENT" '#{?@trails_window,#{window_id},}' 2>/dev/null)
+    [ -z "$dt_win" ] || ! diff_toggle "$dt_win" || exit 0
     dbg=$(popup_bg)
     exec tmux display-popup -c "$CLIENT" -E -w 90% -h 90% -d "$dir" -s "bg=$dbg" -S "bg=$dbg,fg=brightblack" \
       -T " $(codebase_label "$dir") " "$(shq "$SELF") diff --show $(shq "$dir")"
@@ -3938,7 +4047,7 @@ diff_cmd() {
 # Every key trails binds is a capital letter, so trails' keys read apart from tmux's and your own
 # (ADR 24), but for ` for the shell, the editors' own toggle-terminal key. P, W, A, N, G, R, J
 # and K are free in tmux 3.8's default prefix table (C, D, L and T are taken); P for "pick a
-# trail", W the workspaces, A all trails, N a note, G the git diff, R rename. No key for trails'
+# trail", W the workspaces, A all trails, N a note, G the diff beside the agent, R rename. No key for trails'
 # own help: tmux's ? lists trails' keys with its own, by their notes, and ? in the picker has the
 # rest (trails help keys). K and J the previous and next workspace, vim's
 # up and down, beside tmux's ( and ), which cycle through every session. Two take tmux's own:
@@ -4023,7 +4132,7 @@ bind -N "trails: the previous workspace" K run-shell "TRAILS_CLIENT=#{client_nam
 bind -N "trails: the next workspace" J run-shell "TRAILS_CLIENT=#{client_name} $kq ws next"
 bind -N "trails: the map" M run-shell "TRAILS_CLIENT=#{client_name} $kq map here"
 bind -N "trails: every running trail" A display-popup -E -w 70% -h 70% -s bg=$tbg -S bg=$tbg,fg=brightblack "env TRAILS_PICKER=all $kq $khold"
-bind -N "trails: this codebase's changes" G run-shell "TRAILS_CLIENT=#{client_name} $kq diff"
+bind -N "trails: the diff beside the agent, shown or put away" G run-shell "TRAILS_CLIENT=#{client_name} $kq diff"
 bind -N "trails: rename this trail" R command-prompt -p "rename trail:" "run-shell \"TRAILS_CLIENT=#{client_name} $kq rename '%%'\""
 set -g status-left-length 60
 set -g status-right-length 80
@@ -4728,7 +4837,8 @@ In tmux, from trails keys (prefix, then; tmux's own ? lists them too):
                     read it whole; space ticks it, enter copies it
   K J               the previous and next workspace
   M                 the map: up to four trails side by side
-  G                 this codebase's changes, side by side (trails diff)
+  G                 the diff beside the agent (Hunk), shown or put away; a popup
+                    of the changes where there is no trail or no Hunk (trails diff)
   R                 rename the trail you are on (trails rename)
 
 In the picker — "＋ new trail…", which lists the agents to start here (in a workspace,
@@ -4811,8 +4921,9 @@ usage: trails [command]
   keys              print tmux.conf lines that bind the picker, every trail, the editor,
                     the shell, the checklist, the workspaces, the map and the diff, and put
                     the workspaces and the checklist's count in the status line
-  diff [DIR]        this codebase's changes, untracked files too, side by side: prefix G,
-                    in a popup; the config's "diff" says what shows them
+  diff [DIR]        this codebase's changes, untracked files too, side by side; from
+                    prefix G on a trail's window, the diff beside the agent, shown or put
+                    away, and elsewhere a popup; the config's "diff" says what shows that
   state WORD [--id ID] [--agent PROGRAM]
                     for an agent's hooks: working, waiting or idle, the conversation
                     it is in, and the program saying it (https://github.com/gunasekar/trails#hooks-for-each-agent)

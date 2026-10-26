@@ -64,6 +64,7 @@ covered yet.
 | | `?`: the keys, `trails help keys` | A `t-edges` (the text) · checked by hand with real fzf |
 | Beside the agent | edit, shell, toggles, kept window, ctrl-e | A `t-tools` |
 | | the diff: untracked files, a popup from prefix G, a gui command | A `t-diff` |
+| | the diff beside the agent: wide and narrow, prefix G, the editor's turn and G during it, a shell under it, q, a Hunk that can't start, passthrough off, the agent's exit | A `t-diffpane` |
 | Checklist | prefix N: add, Esc, Enter copies, ctrl-e; tick; count; `note`; path, old `notes` key and file | A `t-checklist` · M10 |
 | Ending | ctrl-x | A `t-picker`, `t-tools`, `t-map` |
 | | resume old trails, from the history; ctrl-x forgets one; a resume that dies keeps it | A `t-hooks` · M5 |
