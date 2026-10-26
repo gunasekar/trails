@@ -32,6 +32,8 @@ In scope:
 - **The editor and a shell** beside a codebase's trails
   ([ADR 15](decisions/0015-companions-are-marked-windows.md)).
 - **The map**, several trails in one window, as a window that owns nothing.
+- **Notifications** on the terminals attached, when a trail needs you or ends a
+  turn ([ADR 26](decisions/0026-notifications-on-the-terminal.md)).
 - **A TSV contract** (`trails ls`) for other tools to build on: a status bar, a
   notifier, a script.
 
@@ -330,6 +332,30 @@ Getting the ID out of the agent is the snippet's job, in the agent's terms. The
 repo's Claude Code plugin, `plugins/trails`, carries Claude's; a test keeps it equal
 to the docs. Copilot and Cursor have no hook for a permission prompt, so their hooks
 say working through one.
+
+## Notifications
+
+`trails state` knows the word it replaces (`@trails_state`, read in its one
+`display-message`), so it sees a change and nothing else. A change to *waiting*, or
+from *working* to *idle*, starts `trails --notify WORD BEFORE` in the background in
+the agent's pane; any other change starts one only when the trail has a
+notification up (`@trails_notified`), to close it. A *working* that doesn't follow
+*waiting* starts a turn and stamps `@trails_turn_at`: a permission granted is the
+same turn going on. `--notify` is a light run, like `--said`: no agents, no
+workspaces, no record migration.
+
+`notify_run` reads the config's `notify` (`notify_cfg`, defaults filled in by jq),
+and decides: *waiting* notifies, *idle* after *working* notifies when the turn ran
+`idle_after` seconds or more, and everything else, or a word left out of `on`,
+closes. It writes to the tty of every client in `list-clients`, the escape its
+`#{client_termtype}` matches first in `terminals`: `osc99` (title and body in two
+chunks, `i=trails-<trail ID>` so the next replaces it and `p=close` takes it away,
+`u` 2 for *needs you* and 1 for *your turn*, `f` trails, `o` and `s` from the
+config), `osc9` or `osc777` (no ID, nothing to close). Title and body lose their
+control characters first, so a task can't end the sequence. Writing to the client
+and not the pane needs no passthrough, reaches a trail no client shows, and over
+ssh lands on the remote terminal. A client of trails' own nested in a pane reports
+tmux as its terminal, which no default glob matches.
 
 ## trails ls
 
@@ -920,7 +946,8 @@ shell), inside (inside
 tmux: switch-client, a nested editor client, the refused collision), restore,
 autorestore, map, workspace and wsmap (the config), wsbar (the status line),
 grouped (a second terminal on a workspace), all (every trail), edges, hooks
-(`trails state` and `--id`, the history, the plugin against the docs), checklist,
+(`trails state` and `--id`, the history, the plugin against the docs), notify
+(the escapes each config writes to the client), checklist,
 diff, diffpane (the diff beside the agent), rename (the status line's task and
 renaming), and the popup check behind D4 of the design. CI runs them after ShellCheck. Each test is
 its own process on its own tmux server in a throwaway `HOME`: `TMUX_TMPDIR` puts

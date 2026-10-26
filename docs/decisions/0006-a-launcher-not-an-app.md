@@ -2,7 +2,8 @@
 
 - Status: accepted; amended 2026-10 by [ADR 13](0013-workspaces-are-sessions-trails-are-windows.md),
   which keeps the four verbs and the shell script, and adds workspaces and
-  companions as the places those verbs act in
+  companions as the places those verbs act in; and by [ADR 26](0026-notifications-on-the-terminal.md),
+  which notifies from trails itself, on the terminal, now that hooks say each change
 - Date: 2026-10
 
 ## Context

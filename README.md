@@ -379,6 +379,42 @@ is the hook's job: trails takes what it is given.
 
 </details>
 
+### Notifications
+
+When a trail needs you, or ends a turn that ran 30 seconds or more, the terminals
+attached to tmux get a desktop notification: the agent and what it wants, the
+trail and its task. It goes to every client, whichever session it shows, so over
+ssh it pops up on the laptop in front of you, not on the machine running the
+agent, and needs no `allow-passthrough`
+([ADR 26](docs/decisions/0026-notifications-on-the-terminal.md)). It rides on
+the [hooks](#status-from-the-agents-hooks): a trail without them never notifies.
+
+kitty works out of the box. Which escape a terminal gets is set by its
+`client_termtype` (`tmux list-clients -F '#{client_termtype}'` shows it), so
+another terminal is a line in the config:
+
+```json
+"notify": {
+  "on": ["waiting", "idle"],
+  "idle_after": 30,
+  "show": "always",
+  "sound": "system",
+  "terminals": { "kitty*": "osc99", "iTerm2*": "osc9" }
+}
+```
+
+| Key | Means |
+|---|---|
+| `on` | the states that notify: `waiting` (needs you), `idle` (your turn) |
+| `idle_after` | your turn notifies only after a turn this many seconds long; `0` for every turn |
+| `show` | `always`, `unfocused` or `invisible`: when kitty shows it (OSC 99's `o`) |
+| `sound` | `system`, `silent` or a sound's name (OSC 99's `s`) |
+| `terminals` | `client_termtype` globs, first match wins: `osc99` (kitty's), `osc9`, `osc777` or `none`. Replaces the default whole |
+
+`"notify": false` turns it off. Each key left out keeps its default. With
+`osc99`, a trail's new notification replaces its last, and going back to work
+closes it; OSC 9 and 777 have no way to, so theirs stay until dismissed.
+
 ### The editor, a shell and the diff
 
 `prefix E` opens your editor (`$EDITOR`, nvim if unset) and `` prefix ` `` a
@@ -591,6 +627,7 @@ and opens the file.
 | `data` | a folder for each codebase's checklist; `.trails/checklist.md` in the codebase without it |
 | `diff` | what shows the diff: see [the diff](#the-editor-a-shell-and-the-diff) |
 | `map` | `two` (`side`, `stacked`, `auto`) and `layout` (a tmux layout for three or more) |
+| `notify` | desktop notifications on the terminal: see [Notifications](#notifications) |
 
 <details>
 <summary><b>Restoring an agent</b>: the <code>session</code> block, and the built-in agents</summary>

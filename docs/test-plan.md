@@ -60,6 +60,7 @@ covered yet.
 | | preview: layout, follow, live refresh, wrap | M9 |
 | | the current trail's task in the status line | A `t-rename` |
 | | `trails map` | A `t-map` |
+| | notifications: needs you, your turn after idle_after, closed by work; on, show, sound, osc99, osc9, osc777, off | A `t-notify` |
 | | every running trail: prefix A, ctrl-a, Esc back, ctrl-x from it | A `t-all` |
 | | `?`: the keys, `trails help keys` | A `t-edges` (the text) · checked by hand with real fzf |
 | Beside the agent | edit, shell, toggles, kept window, ctrl-e | A `t-tools` |

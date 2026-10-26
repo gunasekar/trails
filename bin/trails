@@ -113,16 +113,32 @@ if [ "${1:-}" = state ]; then
     *[!A-Za-z0-9_.-]*) st_id= ;;
     *) ;;
   esac
-  st_pane=$(tmux display-message -p -t "$TMUX_PANE" '#{pane_pid}|#{@trails_session}|#{@trails_program}|#{@trails_said_depth}|#{@trails_state}|#{@trails_id}' 2>/dev/null) || exit 0
+  st_pane=$(tmux display-message -p -t "$TMUX_PANE" '#{pane_pid}|#{@trails_session}|#{@trails_program}|#{@trails_said_depth}|#{@trails_state}|#{@trails_notified}|#{@trails_id}' 2>/dev/null) || exit 0
   st_root=${st_pane%%|*} st_pane=${st_pane#*|}
   st_trail=${st_pane%%|*} st_pane=${st_pane#*|}
   st_prog=${st_pane%%|*} st_pane=${st_pane#*|}
   st_known=${st_pane%%|*} st_pane=${st_pane#*|}
-  st_before=${st_pane%%|*} st_carried=${st_pane#*|}
+  st_before=${st_pane%%|*} st_pane=${st_pane#*|}
+  st_notified=${st_pane%%|*} st_carried=${st_pane#*|}
   [ -z "$st_agent" ] || [ -z "$st_prog" ] || [ "$st_agent" = "$st_prog" ] || exit 0
   set -- set-option -pq -t "$TMUX_PANE" @trails_state "$st_word"
   if [ "$st_word" = working ] || [ -n "$st_before" ]; then
     set -- "$@" \; set-option -pq -t "$TMUX_PANE" @trails_worked 1
+  fi
+  # A trail's word that changed may notify (--notify, see "Notifications"): waiting, and idle
+  # after working, a notification; anything else the end of one, so it starts a --notify only
+  # when there is one to take away. A turn starts on a working that doesn't follow a waiting, a
+  # permission granted being the same turn going on, and when is what idle_after measures.
+  st_note=
+  if [ -n "$st_trail" ] && [ "$st_word" != "$st_before" ]; then
+    case $st_word in
+      working)
+        [ "$st_before" = waiting ] || set -- "$@" \; set-option -pq -t "$TMUX_PANE" @trails_turn_at "$(date +%s)"
+        [ -z "$st_notified" ] || st_note=1
+        ;;
+      idle) [ "$st_before" != working ] && [ -z "$st_notified" ] || st_note=1 ;;
+      *) st_note=1 ;;
+    esac
   fi
   [ -n "$st_trail" ] || st_id=
   if [ -n "$st_id" ]; then
@@ -142,6 +158,7 @@ if [ "${1:-}" = state ]; then
   if [ -n "$st_id" ] && [ "$st_id" != "$st_carried" ]; then
     "$0" --said </dev/null >/dev/null 2>&1 &
   fi
+  [ -z "$st_note" ] || "$0" --notify "$st_word" "$st_before" </dev/null >/dev/null 2>&1 &
   exit 0
 fi
 
@@ -198,6 +215,8 @@ TRAILS_NAME=
 #                  finds them itself, run in the popup; or { "command": ..., "gui": true }
 #                  for a program with a window of its own. delta, side by side, when
 #                  installed.
+#   notify         desktop notifications on the terminals attached, when a trail needs you
+#                  or ends its turn (see "Notifications"); false turns them off.
 #
 # Without a file, the built-in agents below apply; `trails config` writes them out as a
 # starting point. Only agents whose command is on PATH are offered, so listing an agent you
@@ -784,7 +803,7 @@ client_outer() {
 # every redraw, the list's own reloads and item pane, the hooks' --said, the wrapper's --forget.
 CLIENT=${TRAILS_CLIENT:-}
 case "${1:-} ${2:-}" in
-  "checklist --count" | "checklist --rows" | "checklist --toggle" | "checklist --text" | "checklist --enter" | "--said "* | "--forget "*) LIGHT=1 ;;
+  "checklist --count" | "checklist --rows" | "checklist --toggle" | "checklist --text" | "checklist --enter" | "--said "* | "--notify "* | "--forget "*) LIGHT=1 ;;
   *) LIGHT= ;;
 esac
 if [ -z "$CLIENT" ] && [ -n "$TMUX" ] && [ -z "$LIGHT" ]; then
@@ -1018,6 +1037,137 @@ classify() {
     esac
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$state" "$wid" "$key" "$ws" "$label" "$dir" "$cb" "$badge" "$task"
   done
+}
+
+# ─── Notifications ───────────────────────────────────────────────────────────
+# A trail that needs you, or whose turn has ended, says so on the terminals you are looking at
+# (ADR 26). `trails state` sees the word change and starts `trails --notify WORD BEFORE` in the
+# background, in the agent's pane; that writes an escape sequence to the tty of every tmux
+# client attached, whichever session it shows, so it reaches the terminal in front of you,
+# over ssh too, and needs no passthrough. Which escape a terminal gets is the config's, by the
+# client's #{client_termtype} (kitty(0.49.2), iTerm2 3.6.6), never trails' code:
+#
+#   "notify": {
+#     "on": ["waiting", "idle"],          which words notify: needs you, your turn
+#     "idle_after": 30,                   your turn only after a turn this many seconds long
+#     "show": "always",                   osc99's o=: always, unfocused or invisible
+#     "sound": "system",                  osc99's s=: system, silent, or a sound's name
+#     "terminals": { "kitty*": "osc99" }  client_termtype globs, first match: osc99, osc9,
+#   }                                     osc777, or none
+#
+# "notify": false turns it off. Each key falls back to the default above, terminals whole: a
+# terminal no glob matches, a nested client of trails' own included (termtype tmux), gets
+# nothing. osc99 is kitty's protocol: the trail's ID names the notification, so a new one
+# replaces it and going back to work closes it (p=close). osc9 and osc777 have no IDs: theirs
+# stay until dismissed.
+NOTIFY_JQ='
+  def strs: if type == "array" then map(select(type == "string")) else null end;
+  (if type == "object" then .notify else null end) as $n
+  | if $n == false then "off" else
+      (if ($n | type) == "object" then $n else {} end) as $n
+      | ([($n.on | strs) // ["waiting", "idle"] | join(" "),
+          ($n.idle_after | if type == "number" and . >= 0 then floor else 30 end | tostring),
+          ($n.show | if . == "always" or . == "unfocused" or . == "invisible" then . else "always" end),
+          ($n.sound | if type == "string" and . != "" then . else "system" end)] | join("\u001f")),
+        (($n.terminals | if type == "object" then . else {"kitty*": "osc99"} end)
+          | to_entries[] | select(.value | type == "string") | .key + "\t" + .value)
+    end'
+
+notify_cfg() {
+  if [ -f "$CONFIG" ]; then
+    jq -r "$NOTIFY_JQ" "$CONFIG" 2>/dev/null
+  else
+    printf '{}' | jq -r "$NOTIFY_JQ"
+  fi
+}
+
+# Text for an escape: no control characters, so nothing in a task can end the sequence early.
+notify_clean() { printf '%s' "$1" | tr -d '\000-\037\177'; }
+
+# --notify WORD BEFORE, in the agent's pane (TMUX_PANE): a notification for waiting, and for
+# idle after a turn of idle_after seconds or more; for anything else, or a word the config
+# leaves out, the trail's notification closed, if it has one up (@trails_notified).
+notify_run() {
+  nr_cfg=$(notify_cfg) || return 0
+  case $nr_cfg in off | '') return 0 ;; *) ;; esac
+  nr_head=$(printf "%s\n" "$nr_cfg" | sed -n 1p)
+  nr_terms=$(printf "%s\n" "$nr_cfg" | sed 1d)
+  IFS="$US" read -r nr_on nr_after nr_show nr_sound <<EOF
+$nr_head
+EOF
+  nr_info=$(tmux display-message -p -t "$TMUX_PANE" \
+    "#{@trails_trail}${US}#{@trails_turn_at}${US}#{@trails_notified}${US}#{@agent}${US}#{@trails_ws}${US}#{@trails_label}${US}#{@trails_name}${US}$TASK_FMT" 2>/dev/null) || return 0
+  IFS="$US" read -r nr_tid nr_at nr_up nr_agent nr_ws nr_label nr_name nr_task <<EOF
+$nr_info
+EOF
+  nr_do=close
+  case " $nr_on " in
+    *" $1 "*)
+      case $1 in
+        waiting) nr_do=send ;;
+        idle)
+          if [ "$2" = working ]; then
+            nr_now=$(date +%s)
+            case $nr_at in
+              '' | *[!0-9]*) nr_do=send ;;
+              *) [ $((nr_now - nr_at)) -lt "$nr_after" ] || nr_do=send ;;
+            esac
+          fi
+          ;;
+        *) ;;
+      esac
+      ;;
+    *) ;;
+  esac
+  [ "$nr_do" = send ] || [ -n "$nr_up" ] || return 0
+
+  nr_id=trails-$(printf '%s' "${nr_tid:-$TMUX_PANE}" | tr -cd 'A-Za-z0-9_.+-')
+  nr_agent=${nr_agent% (YOLO)}
+  if [ "$1" = waiting ]; then
+    nr_title="$nr_agent · needs you" nr_u=2
+  else
+    nr_title="$nr_agent · your turn" nr_u=1
+  fi
+  nr_body="$nr_ws/${nr_name:-$nr_label}${nr_task:+ — $nr_task}"
+  nr_title=$(notify_clean "$nr_title") nr_body=$(notify_clean "$nr_body")
+  nr_s=
+  [ "$nr_sound" = system ] || nr_s=:s=$(printf '%s' "$nr_sound" | base64 | tr -d '\n')
+
+  nr_clients=$(tmux list-clients -F "#{client_tty}$TAB#{client_termtype}" 2>/dev/null) || return 0
+  nr_sent=
+  while IFS="$TAB" read -r nr_tty nr_tt; do
+    [ -n "$nr_tty" ] && [ -w "$nr_tty" ] || continue
+    nr_fmt=none
+    while IFS="$TAB" read -r nr_pat nr_f; do
+      [ -n "$nr_pat" ] || continue
+      # shellcheck disable=SC2254 # the config's pattern, a glob on purpose
+      case $nr_tt in $nr_pat) nr_fmt=$nr_f && break ;; *) ;; esac
+    done <<EOF
+$nr_terms
+EOF
+    case $nr_do.$nr_fmt in
+      send.osc99)
+        printf '\033]99;i=%s:d=0:u=%s:o=%s:f=dHJhaWxz%s;%s\033\\\033]99;i=%s:p=body;%s\033\\' \
+          "$nr_id" "$nr_u" "$nr_show" "$nr_s" "$nr_title" "$nr_id" "$nr_body" >"$nr_tty" 2>/dev/null
+        ;;
+      send.osc9) printf '\033]9;%s: %s\007' "$nr_title" "$nr_body" >"$nr_tty" 2>/dev/null ;;
+      send.osc777)
+        printf '\033]777;notify;%s;%s\007' "$(printf '%s' "$nr_title" | tr ';' ',')" "$nr_body" >"$nr_tty" 2>/dev/null
+        ;;
+      close.osc99) printf '\033]99;i=%s:p=close;\033\\' "$nr_id" >"$nr_tty" 2>/dev/null ;;
+      *) continue ;;
+    esac
+    nr_sent=1
+  done <<EOF
+$nr_clients
+EOF
+
+  if [ "$nr_do" = send ]; then
+    [ -z "$nr_sent" ] || tmux set-option -pq -t "$TMUX_PANE" @trails_notified 1 2>/dev/null
+  else
+    tmux set-option -pqu -t "$TMUX_PANE" @trails_notified 2>/dev/null
+  fi
+  return 0
 }
 
 # ─── Session states ───────────────────────────────────────────────────────────
@@ -4978,14 +5128,14 @@ esac
 # config is broken, and boot, which tmux needs whatever the config says. ls carries on
 # without them (only its closed rows need them), so a typo in the file can't blank what reads it.
 case $1 in
-  help | -h | --help | config | keys | --keys | note | checklist | diff | --forget | --layout | --peek | boot | rename) AGENTS= ;;
+  help | -h | --help | config | keys | --keys | note | checklist | diff | --forget | --layout | --peek | boot | rename | --notify) AGENTS= ;;
   ls | ws) AGENTS=$(load_agents) || AGENTS= ;;
   *) AGENTS=$(load_agents) || exit 1 ;;
 esac
 # The workspaces, read once per run too; empty means none configured (see workspace_of). Not
 # for the checklist's light runs, which never ask.
 WORKSPACES=
-[ -n "$LIGHT" ] && [ "$1" = checklist ] || WORKSPACES=$(load_workspaces)
+[ -n "$LIGHT" ] && { [ "$1" = checklist ] || [ "$1" = --notify ]; } || WORKSPACES=$(load_workspaces)
 MODE=default
 case $1 in
   '' | ws | --print-menu) MODE=$(load_mode) ;;
@@ -4994,7 +5144,7 @@ esac
 # Records from before 1.8 move to its layout, once (rec_migrate): first thing for anything that
 # reads them. Not for what never does; the wrapper's --forget sees to its own.
 case $1 in
-  help | -h | --help | config | keys | --keys | note | checklist | diff | --layout | --peek | --forget) ;;
+  help | -h | --help | config | keys | --keys | note | checklist | diff | --layout | --peek | --forget | --notify) ;;
   *) rec_migrate ;;
 esac
 
@@ -5126,6 +5276,12 @@ case $1 in
   # doesn't carry yet: a pass over the trails moves its record (rec_note_id).
   --said)
     sessions >/dev/null
+    exit 0
+    ;;
+  # From `trails state`, in the background, when a trail's word changes: its notification, or
+  # the end of one (see "Notifications").
+  --notify)
+    notify_run "${2:-}" "${3:-}"
     exit 0
     ;;
   # The wrapper's, as the agent exits: --forget TID SESSION. A wrapper from before 1.8 passes
