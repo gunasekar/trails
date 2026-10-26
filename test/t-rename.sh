@@ -12,8 +12,11 @@ s=$(unnamed default proj 1)
 wait_for 5 screen_has "$s" 'agent id=' || fail "the agent never started"
 tid=$(tmux display-message -pt "$s" '#{@trails_trail}')
 wid=$(tmux display-message -pt "$s" '#{window_id}')
-cell=$(tmux list-windows -t default -F '#{window_id} #{@trails_window}' | awk -v k="$s" '$2 == k { print $1 }')
-[ -n "$cell" ] || fail "no trail's window"
+# The trail's window is marked after it is made, and the agent can be up before: waited for.
+cell_of() { tmux list-windows -t default -F '#{window_id} #{@trails_window}' | awk -v k="$s" '$2 == k { print $1 }'; }
+has_cell() { [ -n "$(cell_of)" ]; }
+wait_for 5 has_cell || fail "no trail's window"
+cell=$(cell_of)
 
 # The right of the status line as trails keys sets it, up to the checklist's count (a job, which
 # display-message would not wait for), drawn for the trail's window.
@@ -57,7 +60,9 @@ assert_eq "$(tmux display-message -pt "$wid" '#{@trails_name}')" aws-setup "unch
 FZF_KEYS=ctrl-r FZF_QUERY=retries FZF_PICK='#aws-setup' trails_bg
 wait_for 5 sh -c "[ \"\$(tmux display-message -pt '$wid' '#{@trails_name}')\" = retries ]" ||
   fail "ctrl-r did not rename: $(tmux display-message -pt "$wid" '#{@trails_name}')"
-assert_eq "$(tmux display-message -pt "$cell" '#{window_name}')" "proj·retries" "renamed from the picker"
+# The trail's window is renamed after the name is set, in a tmux call of its own: waited for too.
+wait_for 5 sh -c "[ \"\$(tmux display-message -pt '$cell' '#{window_name}')\" = 'proj·retries' ]" ||
+  fail "renamed from the picker: $(tmux display-message -pt "$cell" '#{window_name}')"
 
 # An empty name takes it away: back to its session's name, and the task.
 "$TRAILS" rename "$tid" '' || fail "unnaming refused"
