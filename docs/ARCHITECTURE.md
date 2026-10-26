@@ -119,10 +119,13 @@ session, so nothing is parsed back out of a name:
 
 The trail's window carries `@trails_window` (the trail's key), `@trails_dir`,
 `@trails_ws` and `@trails_label`, and each of its panes `@trails_pane`: `agent`,
-`editor` or `shell`. The agent pane also carries `@ag` and `@dir`, the agent and
-the codebase label, as a map pane does: its own command is `tmux`, so a
-`pane-border-format` that labels panes by command reads them instead, e.g.
-`#{?@ag,#{@ag},#{pane_current_command}}`. An editor or shell window carries
+`editor`, `shell` or `diff`. The agent pane also carries `@ag` and `@dir`, the agent
+and the codebase label, as a map pane does: its own command is `tmux`, so a
+`pane-border-format` that labels panes by command reads them instead. The editor
+and diff panes carry `@trails_cmd` (the editor's name, `hunk`) for the same reason:
+their commands are compound lines, so the process in front is the shell running
+them. The window's format is
+`#{?@ag,#{@ag},#{?@trails_cmd,#{@trails_cmd},#{pane_current_command}}}`. An editor or shell window carries
 `@trails_tool` (`editor`, or `shell` for a released window that kept only a
 shell) with `@trails_dir`, `@trails_ws` and `@trails_label`.
 

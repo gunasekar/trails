@@ -2380,8 +2380,11 @@ EOF
 #
 # The agent pane is stamped @ag and @dir as a map pane is (the agent, the codebase label),
 # and the window's pane-border-format reads @ag, so with borders shown the agent's pane is
-# labelled `claude`, not `tmux`, its own command, which says nothing; the editor and shell
-# beside it, by their commands. Whether borders show is tmux.conf's to say (off by default).
+# labelled `claude`, not `tmux`, its own command, which says nothing. The editor and diff
+# panes carry @trails_cmd (the editor's name, hunk), read next: their commands are compound
+# lines, so the process in front is the shell running them, and the label would read `zsh`.
+# The shell pane is labelled by its command, which is the point of it. Whether borders show
+# is tmux.conf's to say (off by default).
 #
 #   ensure_window WID KEY WS     WID is the agent's window, in the trail's session
 ensure_window() {
@@ -2436,7 +2439,7 @@ EOF
     \; set-option -p -t "$ec_win" @trails_pane agent \
     \; set-option -p -t "$ec_win" @ag "$ec_agent" \
     \; set-option -p -t "$ec_win" @dir "$ec_label" \
-    \; set-option -w -t "$ec_win" pane-border-format ' #{?@ag,#{@ag},#{pane_current_command}} '
+    \; set-option -w -t "$ec_win" pane-border-format ' #{?@ag,#{@ag},#{?@trails_cmd,#{@trails_cmd},#{pane_current_command}}} '
   printf '%s\n' "$ec_win"
 }
 
@@ -2576,7 +2579,7 @@ diff_pane() {
   dp_dir=$(tmux display-message -pt "$1" '#{@trails_dir}' 2>/dev/null)
   dp=$(tmux split-window -d -h -t "$1" -c "$dp_dir" -P -F '#{pane_id}' \
     "tmux set-option -p -t \"\$TMUX_PANE\" allow-passthrough off; env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=diff.context GIT_CONFIG_VALUE_0=99999 hunk diff --watch; tmux set-option -w -t '$1' @trails_diff off; tmux run-shell -b \"sleep 0.3; $(shq "$SELF") --layout $1\"") || return 0
-  tmux set-option -p -t "$dp" @trails_pane diff
+  tmux set-option -p -t "$dp" @trails_pane diff \; set-option -p -t "$dp" @trails_cmd hunk
   dp_n=$(tmux list-panes -t "$1" -F '#{@trails_pane}' 2>/dev/null | grep -cx diff)
   if [ "$dp_n" -gt 1 ]; then
     tmux kill-pane -t "$dp" 2>/dev/null
@@ -3335,6 +3338,8 @@ EOF
       pane=$(tmux split-window -d -h -t "$wid" -c "$here" -P -F '#{pane_id}') || exit 1
     fi
     tmux set-option -p -t "$pane" @trails_pane "$mark"
+    # The editor's name for its border: the pane's own process is the shell running `nvim .; …`.
+    [ "$ck" != edit ] || tmux set-option -p -t "$pane" @trails_cmd "$(basename "${tl_ed%% *}")"
     tool_remark "$wid"
   fi
   window_layout "$wid"

@@ -26,6 +26,8 @@ tmux resize-window -t "$win" -x 240 -y 50
 wait_for 5 panes_are "agent diff " || fail "wide: no diff: $(panes)"
 d=$(dpane)
 wait_for 5 screen_has "$d" "hunk diff --watch in $PROJ context=99999" || fail "not Hunk on the codebase, whole files: $(screen "$d")"
+# Its border says hunk, not the shell that runs it.
+assert_eq "$(tmux display-message -pt "$d" '#{T:pane-border-format}')" " hunk " "the diff pane's border label"
 assert_eq "$(tmux display-message -pt "$d" '#{pane_width}')" 144 "the diff 60% of 240, the agent's 40% beside it"
 # Hunk's startup questions to the terminal stay in tmux: with passthrough, their answers would
 # be typed into the agent's pane.
@@ -55,6 +57,7 @@ wait_for 5 panes_are "agent diff " || fail "prefix G brought no diff back: $(pan
 EDITOR=ed TMUX=$(tmux display-message -p '#{socket_path},0,0') TRAILS_CLIENT=$c "$TRAILS" edit >/dev/null 2>&1
 wait_for 5 panes_are "agent editor " || fail "the editor and the diff both: $(panes)"
 e=$(tmux list-panes -t "$win" -F '#{pane_id} #{@trails_pane}' | awk '$2 == "editor" { print $1 }')
+assert_eq "$(tmux display-message -pt "$e" '#{T:pane-border-format}')" " ed " "the editor pane's border label, the editor's name"
 type_in "$e" exit
 wait_for 5 panes_are "agent diff " || fail "the diff not back after the editor: $(panes)"
 
