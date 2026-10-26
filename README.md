@@ -389,7 +389,7 @@ open first:
 | Open | Layout |
 |---|---|
 | the agent | the whole window, or beside the diff on a wide one (below) |
-| agent and shell | the agent on the left 60%, the shell on the right 40% |
+| agent and shell | the agent on the left, the shell on the right, half each |
 | agent and editor | the agent on the left 40%, the editor on the right 60% |
 | agent and diff | the agent on the left 40%, the diff on the right 60% |
 | with a shell too | the agent on the left, full height; the shell under the editor or the diff, a quarter high |

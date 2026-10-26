@@ -2496,7 +2496,7 @@ tool_remark() {
 # alone fills it. Beside it the right side holds one thing at a time, 60% wide, the agent
 # keeping the left 40%: the editor, or else the diff (diff_wanted, made and ended here, so
 # whatever leaves the slot brings it back). A shell sits under that one, a quarter of the
-# window high; with neither, it is a column on the right, 40% wide, full height. A window
+# window high; with neither, it is a column on the right, half the window, full height. A window
 # the agent has left (window_release) keeps the same rules without it, and without the diff.
 #
 # move-pane (tmux 3.2) puts a pane where it belongs whether it was there already or not, so
@@ -2539,7 +2539,7 @@ window_layout() {
     [ -z "$cl_s" ] || tmux resize-pane -t "$cl_s" -y $((cl_h / 4)) 2>/dev/null
   elif [ -n "$cl_s" ] && [ -n "$cl_v" ]; then
     tmux move-pane -d -h -f -s "$cl_s" -t "$cl_v" 2>/dev/null
-    tmux resize-pane -t "$cl_s" -x $((cl_w * 40 / 100)) 2>/dev/null
+    tmux resize-pane -t "$cl_s" -x $((cl_w / 2)) 2>/dev/null
   fi
 }
 

@@ -80,8 +80,8 @@ workspaces, `prefix E` the editor, `` prefix ` `` a shell, `prefix G` the diff,
 
 1. `prefix E` / `trails edit`: the editor on the right 60%, the agent on the
    left. Again goes back.
-2. `` prefix ` `` / `trails shell`: a shell in a column on the right, 40% wide,
-   or under the editor when it is open.
+2. `` prefix ` `` / `trails shell`: a shell in a column on the right, half the
+   window, or under the editor when it is open.
 3. `prefix G`: the diff beside the agent, Hunk, live, whole files, side by side;
    it gives way to the editor and comes back after. `G` again, or `q`, puts it
    away. `trails diff` (and `prefix G` without Hunk) is a popup of the changes,

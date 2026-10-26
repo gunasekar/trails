@@ -29,16 +29,16 @@ geom_is() { [ "$(geom "$1")" = "$2" ]; }
 W=$(tmux display-message -pt "$win" '#{window_width}')
 H=$(tmux display-message -pt "$win" '#{window_height}')
 
-# trails shell, with only the agent there: a shell pane on the right of the trail's window, 40%
-# wide, full height, in the codebase; the client is taken to it. The trail's session is untouched:
+# trails shell, with only the agent there: a shell pane on the right of the trail's window, half the
+# window wide, full height, in the codebase; the client is taken to it. The trail's session is untouched:
 # one window, one pane.
 type_in "$mine" "$TRAILS shell"
 wait_for 5 sh -c "[ \"\$(tmux list-panes -t '$win' | wc -l | tr -d ' ')\" = 2 ]" || fail "no shell pane in the trail's window"
 assert_eq "$(panes)" "agent shell " "the panes, marked"
 spane=$(tmux list-panes -t "$win" -F '#{pane_id} #{@trails_pane}' | awk '$2 == "shell" { print $1 }')
 assert_eq "$(tmux display-message -pt "$spane" '#{pane_current_path}')" "$PROJ" "a shell in the codebase"
-SW=$((W * 40 / 100))
-wait_for 5 geom_is "$spane" "$((W - SW)) 0 $SW $H" || fail "the shell: right, 40% wide, full height: got $(geom "$spane")"
+SW=$((W / 2))
+wait_for 5 geom_is "$spane" "$((W - SW)) 0 $SW $H" || fail "the shell: right, half the window, full height: got $(geom "$spane")"
 wait_for 5 on_window || fail "the client was not taken to the trail's window"
 assert_eq "$(client_at "$client" '#{pane_id}')" "$spane" "on the shell"
 assert_eq "$(tmux list-panes -t default/payments | wc -l | tr -d ' ')" 1 "the session still shows the agent alone"

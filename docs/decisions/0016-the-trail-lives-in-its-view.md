@@ -1,7 +1,8 @@
 # 16. The trail lives in its view, and the workspace shows it through a cell
 
 - Status: accepted; the layout since 1.7.2 is the agent on the left, the editor on the
-  right 60%, and the shell under the editor, or a 40% column on the right without one
+  right 60%, and the shell under the editor, or a column on the right without one: 40%
+  until 1.14.1, half the window since, so the agent's prompt has the room its text wraps at
   (`window_layout`)
 - Date: 2026-10
 

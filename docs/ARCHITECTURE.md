@@ -631,7 +631,7 @@ these are `tool`, `tool_find` and `tool_make`.
 
 `window_layout` decides where the panes go from which of them exist, whatever
 the order they were opened in: the agent alone fills the window; a shell with no
-editor pane is a column on the right, 40% wide, full height; an editor pane
+editor pane is a column on the right, half the window, full height; an editor pane
 takes the right 60% and the agent the left 40%; a shell with an editor pane sits
 under the editor only, a quarter high. It uses `move-pane` (tmux 3.2), which puts
 a pane where it belongs whether it was there already or not, then `resize-pane`
