@@ -1,6 +1,6 @@
 # trails from one terminal: the workspaces, a workspace's trails with the live preview, the
-# editor and a shell beside the agent, and the status line's workspaces, moved between with a
-# key.
+# diff beside the agent, then the editor in its place and a shell under it, and the status
+# line's workspaces, moved between with a key.
 #
 #   vhs assets/demo/trails.tape      (from the repo root; writes assets/trails.gif)
 #
@@ -62,7 +62,9 @@ Sleep 1s
 Type "demo_task acme/storefront ''; demo_task personal/blog ''; demo_task acme/checkout 'Add an idempotency key to Retry: one key per payment, sent on every attempt. Run the tests, then reply in one sentence.'; cd ~; export PS1='~ $ '; clear"
 Enter
 Wait+Line@90s /^~ \$\s*$/
-Sleep 500ms
+# Twenty seconds more off camera: the agent in checkout reads before it writes, and the diff
+# beside it should have something to show when the camera gets there.
+Sleep 20s
 Set TypingSpeed 55ms
 Show
 # From nowhere in particular: the workspaces, with what runs in each.
@@ -75,15 +77,20 @@ Type "acme"
 Sleep 600ms
 Enter
 Sleep 3.5s
-# The workspace's trails, in a popup, the live preview under them: down to checkout, open it.
+# The workspace's trails, in a popup, the live preview under them: checkout, typed (the rows
+# sort by who wants you, so a Down could land elsewhere), then open it.
 Ctrl+B
 Type "P"
 Sleep 3s
-Down
+Type "checkout"
 Sleep 3.5s
 Enter
 Sleep 2.5s
-# The editor beside the agent, then a shell along the bottom: one key each.
+# The agent's changes beside it, live, in Hunk: prefix G.
+Ctrl+B
+Type "G"
+Sleep 5s
+# The editor takes the diff's place, then a shell along the bottom: one key each.
 Ctrl+B
 Type "E"
 Sleep 3.5s

@@ -882,8 +882,9 @@ it in among them.
 `assets/trails.gif` and `assets/map.gif` are recorded with
 [VHS](https://github.com/charmbracelet/vhs) from `assets/demo/trails.tape` and
 `map.tape`, with the real Claude Code. The first is the tour, kept to the everyday loop: the
-workspaces, a workspace's trails with the live preview, the editor and a shell
-beside an agent, and the status line's workspaces. The
+workspaces, a workspace's trails with the live preview, the diff beside an agent,
+then the editor in its place and a shell under it, and the status line's
+workspaces. The
 second is the map: prefix M's pick, across two workspaces, and four agents at work
 in one window. Both give their agents small tasks, so a recording costs a little of
 your plan; the tour's runs one, the map's five.

@@ -47,6 +47,11 @@ unset TMUX TMUX_PANE XDG_DATA_HOME
 for v in $(env | grep -o -E '^CLAUDE[A-Z_]*='); do unset "${v%=}"; done
 demo_history="$XDG_STATE_HOME/trails/history"
 mkdir -p "$project/payments" "$TMUX_TMPDIR" "$demo/bin" "$XDG_CONFIG_HOME/trails" "$demo_history"
+# Hunk, the diff beside the agent, reads the recording machine's own config (its theme, no menu
+# bar) where it has one: the demo's XDG_CONFIG_HOME would otherwise hide it.
+if [ -f "$HOME/.config/hunk/config.toml" ]; then
+  mkdir -p "$XDG_CONFIG_HOME/hunk" && cp "$HOME/.config/hunk/config.toml" "$XDG_CONFIG_HOME/hunk/"
+fi
 ln -s "$here/agent" "$demo/bin/codex"
 printf '#!/bin/sh\nexec "%s" --settings "%s" "$@"\n' "$real_claude" "$here/../../plugins/trails/hooks/hooks.json" >"$demo/bin/claude"
 chmod +x "$demo/bin/claude"
