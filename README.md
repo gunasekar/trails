@@ -389,9 +389,9 @@ agent, and needs no `allow-passthrough`
 ([ADR 26](docs/decisions/0026-notifications-on-the-terminal.md)). It rides on
 the [hooks](#status-from-the-agents-hooks): a trail without them never notifies.
 
-kitty works out of the box. Which escape a terminal gets is set by its
+kitty and iTerm2 work out of the box. Which escape a terminal gets is set by its
 `client_termtype` (`tmux list-clients -F '#{client_termtype}'` shows it), so
-another terminal is a line in the config:
+another terminal that speaks OSC 9, 777 or 99 is a line in `terminals`:
 
 ```json
 "notify": {
@@ -414,6 +414,8 @@ another terminal is a line in the config:
 `"notify": false` turns it off. Each key left out keeps its default. With
 `osc99`, a trail's new notification replaces its last, and going back to work
 closes it; OSC 9 and 777 have no way to, so theirs stay until dismissed.
+A terminal that reports no type, as macOS Terminal does, can't be matched and gets
+nothing; it has no notification escape to take anyway.
 
 ### The editor, a shell and the diff
 

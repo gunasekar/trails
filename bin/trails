@@ -1052,8 +1052,10 @@ classify() {
 #     "idle_after": 30,                   your turn only after a turn this many seconds long
 #     "show": "always",                   osc99's o=: always, unfocused or invisible
 #     "sound": "system",                  osc99's s=: system, silent, or a sound's name
-#     "terminals": { "kitty*": "osc99" }  client_termtype globs, first match: osc99, osc9,
-#   }                                     osc777, or none
+#     "terminals": {                      client_termtype globs, first match: osc99, osc9,
+#       "kitty*": "osc99",                osc777, or none. iTerm2 shows OSC 9 as an Alert,
+#       "iTerm2*": "osc9" }               "Session <name>: ...", and takes no OSC 777
+#   }
 #
 # "notify": false turns it off. Each key falls back to the default above, terminals whole: a
 # terminal no glob matches, a nested client of trails' own included (termtype tmux), gets
@@ -1069,7 +1071,7 @@ NOTIFY_JQ='
           ($n.idle_after | if type == "number" and . >= 0 then floor else 30 end | tostring),
           ($n.show | if . == "always" or . == "unfocused" or . == "invisible" then . else "always" end),
           ($n.sound | if type == "string" and . != "" then . else "system" end)] | join("\u001f")),
-        (($n.terminals | if type == "object" then . else {"kitty*": "osc99"} end)
+        (($n.terminals | if type == "object" then . else {"kitty*": "osc99", "iTerm2*": "osc9"} end)
           | to_entries[] | select(.value | type == "string") | .key + "\t" + .value)
     end'
 

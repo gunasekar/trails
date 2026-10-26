@@ -33,8 +33,10 @@ OSC 777. Which terminal speaks which, and how well, varies and moves.
 - **Written to every attached client's tty**, whichever session it shows. No
   `allow-passthrough`, and an unattached trail notifies too.
 - **Which escape is the config's**, by the client's `#{client_termtype}`, matched
-  against globs: `"terminals": { "kitty*": "osc99" }` by default. trails knows the
-  formats (`osc99`, `osc9`, `osc777`), never which terminal speaks one. A client no
+  against globs: `"terminals": { "kitty*": "osc99", "iTerm2*": "osc9" }` by
+  default, each checked by hand (kitty 0.49.2, iTerm2 3.7.6, which takes no OSC
+  777). macOS Terminal reports no type and takes none of the three. trails knows
+  the formats (`osc99`, `osc9`, `osc777`), never which terminal speaks one. A client no
   glob matches gets nothing, a nested client of trails' own among them.
 - **Configurable whole** under `"notify"`: the words that notify (`on`),
   `idle_after`, OSC 99's `show` (`o=`, `always` by default) and `sound`, the
