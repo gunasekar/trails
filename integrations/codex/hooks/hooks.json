@@ -1,0 +1,81 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "trails state idle --agent codex 2>/dev/null || true",
+            "statusMessage": "Trails: session ready"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "trails state working --agent codex 2>/dev/null || true",
+            "statusMessage": "Trails: prompt started"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "trails state working --agent codex 2>/dev/null || true",
+            "statusMessage": "Trails: tool started"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "trails state working --agent codex 2>/dev/null || true",
+            "statusMessage": "Trails: tool finished"
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "trails state waiting --agent codex 2>/dev/null || true",
+            "statusMessage": "Trails: waiting for approval"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "trails state idle --agent codex 2>/dev/null || true",
+            "statusMessage": "Trails: turn finished"
+          }
+        ]
+      }
+    ],
+    "Interrupt": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "trails state idle --agent codex 2>/dev/null || true",
+            "statusMessage": "Trails: turn interrupted"
+          }
+        ]
+      }
+    ]
+  }
+}

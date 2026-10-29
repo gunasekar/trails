@@ -183,5 +183,45 @@ wait_for 5 state_is needs-you || fail "no session block, hook waiting: got $(sta
 
 # ── The Claude Code plugin is the hooks the README gives Claude, and never drifts ────────
 claude_doc=$(awk '/^##### Claude Code/ { c = 1 } c && /^```json/ { f = 1; next } f && /^```/ { exit } f' "$REPO/README.md")
-assert_eq "$(jq -S . "$REPO/plugins/trails/hooks/hooks.json")" "$(printf '%s\n' "$claude_doc" | jq -S .)" \
+assert_eq "$(jq -S . "$REPO/integrations/claude/hooks/hooks.json")" "$(printf '%s\n' "$claude_doc" | jq -S .)" \
   "the plugin's hooks are the docs' Claude hooks"
+
+# Portable templates stay aligned with setup instructions.
+for agent in codex cursor; do
+  case $agent in
+    codex) heading='##### Codex' ;;
+    cursor) heading='##### Cursor' ;;
+  esac
+  hook_doc=$(awk -v h="$heading" '$0 == h { c = 1 } c && /^```json/ { f = 1; next } f && /^```/ { exit } f' "$REPO/README.md")
+  assert_eq "$(jq -S . "$REPO/integrations/$agent/hooks/hooks.json")" "$(printf '%s\n' "$hook_doc" | jq -S .)" \
+    "$agent template matches its setup instructions"
+done
+
+# Native plugin manifests and marketplace entries resolve to the shipped hooks.
+for agent in claude codex cursor; do
+  plugin="$REPO/integrations/$agent"
+  manifest="$plugin/.$agent-plugin/plugin.json"
+  assert_eq "$(jq -r .name "$manifest")" trails "$agent plugin identity"
+  hook_path=$(jq -r '.hooks // "./hooks/hooks.json"' "$manifest")
+  assert_eq "$(jq -S . "$plugin/$hook_path")" "$(jq -S . "$plugin/hooks/hooks.json")" \
+    "$agent manifest resolves to its hooks"
+done
+assert_eq "$(jq -r '.plugins[] | select(.name == "trails") | .source' "$REPO/.claude-plugin/marketplace.json")" \
+  './integrations/claude' 'Claude marketplace resolves to its plugin'
+assert_eq "$(jq -r '.plugins[] | select(.name == "trails") | .source.path' "$REPO/.agents/plugins/marketplace.json")" \
+  './integrations/codex' 'Codex marketplace resolves to its plugin'
+
+# Cursor's pre-hooks must return valid protocol responses even if trails is missing.
+# Otherwise an observation hook could block a prompt or tool call.
+mkdir -p "$T/hook-bin"
+for event in beforeSubmitPrompt preToolUse beforeShellExecution beforeMCPExecution; do
+  command=$(jq -r --arg event "$event" '.hooks[$event][0].command' "$REPO/integrations/cursor/hooks/hooks.json")
+  out=$(PATH="$T/hook-bin" /bin/sh -c "$command" </dev/null 2>"$T/hook-stderr")
+  assert_eq "$?" 0 "$event succeeds without trails"
+  assert_eq "$(cat "$T/hook-stderr")" '' "$event hides missing trails errors"
+  case $event in
+    beforeSubmitPrompt) expected='{"continue":true}' ;;
+    *) expected='{"permission":"allow"}' ;;
+  esac
+  assert_eq "$(printf '%s\n' "$out" | jq -c .)" "$expected" "$event returns its protocol response"
+done

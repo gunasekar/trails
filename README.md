@@ -215,15 +215,16 @@ Without hooks, a trail is *unknown*.
 
 | Agent | Hooks go in | needs you |
 |---|---|---|
-| claude | the [Claude Code plugin](plugins/trails), or `~/.claude/settings.json` | yes |
-| codex | `~/.codex/hooks.json`, trusted with `/hooks` in codex | yes |
+| claude | the [Claude Code plugin](integrations/claude), or `~/.claude/settings.json` | yes |
+| codex | the [Codex plugin](integrations/codex), or `~/.codex/hooks.json`; trust with `/hooks` | yes |
 | gemini | `~/.gemini/settings.json` | yes |
 | copilot | `~/.copilot/hooks/trails.json` | no hook: reads *working* through a prompt |
-| cursor | `~/.cursor/hooks.json` | no hook: reads *working* through a prompt |
+| cursor | the [Cursor plugin](integrations/cursor), or `~/.cursor/hooks.json` | no hook: reads *working* through a prompt |
 | opencode | `~/.config/opencode/plugins/trails.js` | yes |
 
-Each hook ends in `2>/dev/null || true`: silent, never failing a turn, and
-inert outside tmux. With `--id`, a trail follows its conversation through
+Each status command ends in `2>/dev/null || true`: silent, never failing a turn,
+and inert outside tmux. Cursor pre-hooks also return the JSON response its protocol
+requires to let the prompt or tool call proceed. With `--id`, a trail follows its conversation through
 `/resume` and `/clear`, and a restore brings back the one it is in now.
 
 <a id="hooks-for-each-agent"></a>
@@ -267,17 +268,38 @@ Claude passes each hook a JSON object on stdin, `session_id` among it, and runs
 
 ##### Codex
 
-`~/.codex/hooks.json`. Codex runs a hook only once you have reviewed and trusted
-it: `/hooks` in codex.
+Install the plugin from a local checkout (run these in the Trails repository):
+
+```sh
+codex plugin marketplace add .
+codex plugin add trails@trails
+```
+
+Then open `/hooks` in Codex, review and trust the Trails hooks, and start a new
+session. Remove any manually installed Trails handlers first so they do not run
+twice. Keep unrelated hooks. The plugin is distributed through this repository;
+it is not listed in the public OpenAI plugin directory.
+
+For manual setup, copy [integrations/codex/hooks/hooks.json](integrations/codex/hooks/hooks.json) to `~/.codex/hooks.json`.
+If that file already exists, append these handlers to its matching event arrays
+instead of replacing it. Make sure `trails` is on the hook's `PATH`. Codex runs a
+hook only once you have reviewed and trusted it: `/hooks` in codex. Start a new
+session after trusting the hooks to run `SessionStart`.
+
+These hooks follow [Codex's lifecycle events](https://learn.chatgpt.com/docs/hooks):
+prompts and pre/post tool calls mark working, permission requests mark waiting,
+and session start, completion, or interruption mark idle.
 
 ```json
 {
   "hooks": {
-    "SessionStart": [{ "hooks": [{ "type": "command", "command": "trails state idle --agent codex 2>/dev/null || true" }] }],
-    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "trails state working --agent codex 2>/dev/null || true" }] }],
-    "PostToolUse": [{ "hooks": [{ "type": "command", "command": "trails state working --agent codex 2>/dev/null || true" }] }],
-    "Stop": [{ "hooks": [{ "type": "command", "command": "trails state idle --agent codex 2>/dev/null || true" }] }],
-    "PermissionRequest": [{ "hooks": [{ "type": "command", "command": "trails state waiting --agent codex 2>/dev/null || true" }] }]
+    "SessionStart": [{"hooks": [{"type": "command", "command": "trails state idle --agent codex 2>/dev/null || true", "statusMessage": "Trails: session ready"}]}],
+    "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "trails state working --agent codex 2>/dev/null || true", "statusMessage": "Trails: prompt started"}]}],
+    "PreToolUse": [{"hooks": [{"type": "command", "command": "trails state working --agent codex 2>/dev/null || true", "statusMessage": "Trails: tool started"}]}],
+    "PostToolUse": [{"hooks": [{"type": "command", "command": "trails state working --agent codex 2>/dev/null || true", "statusMessage": "Trails: tool finished"}]}],
+    "PermissionRequest": [{"hooks": [{"type": "command", "command": "trails state waiting --agent codex 2>/dev/null || true", "statusMessage": "Trails: waiting for approval"}]}],
+    "Stop": [{"hooks": [{"type": "command", "command": "trails state idle --agent codex 2>/dev/null || true", "statusMessage": "Trails: turn finished"}]}],
+    "Interrupt": [{"hooks": [{"type": "command", "command": "trails state idle --agent codex 2>/dev/null || true", "statusMessage": "Trails: turn interrupted"}]}]
   }
 }
 ```
@@ -320,15 +342,51 @@ field of its hook input holds the ID (not yet checked here).
 
 ##### Cursor
 
-`~/.cursor/hooks.json`. Cursor's CLI has been reported to skip `beforeSubmitPrompt`
-and `stop`, which its editor runs: check with `trails ls` after a turn.
+The native plugin is in [integrations/cursor](integrations/cursor). Load it from
+a local checkout:
+
+```sh
+cursor-agent --plugin-dir /absolute/path/to/trails/integrations/cursor
+```
+
+`--plugin-dir` applies to that invocation. To use it for trails launched by the
+picker, run `trails config` and append the same flag and absolute path to the
+Cursor agent's `program`, keeping its other fields. Trails splits `program` on
+spaces, so use a checkout path without spaces. A Cursor marketplace listing is
+not published yet. Local loading does not download plugin updates; update the
+checkout to pick up changes. See the [plugin setup](integrations/cursor/README.md).
+
+Use the plugin or manual hooks, not both. Keep unrelated hooks when removing old
+Trails handlers. Verify completion status with `trails ls` after an interactive turn. In a live
+headless check, tool hooks fired but prompt-submit and completion hooks did not;
+manual setup uses the same events and cannot fix skipped callbacks. This CLI also
+skips `sessionStart` with `--resume`, which Trails uses after creating a chat, so
+a new Cursor trail may stay unknown until a later hook fires.
+
+For manual setup, copy [integrations/cursor/hooks/hooks.json](integrations/cursor/hooks/hooks.json) to `~/.cursor/hooks.json`.
+If that file already exists, append these handlers to its matching event arrays
+instead of replacing it; keep `version: 1`. Make sure `trails` is on the hook's
+`PATH`, then restart Cursor CLI. These are global hooks and also apply to the editor.
+
+The [Cursor hooks](https://cursor.com/docs/hooks) mark prompts and pre/post tool
+calls working, and session start or completion idle. Shell and MCP hooks cover
+clients that skip generic tool events. There is no documented permission-request
+event, so a permission prompt still reads working. Older CLI versions have skipped
+`beforeSubmitPrompt` and `stop`: check with `trails ls` during and after a turn.
 
 ```json
 {
   "version": 1,
   "hooks": {
-    "beforeSubmitPrompt": [{ "command": "trails state working --agent cursor-agent 2>/dev/null || true" }],
-    "stop": [{ "command": "trails state idle --agent cursor-agent 2>/dev/null || true" }]
+    "sessionStart": [{"command": "trails state idle --agent cursor-agent 2>/dev/null || true"}],
+    "beforeSubmitPrompt": [{"command": "trails state working --agent cursor-agent 2>/dev/null || true; printf '%s\\n' '{\"continue\":true}'"}],
+    "preToolUse": [{"command": "trails state working --agent cursor-agent 2>/dev/null || true; printf '%s\\n' '{\"permission\":\"allow\"}'"}],
+    "postToolUse": [{"command": "trails state working --agent cursor-agent 2>/dev/null || true"}],
+    "beforeShellExecution": [{"command": "trails state working --agent cursor-agent 2>/dev/null || true; printf '%s\\n' '{\"permission\":\"allow\"}'"}],
+    "afterShellExecution": [{"command": "trails state working --agent cursor-agent 2>/dev/null || true"}],
+    "beforeMCPExecution": [{"command": "trails state working --agent cursor-agent 2>/dev/null || true; printf '%s\\n' '{\"permission\":\"allow\"}'"}],
+    "afterMCPExecution": [{"command": "trails state working --agent cursor-agent 2>/dev/null || true"}],
+    "stop": [{"command": "trails state idle --agent cursor-agent 2>/dev/null || true"}]
   }
 }
 ```
@@ -371,10 +429,10 @@ is the hook's job: trails takes what it is given.
 | Agent | Events | Conversation ID |
 |---|---|---|
 | claude | against 2.1.309 installed, the plugin validated | `session_id` on stdin, in its docs |
-| codex | its docs only, not installed | not yet |
+| codex | 0.165.0: plugin install and discovery checked; trusted user hooks reported working in a live trail; other transitions not all checked | not yet |
 | gemini | its docs only, not installed | not yet |
 | copilot | its docs only, not installed | not yet |
-| cursor | 2026.07.09 installed; reports say the CLI skips both | not yet |
+| cursor | 2026.10.22-27dcf5f: plugin start and tool/shell events fired; headless prompt/stop skipped; resume skips start; interactive completion unverified | not yet |
 | opencode | 2.0.25 installed; event names in its binary | not yet |
 
 </details>

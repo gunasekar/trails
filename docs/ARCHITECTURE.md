@@ -329,9 +329,12 @@ events that mean working (a prompt sent, a tool done; the second clears *waiting
 once a permission is granted), waiting (a permission prompt, a question) and idle (a
 session started, a turn ended), and where the agent can say it, the conversation.
 Getting the ID out of the agent is the snippet's job, in the agent's terms. The
-repo's Claude Code plugin, `plugins/trails`, carries Claude's; a test keeps it equal
-to the docs. Copilot and Cursor have no hook for a permission prompt, so their hooks
-say working through one.
+repo keeps each agent's hooks in `integrations/<agent>/`: each directory
+contains a native plugin manifest and `hooks/hooks.json`, also available for manual
+setup. Claude and Codex have repository marketplace catalogs; Cursor supports
+local loading through `--plugin-dir`. Tests keep the shipped hooks equal to the
+docs and check that plugin manifests and catalogs resolve to them. Copilot and
+Cursor have no hook for a permission prompt, so their hooks say working through one.
 
 ## Notifications
 

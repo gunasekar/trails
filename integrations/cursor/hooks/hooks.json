@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "command": "trails state idle --agent cursor-agent 2>/dev/null || true"
+      }
+    ],
+    "beforeSubmitPrompt": [
+      {
+        "command": "trails state working --agent cursor-agent 2>/dev/null || true; printf '%s\\n' '{\"continue\":true}'"
+      }
+    ],
+    "preToolUse": [
+      {
+        "command": "trails state working --agent cursor-agent 2>/dev/null || true; printf '%s\\n' '{\"permission\":\"allow\"}'"
+      }
+    ],
+    "postToolUse": [
+      {
+        "command": "trails state working --agent cursor-agent 2>/dev/null || true"
+      }
+    ],
+    "beforeShellExecution": [
+      {
+        "command": "trails state working --agent cursor-agent 2>/dev/null || true; printf '%s\\n' '{\"permission\":\"allow\"}'"
+      }
+    ],
+    "afterShellExecution": [
+      {
+        "command": "trails state working --agent cursor-agent 2>/dev/null || true"
+      }
+    ],
+    "beforeMCPExecution": [
+      {
+        "command": "trails state working --agent cursor-agent 2>/dev/null || true; printf '%s\\n' '{\"permission\":\"allow\"}'"
+      }
+    ],
+    "afterMCPExecution": [
+      {
+        "command": "trails state working --agent cursor-agent 2>/dev/null || true"
+      }
+    ],
+    "stop": [
+      {
+        "command": "trails state idle --agent cursor-agent 2>/dev/null || true"
+      }
+    ]
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "trails",
+  "version": "1.0.0",
+  "description": "Hooks that tell trails what each Cursor session is doing.",
+  "author": {
+    "name": "Gunasekaran Namachivayam"
+  },
+  "homepage": "https://github.com/gunasekar/trails",
+  "hooks": "./hooks/hooks.json"
+}
