@@ -215,11 +215,11 @@ Without hooks, a trail is *unknown*.
 
 | Agent | Hooks go in | needs you |
 |---|---|---|
-| claude | the [Claude Code plugin](integrations/claude), or `~/.claude/settings.json` | yes |
-| codex | the [Codex plugin](integrations/codex), or `~/.codex/hooks.json`; trust with `/hooks` | yes |
+| claude | the [Claude Code plugin](integrations/agents/claude), or `~/.claude/settings.json` | yes |
+| codex | the [Codex plugin](integrations/agents/codex), or `~/.codex/hooks.json`; trust with `/hooks` | yes |
 | gemini | `~/.gemini/settings.json` | yes |
 | copilot | `~/.copilot/hooks/trails.json` | no hook: reads *working* through a prompt |
-| cursor | the [Cursor plugin](integrations/cursor), or `~/.cursor/hooks.json` | no hook: reads *working* through a prompt |
+| cursor | the [Cursor plugin](integrations/agents/cursor), or `~/.cursor/hooks.json` | no hook: reads *working* through a prompt |
 | opencode | `~/.config/opencode/plugins/trails.js` | yes |
 
 Each status command ends in `2>/dev/null || true`: silent, never failing a turn,
@@ -280,7 +280,7 @@ session. Remove any manually installed Trails handlers first so they do not run
 twice. Keep unrelated hooks. The plugin is distributed through this repository;
 it is not listed in the public OpenAI plugin directory.
 
-For manual setup, copy [integrations/codex/hooks/hooks.json](integrations/codex/hooks/hooks.json) to `~/.codex/hooks.json`.
+For manual setup, copy [integrations/agents/codex/hooks/hooks.json](integrations/agents/codex/hooks/hooks.json) to `~/.codex/hooks.json`.
 If that file already exists, append these handlers to its matching event arrays
 instead of replacing it. Make sure `trails` is on the hook's `PATH`. Codex runs a
 hook only once you have reviewed and trusted it: `/hooks` in codex. Start a new
@@ -342,11 +342,11 @@ field of its hook input holds the ID (not yet checked here).
 
 ##### Cursor
 
-The native plugin is in [integrations/cursor](integrations/cursor). Load it from
+The native plugin is in [integrations/agents/cursor](integrations/agents/cursor). Load it from
 a local checkout:
 
 ```sh
-cursor-agent --plugin-dir /absolute/path/to/trails/integrations/cursor
+cursor-agent --plugin-dir /absolute/path/to/trails/integrations/agents/cursor
 ```
 
 `--plugin-dir` applies to that invocation. To use it for trails launched by the
@@ -354,7 +354,7 @@ picker, run `trails config` and append the same flag and absolute path to the
 Cursor agent's `program`, keeping its other fields. Trails splits `program` on
 spaces, so use a checkout path without spaces. A Cursor marketplace listing is
 not published yet. Local loading does not download plugin updates; update the
-checkout to pick up changes. See the [plugin setup](integrations/cursor/README.md).
+checkout to pick up changes. See the [plugin setup](integrations/agents/cursor/README.md).
 
 Use the plugin or manual hooks, not both. Keep unrelated hooks when removing old
 Trails handlers. Verify completion status with `trails ls` after an interactive turn. In a live
@@ -363,7 +363,7 @@ manual setup uses the same events and cannot fix skipped callbacks. This CLI als
 skips `sessionStart` with `--resume`, which Trails uses after creating a chat, so
 a new Cursor trail may stay unknown until a later hook fires.
 
-For manual setup, copy [integrations/cursor/hooks/hooks.json](integrations/cursor/hooks/hooks.json) to `~/.cursor/hooks.json`.
+For manual setup, copy [integrations/agents/cursor/hooks/hooks.json](integrations/agents/cursor/hooks/hooks.json) to `~/.cursor/hooks.json`.
 If that file already exists, append these handlers to its matching event arrays
 instead of replacing it; keep `version: 1`. Make sure `trails` is on the hook's
 `PATH`, then restart Cursor CLI. These are global hooks and also apply to the editor.

@@ -6,7 +6,7 @@ Requires `trails` on the hook's `PATH`.
 Load from a local checkout:
 
 ```sh
-cursor-agent --plugin-dir /absolute/path/to/trails/integrations/cursor
+cursor-agent --plugin-dir /absolute/path/to/trails/integrations/agents/cursor
 ```
 
 The flag applies to each invocation. To load the plugin in the Trails picker,

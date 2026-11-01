@@ -23,7 +23,7 @@ speaking for that agent's trail. The `SessionStart` hook also passes the convers
 `session_id` Claude gives each hook), so a trail follows Claude through `/resume`
 and `/clear`, and a restore brings back the conversation you were in.
 
-They are the hooks [the README](../../README.md#hooks-for-each-agent) gives for
+They are the hooks [the README](../../../README.md#hooks-for-each-agent) gives for
 `~/.claude/settings.json`; use the plugin or paste those, not both. Each is silent,
 never fails a turn, and does nothing outside tmux or when `trails` isn't on the
 hook's `PATH`.

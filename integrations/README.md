@@ -1,19 +1,11 @@
-# Agent integrations
+# Integrations
 
-Each directory packages Trails status hooks in the agent's native plugin format.
-The same `hooks/hooks.json` file can be installed manually; there is one source
-for both installation methods.
+Trails integrations use the native packaging of the agent or editor they run in.
+Install Trails separately; these packages connect it to another application.
 
-| Agent | Plugin setup | Manual destination |
-|---|---|---|
-| [Claude](claude) | `/plugin install trails@trails` after adding this repository's marketplace | Merge into `~/.claude/settings.json` |
-| [Codex](codex) | Local repository marketplace, then `codex plugin add trails@trails` | `~/.codex/hooks.json` |
-| [Cursor](cursor) | `cursor-agent --plugin-dir /absolute/path/to/trails/integrations/cursor` | `~/.cursor/hooks.json` |
+[Agent integrations](agents/README.md) live under `agents/` and report session
+status through hooks. Claude Code, Codex and Cursor each have their own plugin
+package and manual installation instructions. Cursor here refers to its agent hooks.
 
-Install the plugin or merge its hooks, not both. Keep unrelated handlers in existing
-configuration. `trails` must be on the agent's hook `PATH`. The hooks report status;
-they do not install Trails itself. Codex additionally requires trust review with
-`/hooks` after installation or hook changes.
-
-Codex and Cursor are not published in their public plugin directories. See each
-integration's README for local setup, update behavior, and verification limits.
+Editor packages belong under `editors/`, separate from the agent hook packages.
+Agent marketplace catalogs remain at the repository root and point into `agents/`.

@@ -57,7 +57,7 @@ fi
 # left alone. The demo's nvim (below) opens README.md with the tree where trails hands it `.`.
 [ -d "$HOME/.config/nvim" ] && ln -sfn "$HOME/.config/nvim" "$XDG_CONFIG_HOME/nvim"
 ln -s "$here/agent" "$demo/bin/codex"
-printf '#!/bin/sh\nexec "%s" --settings "%s" "$@"\n' "$real_claude" "$here/../../integrations/claude/hooks/hooks.json" >"$demo/bin/claude"
+printf '#!/bin/sh\nexec "%s" --settings "%s" "$@"\n' "$real_claude" "$here/../../integrations/agents/claude/hooks/hooks.json" >"$demo/bin/claude"
 chmod +x "$demo/bin/claude"
 real_tmux=$(command -v tmux)
 printf '#!/bin/sh\nexec "%s" -f "%s" "$@"\n' "$real_tmux" "$demo/tmux.conf" >"$demo/bin/tmux"

@@ -6,7 +6,7 @@
   "plugins": [
     {
       "name": "trails",
-      "source": "./integrations/claude",
+      "source": "./integrations/agents/claude",
       "description": "Hooks that tell trails what each Claude session is doing: working, waiting on you, or your turn."
     }
   ],

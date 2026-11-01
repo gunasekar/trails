@@ -91,7 +91,7 @@ the tool runs, its hook fires, and the agent is back at work.
 Where an agent has no *waiting* event, a hook still gives exact *working* and
 *your turn*; a permission prompt reads as *working* until it is answered.
 
-For Claude the repo carries a Claude Code plugin (`integrations/claude/` with
+For Claude the repo carries a Claude Code plugin (`integrations/agents/claude/` with
 `.claude-plugin/marketplace.json` at the root; its `hooks/hooks.json` is what
 `trails hooks claude` prints, and a test keeps them equal), so the install is:
 
