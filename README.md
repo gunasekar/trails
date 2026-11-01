@@ -625,7 +625,10 @@ attaches to it alone, so the panel shows that one trail.
 
 - **VS Code** (and Cursor): a terminal profile, `"trails": { "path": "/bin/zsh", "args": ["-lc", "exec trails"] }`
   under `terminal.integrated.profiles.osx`, then pick **trails** from the
-  new-terminal menu.
+  new-terminal menu. Or use
+  [PTYrig](https://marketplace.visualstudio.com/items?itemName=ptyrig.ptyrig)
+  with `"ptyrig.command": "trails"` for **Ctrl+\** hide/show and
+  **Ctrl+Shift+\** new session.
 - **Zed:** `"terminal_init_command": "exec trails"` under `agent`. Over ssh it
   runs on the host, where tmux keeps the agent alive across disconnects.
 - **Neovim:** a terminal running `trails` in a side panel.

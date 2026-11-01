@@ -174,6 +174,9 @@ session down with it, so no empty session is left.
 
 ### Where an attach lands
 
+Agent hooks live in `integrations/agents/<agent>/`. Editors do not ship a Trails
+package; they run `trails` in a terminal (or a generic harness such as PTYrig).
+
 An editor's terminal attaches to the trail's session; a terminal of your own
 attaches to the workspace on the trail's window (`attach -t '=ws:@window'`),
 made again first if you killed it. Inside tmux the first nests a client of the
