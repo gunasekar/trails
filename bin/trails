@@ -942,17 +942,19 @@ TASK_FMT='#{=45:#{?#{==:#{pane_title},#{host}},,#{s|^[^A-Za-z0-9 ]+ ||:pane_titl
 # editor's included. The agent's half goes up to the first " · " ([^·]: agent names have none,
 # a task may); the title that only repeats the codebase (TRAIL_TITLE's fallback), tmux's
 # hostname seed, or an agent's empty one says nothing, and shows nothing.
-STATUS_TASK_FMT='#{?@trails_window,#{?#{m:*·*,#{window_name}},,#{P:#{?#{==:#{@trails_pane},agent},#{?#{||:#{==:#{pane_title},#{@ag} · #{@dir}},#{==:#{pane_title},#{host}}},,#{?#{s|^[^·]* · ||:pane_title},#{=/40/…:#{s|^[^·]* · ||:pane_title}} · ,}},}}},}'
+STATUS_TASK_FMT='#{?@trails_window,#{?#{m:*·*,#{window_name}},,#{P:#{?#{==:#{@trails_pane},agent},#{?#{||:#{==:#{pane_title},#{s| [(]YOLO[)]$|*|:@ag} · #{@dir}},#{==:#{pane_title},#{host}}},,#{?#{s|^[^·]* · ||:pane_title},#{=/40/…:#{s|^[^·]* · ||:pane_title}} · ,}},}}},}'
 
 # The titles trails' sessions give the terminal they are shown in, set on each session as
 # trails makes it (set-titles and set-titles-string are session options), so they hold on
 # any tmux.conf and leave every other session's title to it.
 #
-# A trail's session: "claude · <task>", the agent and what it says it is working on, or its
-# directory before it says anything (tmux seeds pane_title with the host name). The trail
+# A trail's session: "claude · <task>" ("claude*" in YOLO mode), the agent and
+# what it says it is working on, or its directory before it says anything. tmux seeds
+# pane_title with the host name. The trail
 # is shown in its workspace and in the map through a tmux client of this session, so this
 # is that pane's title too: the map's borders are made from it (map).
-TRAIL_TITLE='#{@agent} · #{?#{==:#{pane_title},#{host}},#{b:pane_current_path},#{s|^[^A-Za-z0-9 ]+ ||:pane_title}}'
+# Compact only the displayed label; @agent/@ag keep (YOLO) for records and restoration.
+TRAIL_TITLE='#{s| [(]YOLO[)]$|*|:@agent} · #{?#{==:#{pane_title},#{host}},#{b:pane_current_path},#{s|^[^A-Za-z0-9 ]+ ||:pane_title}}'
 # A workspace and the map: "trails · <host>". Which codebase is the status line's to say;
 # which machine is what tells two terminals on trails apart.
 WS_TITLE='trails · #{host_short}'
@@ -2538,7 +2540,7 @@ EOF
 #
 # The trail window's pane-border-format: the agent, else what trails says a pane runs, else
 # what it runs.
-PANE_LABEL_FMT=' #{?@ag,#{@ag},#{?@trails_cmd,#{@trails_cmd},#{pane_current_command}}} '
+PANE_LABEL_FMT=' #{?@ag,#{s| [(]YOLO[)]$|*|:@ag},#{?@trails_cmd,#{@trails_cmd},#{pane_current_command}}} '
 #
 #   ensure_window WID KEY WS     WID is the agent's window, in the trail's session
 ensure_window() {
@@ -4466,9 +4468,9 @@ map_dir() { basename "$(tmux display-message -pt "$1" '#{session_path}' 2>/dev/n
 
 # The agent name for a map pane, stamped as @ag so the border can tell a real task from
 # the title-less fallback. Before an agent publishes a task, TRAIL_TITLE
-# falls back to "#{@agent} · #{b:pane_current_path}" — i.e. "claude · <dir>" — so the border
+# falls back to "<compact agent> · #{b:pane_current_path}" — i.e. "claude · <dir>" — so the border
 # would read "<dir> · claude · <dir>", the directory twice. The border composes that same
-# fallback string from @ag and @dir and, on a match, drops the task half (see below). Same
+# fallback string from the compact @ag label and @dir and, on a match, drops the task half (see below). Same
 # no-"=" rule as map_dir, and same source, so @agent is the value launch() wrote.
 map_agent() { tmux display-message -pt "$1" '#{@agent}' 2>/dev/null; }
 
@@ -4755,15 +4757,15 @@ map() {
   # ' · ' matches TRAIL_TITLE's separator so the three read as one string.
   #
   # The conditional drops the task half when it *is* the directory. Before an agent
-  # publishes a task, TRAIL_TITLE falls back to "#{@agent} · #{b:pane_current_path}",
+  # publishes a task, TRAIL_TITLE falls back to "<compact agent> · #{b:pane_current_path}",
   # so pane_title is "claude · <dir>" and the naive form doubled the directory
-  # ("<dir> · claude · <dir>"). Composing that fallback from the stamped @ag and @dir and
+  # ("<dir> · claude · <dir>"). Composing that fallback from the compact stamped @ag label and @dir and
   # comparing pane_title to it catches exactly that state and shows "<dir> · claude"; any
   # real task fails the match and prints whole. Transient either way — it self-corrects the
   # moment the agent sets a title — but the doubling is avoided rather than blinked through.
   tmux set-option -w -t "$build" pane-border-status top
   tmux set-option -w -t "$build" pane-border-format \
-    ' #{@dir} · #{?#{==:#{pane_title},#{@ag} · #{@dir}},#{@ag},#{pane_title}} '
+    ' #{@dir} · #{?#{==:#{pane_title},#{s| [(]YOLO[)]$|*|:@ag} · #{@dir}},#{s| [(]YOLO[)]$|*|:@ag},#{pane_title}} '
 
   # Land on the one that most wants you. By pane id, which cannot be re-numbered out from
   # under us by the re-tiling above the way an index can.

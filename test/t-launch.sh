@@ -77,6 +77,15 @@ trails_bg new fast other -y
 wait_for 5 screen_has default/fast 'agent (other)' || fail "the other agent never started"
 assert_match "$(screen default/fast)" 'yolo=1' "yolo flag passed"
 assert_eq "$(tmux display-message -pt default/fast '#{@agent}')" "other (YOLO)" "@agent with YOLO"
+assert_eq "$(tmux display-message -pt default/fast '#{T:set-titles-string}')" "other* · agent ready" "compact YOLO title"
+fast_label() {
+  fastwin=$(tmux list-windows -t default -F '#{window_id}|#{@trails_window}' | awk -F'|' '$2 == "default/fast" { print $1; exit }')
+  [ -n "$fastwin" ] && [ "$(tmux display-message -pt "$fastwin" '#{T:pane-border-format}')" = " other* " ]
+}
+wait_for 5 fast_label || fail "compact YOLO pane label"
+type_in default/fast 'title Reviewing · nested task'
+wait_for 5 sh -c "[ \"\$(tmux display-message -pt default/fast '#{T:set-titles-string}')\" = 'other* · Reviewing · nested task' ]" || fail "YOLO task title"
+
 assert_eq "$(sed -n 's/^yolo=//p' "$(trec default/fast)")" yolo "record yolo"
 wait_for 5 sh -c "[ \"\$(tmux list-windows -t default -F '#{window_name}' | sort | tr '\n' ' ')\" = 'proj·fast proj·payments ' ]" || fail "two windows: $(tmux list-windows -t default -F '#{window_name}' | tr '\n' ' ')"
 

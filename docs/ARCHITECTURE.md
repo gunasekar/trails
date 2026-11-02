@@ -95,10 +95,15 @@ the picker shows. The
 codebase label is the directory's basename with `.`, `:` and spaces turned into
 `_`, or `<repo>@<branch>` for a worktree.
 
+Terminal titles and agent pane borders use `agent*` for YOLO, or `agent` otherwise.
+This is a display transformation: `@agent`, `@ag`, records and restoration keep
+`agent (YOLO)`. Workspace task extraction and map fallback comparisons apply
+the same compact display transformation.
+
 trails titles the terminal its sessions are shown in, setting `set-titles` and
 `set-titles-string` on each session it makes, so the titles hold on any tmux.conf
 and every other session's stay the user's. A workspace, and the map, read
-`trails · <host>`. A trail's session reads `<agent> · <task>`, the task being the
+`trails · <host>`. A trail's session reads `<agent>[*] · <task>`, the task being the
 title the agent gives its pane (its directory until it gives one): the trail's
 window in the workspace and the map's panes show the trail through a tmux client of
 that session, so that title is their pane's title too, and the map's borders are
@@ -798,7 +803,7 @@ count ([ADR 23](decisions/0023-the-task-in-the-status-line-and-rename.md)):
 `status-right-length` raised to 80 to hold it. Nothing of trails runs for it
 either: `STATUS_TASK_FMT` finds the current window's agent pane with `#{P:}`,
 whichever pane is active, and reads its title, which is the trail's session's
-`<agent> · <task>`, so the task is the agent's terminal title as it changes. The
+`<agent>[*] · <task>`, so the task is the agent's terminal title as it changes. The
 agent's half goes up to the first ` · `; a title that only repeats the codebase,
 tmux's hostname seed or an empty one shows nothing, and so does a named trail, a
 `·` in its window's name, whose name says what it is for. At the right, not after
