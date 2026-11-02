@@ -98,7 +98,8 @@ codebase label is the directory's basename with `.`, `:` and spaces turned into
 Terminal titles and agent pane borders use `agent*` for YOLO, or `agent` otherwise.
 This is a display transformation: `@agent`, `@ag`, records and restoration keep
 `agent (YOLO)`. Workspace task extraction and map fallback comparisons apply
-the same compact display transformation.
+the same compact display transformation. Fallback comparisons also accept legacy
+`agent (YOLO)` titles from sessions created before the update.
 
 trails titles the terminal its sessions are shown in, setting `set-titles` and
 `set-titles-string` on each session it makes, so the titles hold on any tmux.conf

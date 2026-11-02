@@ -36,6 +36,18 @@ type_in "$s" 'title '
 wait_for 5 bar_is "" || fail "an empty title: '$(bar)'"
 tmux select-pane -t "$cell.0" -T 'stub · proj'
 wait_for 5 bar_is "" || fail "the codebase's name alone: '$(bar)'"
+# YOLO display labels must not leak the directory into the workspace task field.
+tmux set-option -w -t "$wid" @agent 'stub (YOLO)'
+tmux set-option -p -t "$cell.0" @ag 'stub (YOLO)'
+tmux select-pane -t "$cell.0" -T 'stub* · proj'
+wait_for 5 bar_is "" || fail "YOLO directory fallback: '$(bar)'"
+tmux select-pane -t "$cell.0" -T 'stub (YOLO) · proj'
+wait_for 5 bar_is "" || fail "legacy YOLO directory fallback: '$(bar)'"
+type_in "$s" 'title Reviewing · nested task'
+wait_for 5 bar_is "Reviewing · nested task · " || fail "YOLO task extraction: '$(bar)'"
+tmux set-option -w -t "$wid" @agent stub
+tmux set-option -p -t "$cell.0" @ag stub
+
 # Long ones are cut.
 type_in "$s" 'title Almanac readiness review and Hawkeye sessions'
 wait_for 5 bar_is "Almanac readiness review and Hawkeye ses… · " || fail "a long task: '$(bar)'"

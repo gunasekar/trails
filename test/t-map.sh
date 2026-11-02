@@ -7,7 +7,7 @@ t_setup
 trails_bg new payments
 wait_for 5 screen_has default/payments 'agent id=' || fail "payments never started"
 mkdir -p "$T/other"
-DRIVER_DIR=$T/other driver "$TRAILS" new ledger
+DRIVER_DIR=$T/other driver "$TRAILS" new ledger -y
 wait_for 5 screen_has default/ledger 'agent id=' || fail "ledger never started"
 
 # ledger asks a question, so it is the one that most wants you: pane 0 of the map.
@@ -23,8 +23,16 @@ assert_eq "$(tmux display-message -pt 'trails_map:0.0' '#{@dir}')" other "pane 0
 # Its border names the trail, with no set-titles in tmux.conf (this server has none): trails
 # turns titles on in the sessions it makes, so a pane's title is the trail's, not the host's.
 assert_eq "$(tmux show -gv set-titles)" off "no set-titles of the user's"
-wait_for 5 sh -c "tmux display -pt trails_map:0.0 '#{pane_title}' | grep -qx 'stub · ledger ready'" ||
+wait_for 5 sh -c "tmux display -pt trails_map:0.0 '#{pane_title}' | grep -qx 'stub[*] · ledger ready'" ||
   fail "the border reads $(tmux display -pt trails_map:0.0 '#{pane_title}'), not the trail"
+
+# The compact YOLO label is also used when suppressing a repeated directory.
+tmux select-pane -t 'trails_map:0.0' -T 'stub* · other'
+assert_eq "$(tmux display -pt trails_map:0.0 '#{T:pane-border-format}')" " other · stub* " "YOLO directory fallback"
+tmux select-pane -t 'trails_map:0.0' -T 'stub (YOLO) · other'
+assert_eq "$(tmux display -pt trails_map:0.0 '#{T:pane-border-format}')" " other · stub* " "legacy YOLO directory fallback"
+type_in default/ledger 'title Reviewing · nested task'
+wait_for 5 sh -c "tmux display -pt trails_map:0.0 '#{T:pane-border-format}' | grep -Fxq ' other · stub* · Reviewing · nested task '" || fail "YOLO map task"
 
 # A killed trail's window changes nothing for the map: the trail lives in its session.
 tmux kill-session -t trails_map
