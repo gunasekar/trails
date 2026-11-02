@@ -636,6 +636,15 @@ attaches to it alone, so the panel shows that one trail.
 trails tells an editor's terminal by the variables editors set (`NVIM`,
 `ZED_TERM`, `TERM_PROGRAM`); `TRAILS_ATTACH=session` or `=workspace` settles it.
 
+Terminal titles use `agent · activity`, or `agent* · activity` in YOLO mode.
+For example: `codex* · Fixing login bug`. The activity follows the title published
+by the agent; before that, Trails uses its current directory. The `*` is a
+compact display marker; picker labels and stored launch modes retain their
+existing YOLO representation. Existing tmux sessions keep the title format they
+were created with until recreated; their directory fallback is still recognized.
+Editors can follow these standard terminal titles
+without a Trails-specific reporting hook or extension.
+
 ## Commands
 
 | Command | Does |
