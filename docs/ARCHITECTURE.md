@@ -448,12 +448,23 @@ matches it as 1.7 did, by session and conversation. The wrapper of such a trail 
 `--forget SESSION`, and its record is found by `session=`.
 
 **A record belongs to one tmux server**, the socket's name from the config's
-`server` (default `trails`, or what `-L` named). Trails always talks to that
-socket: empty or missing `server` means `trails`; `"server": "default"` shares
-the ordinary tmux server. A record counts as lost, and is restored, only on its
-own server: on any other, every trail of the first would look dead, and restoring
-them there would run each conversation twice. A record from before 1.6 has no
-`server` and counts as `default`.
+`server` (or `TRAILS_SOCKET`, or what `-L` named). Trails always talks to that
+socket. Resolution:
+
+| Config `server` | Session records | Socket used |
+|---|---|---|
+| `"NAME"` | (any) | `NAME` |
+| `""` | (any) | `trails` |
+| key absent, no legacy records | (none, or already on `trails` / another non-default) | `trails` |
+| key absent, legacy on default | `server=default` and/or no `server=` line, and none on another socket | `default`, and the key is written as `"default"` once |
+| `TRAILS_SOCKET` set | (any) | that value (empty → `trails`) |
+
+A record counts as lost, and is restored, only on its own server: on any other,
+every trail of the first would look dead, and restoring them there would run each
+conversation twice. A record with no `server=` line means `trails` — the same as
+an empty config value — after untagged legacy records have been stamped
+`server=default` during the pin above. `rec_write` always stores the socket the
+trail was started on.
 
 **The ID is chosen up front.** `trails` generates it and starts the agent under it
 (`claude --session-id`, `opencode --session`), then resumes by it (`--resume`,

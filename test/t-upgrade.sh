@@ -20,7 +20,7 @@ grep -v '^trail=\|^session=' "$new_file" >"$STATE/default/payments"
 rm -f "$new_file"
 tmux set-option -wu -t default/payments @trails_trail
 # And a lost one, with no window at all.
-printf 'agent=stub\ndir=%s\nid=conv-lost\nyolo=\ntask=Old work\nworkspace=default\nlabel=proj\nname=\n' "$PROJ" >"$STATE/default/proj-9"
+printf 'agent=stub\ndir=%s\nid=conv-lost\nyolo=\ntask=Old work\nworkspace=default\nlabel=proj\nname=\nserver=default\n' "$PROJ" >"$STATE/default/proj-9"
 
 out=$(cd "$PROJ" && "$TRAILS" ls | cat)
 assert_no_file "$STATE/default/payments" "the old record moved"

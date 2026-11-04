@@ -31,8 +31,8 @@ assert_match "$(dumped "$T/d1" 1 | head -n 1 | cut -f3)" '^lattiq +nothing runni
 # Two lost trails in a workspace list it once (rec_ws prints no newline of its own). Written
 # as 1.7 wrote them, so the run moves them to 1.8's layout first (rec_migrate).
 mkdir -p "$STATE/personal"
-printf 'agent=stub\ndir=%s\nid=a\nyolo=\ntask=\nworkspace=personal\nlabel=x\nname=\n' "$T/.dotfiles" >"$STATE/personal/x"
-printf 'agent=stub\ndir=%s\nid=b\nyolo=\ntask=\nworkspace=personal\nlabel=y\nname=\n' "$T/.dotfiles" >"$STATE/personal/y"
+printf 'agent=stub\ndir=%s\nid=a\nyolo=\ntask=\nworkspace=personal\nlabel=x\nname=\nserver=default\n' "$T/.dotfiles" >"$STATE/personal/x"
+printf 'agent=stub\ndir=%s\nid=b\nyolo=\ntask=\nworkspace=personal\nlabel=y\nname=\nserver=default\n' "$T/.dotfiles" >"$STATE/personal/y"
 rm -f "$T/d1b"
 DRIVER_DIR=$T FZF_PICK='' FZF_DUMP=$T/d1b driver "$TRAILS"
 wait_for 5 test -s "$T/d1b" || fail "the workspace picker never reached fzf"

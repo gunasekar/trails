@@ -218,9 +218,11 @@ TRAILS_NAME=
 #                  installed.
 #   notify         desktop notifications on the terminals attached, when a trail needs you
 #                  or ends its turn (see "Notifications"); false turns them off.
-#   server         the tmux socket name trails uses (`tmux -L NAME`). Default and empty
-#                  string both mean "trails": a dedicated server, apart from the ordinary
-#                  default one. Set "default" to share the ordinary server instead.
+#   server         the tmux socket name trails uses (`tmux -L NAME`). Empty string means
+#                  "trails" (dedicated). A missing key also means "trails", except when
+#                  upgrading: session records still on the ordinary default server pin the
+#                  config to "default" once so lost trails are not hidden. Set "default" to
+#                  stay on the ordinary server; set "trails" (or "") and restore to move.
 #
 # Without a file, the built-in agents below apply; `trails config` writes them out as a
 # starting point. Only agents whose command is on PATH are offered, so listing an agent you
@@ -231,23 +233,103 @@ TRAILS_NAME=
 #
 # Ended trails (closed rows) come from trails' own history, not the agents' (see "History").
 CONFIG=${XDG_CONFIG_HOME:-$HOME/.config}/trails/config.json
+# Session records live here; needed early so server migration can see legacy records before
+# any tmux call. Redefined with the same value beside the wrapper below.
+STATE_DIR=${XDG_STATE_HOME:-$HOME/.local/state}/trails/sessions
 
-# The tmux socket trails talks to (`tmux -L`). Dedicated "trails" by default so agents
-# are not on whatever server a terminal first started; empty or missing reads as "trails".
-# "server": "default" keeps the pre-dedicated behaviour (the ordinary tmux server).
-# TRAILS_SOCKET overrides the config (the test suite pins "default" on its throwaway server).
+# The tmux socket trails talks to (`tmux -L`).
+#
+#   TRAILS_SOCKET          overrides the config when set (tests pin "default")
+#   "server": "NAME"       that socket
+#   "server": ""           trails (dedicated socket)
+#   no "server" key        trails — except a one-time legacy pin: if session records still
+#                          belong to the ordinary default server (server=default, or no
+#                          server= line at all from before this setting), keep "default" and
+#                          write it into the config so the next run is explicit
+#
+# A record's server= matches the same names. Missing server= means trails — the same default
+# as an empty config value — after legacy records have been stamped (server_migrate).
+#
+# server_name $1 → the socket name to use for a raw config value (empty → trails).
+server_name() {
+  case ${1:-} in
+    '') printf trails ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+# Session records that still look like the pre-dedicated-socket world: explicitly on
+# default, or with no server= line (and none already on another socket).
+server_legacy_default() {
+  [ -d "$STATE_DIR" ] || return 1
+  any= other=
+  for f in "$STATE_DIR"/*/*; do
+    [ -f "$f" ] || continue
+    case $f in *.tmp.*) continue ;; esac
+    s=$(sed -n 's/^server=//p' "$f" | head -n 1)
+    case $s in
+      '' | default) any=1 ;;
+      *) other=1; break ;;
+    esac
+  done
+  [ -z "$other" ] && [ -n "$any" ]
+}
+
+# Write "server": NAME into the config without disturbing the rest. No-op without a file.
+server_config_set() {
+  [ -f "$CONFIG" ] && command -v jq >/dev/null 2>&1 || return 0
+  jq --arg s "$1" '.server = $s' "$CONFIG" >"$CONFIG.tmp" && [ -s "$CONFIG.tmp" ] &&
+    cat "$CONFIG.tmp" >"$CONFIG" && rm -f "$CONFIG.tmp" || {
+    rm -f "$CONFIG.tmp"
+    return 1
+  }
+}
+
+# Put server=NAME on every session record that lacks a server= line.
+server_stamp_untagged() {
+  [ -d "$STATE_DIR" ] || return 0
+  find "$STATE_DIR" -mindepth 2 -maxdepth 2 -type f ! -name '*.tmp.*' 2>/dev/null |
+    while IFS= read -r f; do
+      grep -q '^server=' "$f" 2>/dev/null && continue
+      { cat "$f" && printf 'server=%s\n' "$1"; } >"$f.tmp.$$" 2>/dev/null &&
+        mv -f "$f.tmp.$$" "$f"
+      rm -f "$f.tmp.$$"
+    done
+}
+
+# Resolve TRAILS_SERVER, pin a legacy install to "default" once, and stamp untagged records.
 load_server() {
   if [ -n "${TRAILS_SOCKET:-}" ]; then
-    s=$TRAILS_SOCKET
-  elif [ -f "$CONFIG" ] && command -v jq >/dev/null 2>&1; then
-    s=$(jq -r 'if (.server | type) == "string" then .server else empty end' "$CONFIG" 2>/dev/null) || s=
-  else
-    s=
+    s=$(server_name "$TRAILS_SOCKET")
+    server_stamp_untagged "$s"
+    printf '%s' "$s"
+    return
   fi
-  case $s in
-    '') printf trails ;;
-    *) printf '%s' "$s" ;;
-  esac
+  cfg_has=
+  cfg_val=
+  if [ -f "$CONFIG" ] && command -v jq >/dev/null 2>&1; then
+    if jq -e 'has("server")' "$CONFIG" >/dev/null 2>&1; then
+      cfg_has=1
+      cfg_val=$(jq -r 'if (.server | type) == "string" then .server else empty end' "$CONFIG" 2>/dev/null) || cfg_val=
+    fi
+  fi
+  if [ -n "$cfg_has" ]; then
+    s=$(server_name "$cfg_val")
+    server_stamp_untagged "$s"
+    printf '%s' "$s"
+    return
+  fi
+  # No "server" key: keep an existing default-socket install there, once, so upgrading does
+  # not hide lost trails on a new -L trails server the records were never written for.
+  if server_legacy_default; then
+    server_config_set default 2>/dev/null &&
+      echo "trails: your trails are on the ordinary tmux server — wrote \"server\": \"default\" to $CONFIG (set \"trails\" and restore to move them)" >&2
+    server_stamp_untagged default
+    printf default
+    return
+  fi
+  server_stamp_untagged trails
+  printf trails
 }
 TRAILS_SERVER=$(load_server)
 
@@ -800,8 +882,10 @@ US=$(printf '\037')
 # put back to the byte, and keeps tmux's exit status. tmux escapes no backslash, so a \037
 # in that output can only be the separator. The x keeps a trailing newline that $(...) would strip.
 tmux() {
-  case " $* " in
-    *" -L "* | *" -S "*) ;;
+  # Only the leading flag counts: a pane command string may embed "tmux -L …" (attach_cmd)
+  # and must not stop us prepending our own -L.
+  case ${1:-} in
+    -L | -S) ;;
     *) set -- -L "$TRAILS_SERVER" "$@" ;;
   esac
   case $* in
@@ -3201,7 +3285,9 @@ EOF
 rec_is_dead() {
   [ -f "$(rec_path "$1")" ] || return 1
   rid_srv=$(rec_get "$1" server)
-  [ "${rid_srv:-default}" = "$(tmux_server)" ] || return 1
+  # Missing server= means the same as a missing config "server": trails (not the
+  # ordinary tmux socket named default).
+  [ "${rid_srv:-trails}" = "$(tmux_server)" ] || return 1
   rid_alive=${ALIVE:-$(tmux list-windows -a -F "#{@trails_trail}${US}#{@trails_session}${US}#{@trails_id}" 2>/dev/null)}
   ! printf '%s\n' "$rid_alive" | grep -q "^$1$US" &&
     ! printf '%s\n' "$rid_alive" | grep -qxF "$US$(rec_get "$1" session)$US$(rec_get "$1" id)"

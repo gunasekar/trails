@@ -697,7 +697,7 @@ and opens the file.
 | `agents` | what the picker can start: `name`, `program` (split on spaces), `yolo` (the flag Tab adds), `session` (how to restore it, below). Only agents on `PATH` are offered |
 | `default_agent` | listed first |
 | `mode` | `default` or `yolo`: the mode a new trail starts in; Tab flips it |
-| `server` | tmux socket name (`tmux -L NAME`). Default and empty both mean `trails`. Use `default` to share the ordinary tmux server |
+| `server` | tmux socket name (`tmux -L NAME`). Empty means `trails`. A missing key means `trails` too, except an upgrade that still has records on the ordinary server pins `"default"` once. Use `default` to stay there; set `trails` and `trails restore` to move |
 | `workspaces` | see [Workspaces](#workspaces) |
 | `data` | a folder for each codebase's checklist; `.trails/checklist.md` in the codebase without it |
 | `diff` | what shows the diff: see [the diff](#the-editor-a-shell-and-the-diff) |

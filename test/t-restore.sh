@@ -66,8 +66,8 @@ wait_for 5 sh -c "tmux list-clients -F '#{session_name} #{window_id}' | grep -qx
 # record unreadable. The conversation it pointed to is named, since it stays in the agent's
 # own history.
 mkdir -p "$STATE/default"
-printf 'agent=stub\ndir=%s\nid=conv-1\nyolo=\ntask=\nworkspace=default\n' "$T/nowhere" >"$STATE/default/gone"
-printf 'id=conv-2\n' >"$STATE/default/broken"
+printf 'agent=stub\ndir=%s\nid=conv-1\nyolo=\ntask=\nworkspace=default\nserver=default\n' "$T/nowhere" >"$STATE/default/gone"
+printf 'id=conv-2\nserver=default\n' >"$STATE/default/broken"
 out=$(cd "$T" && "$TRAILS" restore 2>&1)
 assert_match "$out" "forgot default/gone — $T/nowhere is gone \(conversation conv-1 stays in the history of stub\)" "a gone directory, said so"
 assert_match "$out" "forgot default/broken — its record was unreadable" "an unreadable record, said so"
