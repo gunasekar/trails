@@ -26,9 +26,9 @@ pick, and brings them back after tmux or the machine goes down.
   the trail.
 - **An agent is known by its config and its hooks, never its files.** Every agent
   is equal, and an agent's release can't break trails.
-- **tmux does the work.** No daemon and no server of its own: a trail is a tmux
-  session, so anything that speaks tmux can reach it, and uninstalling trails
-  leaves ordinary tmux behind.
+- **tmux does the work.** A trail is a tmux session on trails' own socket
+  (`tmux -L trails` by default), so anything that speaks tmux can reach it, and
+  uninstalling trails leaves ordinary tmux behind.
 
 It is not for running a swarm of agents and shipping what comes back unread, and
 it has no chat window of its own: the agent's interface is the agent's.
@@ -48,7 +48,8 @@ recommended for the diff, and `curl` keeps the picker's preview live.
 
 1. **Put trails on tmux's keys.** One line in `~/.config/tmux/tmux.conf` (or
    `~/.tmux.conf`) loads them from the installed trails, so they follow every
-   upgrade; reload tmux after adding it:
+   upgrade; reload tmux after adding it. Trails uses its own tmux socket
+   (`trails` by default), and the same conf is read when that server starts:
 
    ```tmux
    run-shell "trails keys | tmux source-file -"
@@ -600,14 +601,14 @@ brew services start trails
 ```
 
 That runs `trails boot` at login: a launch agent on macOS, a systemd user
-unit on Linux. It starts tmux, brings back the lost trails without waiting for
-a terminal, and starts tmux again after a crash or a `kill-server`. The server
-takes your login shell's environment, so put the `PATH` your agents need in
-`~/.zprofile` or `~/.zshenv` (or bash's `~/.bash_profile`), not only in
-`~/.zshrc`. `brew services stop trails` stops it, and with it every trail; they
-come back as lost, as after a reboot. While a server a terminal started is still
-up, the service waits for it to go. Its log is
-`$(brew --prefix)/var/log/trails-boot.log`.
+unit on Linux. It starts tmux on the configured socket (`trails` by default),
+brings back the lost trails without waiting for a terminal, and starts tmux
+again after a crash or a `kill-server`. The server takes your login shell's
+environment, so put the `PATH` your agents need in `~/.zprofile` or `~/.zshenv`
+(or bash's `~/.bash_profile`), not only in `~/.zshrc`. `brew services stop trails`
+stops it, and with it every trail; they come back as lost, as after a reboot.
+While another process already holds that socket, the service waits for it to go.
+Its log is `$(brew --prefix)/var/log/trails-boot.log`.
 
 ### The map
 
@@ -676,6 +677,7 @@ and opens the file.
 {
   "mode": "default",
   "default_agent": "claude",
+  "server": "trails",
   "agents": [
     {
       "name": "claude",
@@ -695,6 +697,7 @@ and opens the file.
 | `agents` | what the picker can start: `name`, `program` (split on spaces), `yolo` (the flag Tab adds), `session` (how to restore it, below). Only agents on `PATH` are offered |
 | `default_agent` | listed first |
 | `mode` | `default` or `yolo`: the mode a new trail starts in; Tab flips it |
+| `server` | tmux socket name (`tmux -L NAME`). Default and empty both mean `trails`. Use `default` to share the ordinary tmux server |
 | `workspaces` | see [Workspaces](#workspaces) |
 | `data` | a folder for each codebase's checklist; `.trails/checklist.md` in the codebase without it |
 | `diff` | what shows the diff: see [the diff](#the-editor-a-shell-and-the-diff) |
@@ -738,6 +741,7 @@ bypass a sandbox.
 | Variable | Default | Does |
 |---|---|---|
 | `TRAILS_ATTACH` | *(unset)* | `session` or `workspace`: where picking a trail lands, instead of guessing from the editor's variables |
+| `TRAILS_SOCKET` | *(config `server`)* | tmux socket name; overrides `server` in the config (empty still means `trails`) |
 | `TRAILS_RECENT_DAYS` | `10` | how far back closed trails are listed |
 | `TRAILS_RECENT_MAX` | `5` | how many of them to show (`0` for none) |
 

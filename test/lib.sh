@@ -7,6 +7,9 @@
 #                                          are the test's own
 #   TMUX_TMPDIR                            puts the tmux socket there, so plain `tmux`
 #                                          inside trails reaches a private server
+#   TRAILS_SOCKET=default                  trails' configured socket is "trails" by
+#                                          default; tests keep the ordinary name so bare
+#                                          `tmux` and trails share one server under TMUX_TMPDIR
 #   TMUX, TMUX_PANE                        unset, so trails thinks it is outside tmux
 #                                          even when the tests run inside one
 #   TERM_PROGRAM, NVIM, ZED_TERM, TRAILS_ATTACH
@@ -26,11 +29,12 @@ t_setup() {
   XDG_CONFIG_HOME=$T/.config
   XDG_STATE_HOME=$T/.local/state
   TMUX_TMPDIR=$T
+  TRAILS_SOCKET=default
   # The picker's temp folders, and its clearing of day-old ones, in the test's own.
   TMPDIR=$T/tmp
   mkdir -p "$TMPDIR"
   PATH=$REPO/test/bin:$PATH
-  export HOME XDG_CONFIG_HOME XDG_STATE_HOME TMUX_TMPDIR TMPDIR PATH
+  export HOME XDG_CONFIG_HOME XDG_STATE_HOME TMUX_TMPDIR TMPDIR PATH TRAILS_SOCKET
   unset TMUX TMUX_PANE TERM_PROGRAM NVIM ZED_TERM TRAILS_ATTACH TRAILS_CLIENT
   # A UTF-8 locale for the tmux server the first driver starts, as a terminal has. With none
   # (CI's runner) tmux 3.4 rewrites what it can't print as _ (the · in a window's name, the
@@ -72,6 +76,7 @@ t_config() {
 {
   "mode": "default",
   "default_agent": "stub",
+  "server": "default",
   "agents": [
     { "name": "stub", "program": "agent", "yolo": "--yolo",
       "session": { "start": "--session-id {id}", "resume": "--resume {id}", "id": "uuid",

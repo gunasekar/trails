@@ -238,11 +238,13 @@ is read off the key against the codebase label and the name, never off a name al
 
 What tmux is asked for comes back with its fields between `$US`, the unit
 separator, never `|` (a directory may hold one) nor a tab (the shell reads a tab
-as whitespace and drops empty fields). tmux 3.4 and 3.5 print a control character
+as whitespace and drops empty fields). Every call goes through trails' `tmux`
+function, which prepends `-L` and the config's `server` (default `trails`) unless
+the caller already passed `-L` or `-S`. tmux 3.4 and 3.5 print a control character
 in a format's output escaped, `$US` as the four characters `\037`, where 3.3 and
-3.8 print the byte; so trails' `tmux` function puts the byte back in the output of
-any command whose arguments carry `$US`, keeping tmux's exit status. tmux escapes
-no backslash, so `\037` there can only be the separator. A `read` with that IFS is never fed a
+3.8 print the byte; so the same function puts the byte back in the output of any
+command whose arguments carry `$US`, keeping tmux's exit status. tmux escapes no
+backslash, so `\037` there can only be the separator. A `read` with that IFS is never fed a
 command substitution of its own: its IFS would split the substitution's words.
 
 A key trails is handed (by the picker, the map) is checked by `key_ok`: a
@@ -417,7 +419,7 @@ task=Fixing the flaky test
 workspace=lattiq
 label=augur
 name=
-server=default
+server=trails
 trail=t3f9a
 session=lattiq/augur-3f9a
 ```
@@ -445,11 +447,13 @@ the same time). A trail still running from before has no `@trails_trail`: the ne
 matches it as 1.7 did, by session and conversation. The wrapper of such a trail calls
 `--forget SESSION`, and its record is found by `session=`.
 
-**A record belongs to one tmux server**, the socket's name (`default`, or what `-L`
-named). A record counts as lost, and is restored, only on its own server: on any
-other, every trail of the first would look dead, and restoring them there would run
-each conversation twice. A record from before 1.6 has no `server` and counts as
-`default`.
+**A record belongs to one tmux server**, the socket's name from the config's
+`server` (default `trails`, or what `-L` named). Trails always talks to that
+socket: empty or missing `server` means `trails`; `"server": "default"` shares
+the ordinary tmux server. A record counts as lost, and is restored, only on its
+own server: on any other, every trail of the first would look dead, and restoring
+them there would run each conversation twice. A record from before 1.6 has no
+`server` and counts as `default`.
 
 **The ID is chosen up front.** `trails` generates it and starts the agent under it
 (`claude --session-id`, `opencode --session`), then resumes by it (`--resume`,

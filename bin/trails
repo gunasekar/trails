@@ -54,7 +54,8 @@
 # transcript into a *new* process) as the only way back. Held in tmux the process
 # stays alive, so reconnecting re-attaches to the running conversation with nothing to
 # resume. Every frontend goes through this one script; the same trail is reachable
-# from a plain terminal with `tmux a -t <workspace>/<codebase>`.
+# from a plain terminal with `tmux -L trails a -t <workspace>/<codebase>` (or whatever
+# socket name the config's "server" sets).
 
 # LAUNCH_DETACHED belongs to restore_one alone (see there). One inherited from the
 # environment is a leak from a trails before 0.4.2, which exported it into tmux; clear it so it
@@ -217,6 +218,9 @@ TRAILS_NAME=
 #                  installed.
 #   notify         desktop notifications on the terminals attached, when a trail needs you
 #                  or ends its turn (see "Notifications"); false turns them off.
+#   server         the tmux socket name trails uses (`tmux -L NAME`). Default and empty
+#                  string both mean "trails": a dedicated server, apart from the ordinary
+#                  default one. Set "default" to share the ordinary server instead.
 #
 # Without a file, the built-in agents below apply; `trails config` writes them out as a
 # starting point. Only agents whose command is on PATH are offered, so listing an agent you
@@ -228,9 +232,29 @@ TRAILS_NAME=
 # Ended trails (closed rows) come from trails' own history, not the agents' (see "History").
 CONFIG=${XDG_CONFIG_HOME:-$HOME/.config}/trails/config.json
 
+# The tmux socket trails talks to (`tmux -L`). Dedicated "trails" by default so agents
+# are not on whatever server a terminal first started; empty or missing reads as "trails".
+# "server": "default" keeps the pre-dedicated behaviour (the ordinary tmux server).
+# TRAILS_SOCKET overrides the config (the test suite pins "default" on its throwaway server).
+load_server() {
+  if [ -n "${TRAILS_SOCKET:-}" ]; then
+    s=$TRAILS_SOCKET
+  elif [ -f "$CONFIG" ] && command -v jq >/dev/null 2>&1; then
+    s=$(jq -r 'if (.server | type) == "string" then .server else empty end' "$CONFIG" 2>/dev/null) || s=
+  else
+    s=
+  fi
+  case $s in
+    '') printf trails ;;
+    *) printf '%s' "$s" ;;
+  esac
+}
+TRAILS_SERVER=$(load_server)
+
 DEFAULT_CONFIG='{
   "mode": "default",
   "default_agent": "claude",
+  "server": "trails",
   "agents": [
     {
       "name": "claude",
@@ -762,6 +786,48 @@ fi
 USE_TMUX=
 command -v tmux >/dev/null 2>&1 && USE_TMUX=1
 
+TAB=$(printf '\t')
+# Between the fields of what tmux is asked for: a path or a session name can hold a | or a
+# tab, and the shell reads a tab as whitespace, dropping empty fields. The unit separator is
+# meant for this, and appears in no name.
+US=$(printf '\037')
+
+# Every trails tmux call goes to TRAILS_SERVER (-L), including when $TMUX points at another
+# socket: otherwise a run from an ordinary tmux would create and list sessions there.
+# Callers that already pass -L or -S are left alone. tmux 3.4 and 3.5 print a control
+# character in a format's output escaped, the unit separator as the four characters \037;
+# 3.3 and 3.8 print the byte. So every tmux command whose arguments carry $US has its output
+# put back to the byte, and keeps tmux's exit status. tmux escapes no backslash, so a \037
+# in that output can only be the separator. The x keeps a trailing newline that $(...) would strip.
+tmux() {
+  case " $* " in
+    *" -L "* | *" -S "*) ;;
+    *) set -- -L "$TRAILS_SERVER" "$@" ;;
+  esac
+  case $* in
+    *"$US"*)
+      tx_out=$(command tmux "$@" && printf x) || return
+      printf '%s' "${tx_out%x}" | sed "s/\\\\037/$US/g"
+      ;;
+    *) command tmux "$@" ;;
+  esac
+}
+
+# True when this process is inside trails' own server (the configured socket), not another
+# tmux the user happens to be in.
+in_trails() {
+  [ -n "${TMUX:-}" ] || return 1
+  ts=${TMUX%%,*}
+  [ "${ts##*/}" = "$TRAILS_SERVER" ]
+}
+
+# Inside another tmux server: clear TMUX so the rest of trails attaches to ours (nesting with
+# the foreign one as the outer terminal) instead of switch-client on the wrong socket. A
+# TMUX_PANE from that server must not leak into one trails starts either.
+if [ -n "${TMUX:-}" ] && ! in_trails; then
+  unset TMUX TMUX_PANE
+fi
+
 # The client this run acts for, read before anything else is made. A switch-client with no
 # -c acts on tmux's idea of the current client, which is the most recently active one — and
 # by the time trails switches, that can be a nested client it has just started (a trail's
@@ -812,6 +878,10 @@ if [ -z "$CLIENT" ] && [ -n "$TMUX" ] && [ -z "$LIGHT" ]; then
   [ -n "$CLIENT" ] || CLIENT=$(tmux display-message -p '#{client_name}' 2>/dev/null)
 fi
 [ -z "$CLIENT" ] || CLIENT=$(client_outer "$CLIENT")
+# A client named on another server (keys loaded outside trails' socket) is not ours to switch.
+if [ -n "$CLIENT" ] && [ -z "$LIGHT" ]; then
+  tmux list-clients -F '#{client_name}' 2>/dev/null | grep -qxF "$CLIENT" || CLIENT=
+fi
 # A client on a session grouped with the target's (`tmux new-session -t personal`, a second
 # terminal on one workspace) stays on its own session: a group shares its windows, so the same
 # window is selected there, and the client keeps a current window of its own rather than
@@ -865,27 +935,6 @@ from_editor() {
   case ${TERM_PROGRAM:-} in
     vscode | zed) return 0 ;;
     *) return 1 ;;
-  esac
-}
-
-TAB=$(printf '\t')
-# Between the fields of what tmux is asked for: a path or a session name can hold a | or a
-# tab, and the shell reads a tab as whitespace, dropping empty fields. The unit separator is
-# meant for this, and appears in no name.
-US=$(printf '\037')
-
-# tmux 3.4 and 3.5 print a control character in a format's output escaped, the unit separator
-# as the four characters \037; 3.3 and 3.8 print the byte. So every tmux command whose
-# arguments carry $US has its output put back to the byte, and keeps tmux's exit status. tmux
-# escapes no backslash, so a \037 in that output can only be the separator. The x keeps a
-# trailing newline that $(...) would strip.
-tmux() {
-  case $* in
-    *"$US"*)
-      tx_out=$(command tmux "$@" && printf x) || return
-      printf '%s' "${tx_out%x}" | sed "s/\\\\037/$US/g"
-      ;;
-    *) command tmux "$@" ;;
   esac
 }
 
@@ -2184,10 +2233,12 @@ BOOT=1.5
 
 # tmux with trails' own variables and the editors' markers out of its environment: the one
 # door for any call that may start the server (see launch, where the reason is spelled out).
+# `env … tmux` bypasses the shell function, so -L is named here too.
 tmux_door() {
   env -u TRAILS_PICKER -u TRAILS_YOLO_STATE -u TRAILS_MENU_CACHE -u TRAILS_RECENT_CACHE \
     -u TRAILS_RESTORE_OK -u USE_TMUX -u LAUNCH_DETACHED -u TRAILS_NAME -u TRAILS_ATTACH -u TRAILS_BACK \
-    -u TRAILS_FROM -u TRAILS_WS -u TRAILS_CLIENT -u NVIM -u ZED_TERM tmux "$@"
+    -u TRAILS_FROM -u TRAILS_WS -u TRAILS_CLIENT -u NVIM -u ZED_TERM \
+    tmux -L "$TRAILS_SERVER" "$@"
 }
 
 # One launch at a time through the part that names a trail: choosing its session, writing
@@ -2794,7 +2845,7 @@ attach_to() {
         tmux set-option -pt "$TMUX_PANE" @dir "$(map_dir "$at_key")"
         tmux set-option -pt "$TMUX_PANE" @ag "$(map_agent "$at_key")"
       fi
-      exec env -u TMUX tmux attach-session -t "=$at_key"
+      exec env -u TMUX tmux -L "$TRAILS_SERVER" attach-session -t "=$at_key"
     fi
     switch_to "$at_target"
   fi
@@ -3156,15 +3207,11 @@ rec_is_dead() {
     ! printf '%s\n' "$rid_alive" | grep -qxF "$US$(rec_get "$1" session)$US$(rec_get "$1" id)"
 }
 
-# The tmux server this run talks to, by its socket's name: the one in $TMUX inside tmux (a
-# run-shell job has it too), else tmux's default.
+# The tmux server this run talks to, by its socket's name: always the configured one
+# (TRAILS_SERVER). Records store it so a lost trail is restored only on that server, never
+# on another (`tmux -L other`, a test's) where every trail of the first would look dead.
 tmux_server() {
-  if [ -n "${TMUX:-}" ]; then
-    ts=${TMUX%%,*}
-    printf '%s' "${ts##*/}"
-  else
-    printf default
-  fi
+  printf '%s' "$TRAILS_SERVER"
 }
 
 # Every record whose trail is not running: what died with tmux. Keys only.
@@ -4443,11 +4490,17 @@ preview_ticker() {
 #
 # env -u TMUX because tmux sets $TMUX in every pane it creates and refuses to nest while it
 # is set. Clearing it is the supported way in: the inner client is an ordinary client that
-# happens to have a pane for a terminal. Truecolor and CSI-u both survive the nest and need
-# nothing added to tmux.conf — tmux negotiates RGB with the outer tmux at runtime rather
-# than trusting tmux-256color's terminfo (which declares neither), and extended-keys is a
-# server option, so it is already true of the inner client and Shift+Enter reaches the agent.
-attach_cmd() { printf "env -u TMUX tmux attach -t '=%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+# happens to have a pane for a terminal. -L is required once TMUX is cleared, or the nest
+# would hit the ordinary default socket instead of trails'. Truecolor and CSI-u both survive
+# the nest and need nothing added to tmux.conf — tmux negotiates RGB with the outer tmux at
+# runtime rather than trusting tmux-256color's terminfo (which declares neither), and
+# extended-keys is a server option, so it is already true of the inner client and Shift+Enter
+# reaches the agent.
+attach_cmd() {
+  printf "env -u TMUX tmux -L '%s' attach -t '=%s'" \
+    "$(printf '%s' "$TRAILS_SERVER" | sed "s/'/'\\\\''/g")" \
+    "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+}
 
 # The config's "map" block, one key: `map_pref two`, `map_pref layout`. Empty when unset.
 map_pref() {

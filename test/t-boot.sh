@@ -47,7 +47,8 @@ wait "$sv"
 assert_eq "$?" 0 "asked to stop, it exits 0"
 wait_for 5 sh -c "! tmux list-sessions >/dev/null 2>&1" || fail "its server still runs after a stop"
 
-# Inside tmux it refuses: it is the server, not something to run in one.
-out=$(TMUX=/tmp/elsewhere,1,0 "$TRAILS" boot 2>&1)
-assert_eq "$?" 1 "inside tmux it refuses"
+# Inside trails' own server it refuses: it is that server, not something to run in one.
+# A TMUX pointing at another socket is cleared first, so boot can still start ours.
+out=$(TMUX="$(printf '%s/tmux-%s/%s' "$TMUX_TMPDIR" "$(id -u)" "$TRAILS_SOCKET"),1,0" "$TRAILS" boot 2>&1)
+assert_eq "$?" 1 "inside trails' tmux it refuses"
 assert_match "$out" "brew services start trails" "and says what it is for"

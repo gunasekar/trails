@@ -119,6 +119,7 @@ export EDITOR=nvim
 cat >"$XDG_CONFIG_HOME/trails/config.json" <<JSON
 {
   "mode": "yolo",
+  "server": "default",
   "agents": [
     { "name": "claude", "program": "$demo/bin/claude", "yolo": "--dangerously-skip-permissions",
       "session": { "start": "--session-id {id}", "resume": "--resume {id}", "id": "uuid" } },
