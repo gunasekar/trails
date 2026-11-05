@@ -347,7 +347,7 @@ DEFAULT_CONFIG='{
     },
     {
       "name": "codex",
-      "program": "codex",
+      "program": "codex --no-daemon",
       "yolo": "--dangerously-bypass-approvals-and-sandbox",
       "session": { "resume": "resume {id}" }
     },

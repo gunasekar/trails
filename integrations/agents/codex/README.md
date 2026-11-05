@@ -35,6 +35,11 @@ The installed user hooks were also trusted in a live Codex trail, which then
 reported working. Permission, interrupt, and session-start transitions have not
 all been exercised live.
 
+Trails' Codex agent runs `codex --no-daemon`. Codex 0.166's TUI otherwise runs its
+turns, and the hooks, in a shared background server started from some other
+terminal, whose `TMUX_PANE` is not the trail's, so the hooks reach no trail. Add
+`--no-daemon` to the `program` of a Codex agent in your own config.
+
 `SessionStart` and `Stop` pass the hook input's `session_id` to Trails (`--id`), the
 ID `codex resume` takes, so a Codex trail is restored after tmux dies. Hooks
 installed before this need a new review in `/hooks`.

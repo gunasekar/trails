@@ -307,6 +307,12 @@ and session start, completion, or interruption mark idle.
 }
 ```
 
+Run Codex in trails as `codex --no-daemon` (the built-in agent does). Without it,
+the Codex TUI hands its turns to a shared background server, and the hooks run
+there, with the environment of whichever terminal first started that server: not
+the trail's pane, so trails never hears from them. In an agent of your own config,
+add `--no-daemon` to its `program`.
+
 Codex picks its own conversation IDs, and passes each hook a JSON object on stdin
 with `session_id` among it, the ID `codex resume` takes. `SessionStart` and `Stop`
 hand it to trails, so a Codex trail comes back after tmux dies: `SessionStart` for
