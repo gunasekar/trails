@@ -1,7 +1,7 @@
 #!/bin/sh
-# Workspaces at the status line's left, as `trails keys` sets it: the running ones by name,
-# the one a terminal is on in reverse video, no trail's own session among them; and prefix K and J
-# (`trails ws prev` / `next`) moving a terminal through them, round the end.
+# The status line's left, as `trails keys` sets it: tmux's own [session], the workspace a
+# terminal is on and nothing else (ADR 28); and prefix K and J (`trails ws prev` / `next`) moving
+# a terminal through the workspaces, round the end.
 . "$REPO/test/lib.sh"
 t_setup
 
@@ -27,15 +27,13 @@ on() { client_at "$term" '#{session_name}'; }
 tmux switch-client -c "$term" -t =alpha
 wait_for 5 sh -c "[ \"\$(tmux list-clients -F '#{client_name} #{session_name}' | awk -v c='$term' '\$1 == c { print \$2 }')\" = alpha ]" || fail "not on alpha"
 
-# The status line, as the terminal draws it: alpha in reverse, beta not, and no alpha/one.
+# The status line, as the terminal draws it: [alpha], and neither beta nor alpha/one.
 "$TRAILS" keys | grep -E '^(set -g status-left|%if|%else|%endif)' >"$T/bar.conf"
 tmux source-file "$T/bar.conf" || fail "tmux refused the status lines"
 sleep 1
-bar=$(tmux capture-pane -ep -t driver-1 | tail -n 1)
-esc=$(printf '\033')
-assert_match "$bar" "${esc}\\[7m(${esc}\\[[0-9;]*m)* alpha " "alpha in reverse"
-assert_match "$bar" " alpha (${esc}\\[[0-9;]*m)* beta " "beta not"
-assert_match "$(printf '%s' "$bar" | sed 's/\x1b\[[0-9;]*m//g')" "^ alpha  beta │" "both workspaces, in order, and nothing else"
+bar=$(tmux capture-pane -ep -t driver-1 | tail -n 1 | sed 's/\x1b\[[0-9;]*m//g')
+assert_match "$bar" "^\\[alpha\\] " "[alpha], as tmux shows a session"
+case $bar in *beta* | *alpha/one*) fail "another session on the status line: $bar" ;; *) ;; esac
 
 # ws next and prev, as the keys run them: from run-shell, the terminal in TRAILS_CLIENT.
 sock=$(tmux display-message -p '#{socket_path}')

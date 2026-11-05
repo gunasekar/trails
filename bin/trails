@@ -123,6 +123,9 @@ if [ "${1:-}" = state ]; then
   st_notified=${st_pane%%|*} st_carried=${st_pane#*|}
   [ -z "$st_agent" ] || [ -z "$st_prog" ] || [ "$st_agent" = "$st_prog" ] || exit 0
   set -- set-option -pq -t "$TMUX_PANE" @trails_state "$st_word"
+  # When the word last changed, so a trail can say how long it has waited (ADR 28). Only on a
+  # change: a run of working hooks keeps the time the turn's work began.
+  [ "$st_word" = "$st_before" ] || set -- "$@" \; set-option -pq -t "$TMUX_PANE" @trails_state_at "$(date +%s)"
   if [ "$st_word" = working ] || [ -n "$st_before" ]; then
     set -- "$@" \; set-option -pq -t "$TMUX_PANE" @trails_worked 1
   fi
@@ -2566,7 +2569,9 @@ EOF
   # status off on the session: it is only ever looked at through something else — a trail's window, an
   # editor's panel, a map pane — each of which has its own frame, and the session's status line
   # inside that frame read as a second tmux. A session option on a session trails made for
-  # itself, not on anything of yours (principle 3 of the design).
+  # itself, not on anything of yours (principle 3 of the design). detach-on-destroy on, the
+  # same way: the server's is no-detached (trails keys, ADR 28), which would move the nested
+  # client of a trail that ends to some other session inside the window it was shown in.
   #
   # The agent runs under $WRAP (see "Surviving tmux"), which forgets the record when the
   # agent exits by itself and is killed alongside it when tmux goes.
@@ -2598,6 +2603,7 @@ EOF
     \; set-option -w -t "=$sess:=$win" remain-on-exit on \
     \; set-option -qw -t "=$sess:=$win" remain-on-exit-format '' \
     \; set-option -t "=$sess:" status off \
+    \; set-option -t "=$sess:" detach-on-destroy on \
     \; set-option -t "=$sess:" set-titles on \
     \; set-option -t "=$sess:" set-titles-string "$TRAIL_TITLE" \
     \; set-option -w -t "=$sess:=$win" @agent "$1${2:+ (YOLO)}" \
@@ -4479,19 +4485,11 @@ keys() {
   # A popup closes the moment its command exits, so a refusal printed on the way out would go
   # unread: on a failure the picker's and the workspaces' popups wait for Enter.
   khold='|| { echo; echo press enter to close; read -r _; }'
-  # The running workspaces at the status line's left, then the map while one is up, the one you
-  # are on in reverse video, apart from the window you are on, which tmux underlines. tmux draws
-  # it (#{S/n:} over the sessions marked @trails_workspace) and a click switches (range=session,
-  # which tmux's own MouseDown1Status acts on). A session grouped with a workspace's,
-  # <workspace>~N, counts as that workspace.
-  kws='#{S/n:#{?@trails_workspace,#[range=session|#{session_id}]#{?#{||:#{==:#{session_name},#{client_session}},#{m:#{session_name}~*,#{client_session}}},#[reverse] #{session_name} #[noreverse], #{session_name} }#[norange],}}'
-  # Then the map, while one is up (its session carries @trails_map): after the workspaces,
-  # by a loop of its own, so a name never sorts it in among them.
-  # tmux before 3.6 has no /n and prints it as text, but its plain #{S:} lists by name already;
-  # from 3.6 #{S:} lists in the order they were made, and /n sorts. Asked of the version, not
-  # with %if: the keys are read at tmux's start, before there is a session to test #{S/n:} on.
-  tmux_at_least 3 6 || kws="#{S:${kws#'#{S/n:'}"
-  kws="$kws"'#{S:#{?@trails_map,#[range=session|#{session_id}]#{?#{==:#{session_name},#{client_session}},#[reverse] ▦ map #[noreverse], ▦ map }#[norange],}}'
+  # The status line's left is tmux's own, [session] (ADR 28), the map's as [▦ map]: the window
+  # list after it is the workspace's trails and any window of yours. A click on it opens the
+  # workspaces, as prefix W does: MouseDown1StatusLeft, which stock tmux leaves unbound (its
+  # right-click menu stays).
+  kws='[#{?@trails_map,▦ map,#{session_name}}] '
   cat <<EOF
 # trails: one line in tmux.conf loads all of these, and follows every upgrade:
 #   run-shell "$kq keys | tmux source-file -"
@@ -4501,6 +4499,7 @@ keys() {
 # run-shell -b "$kq restore >/dev/null 2>&1"
 bind -N "trails: this workspace's trails, the picker" P display-popup -E -w 60% -h 70% -s bg=$tbg -S bg=$tbg,fg=brightblack "$kq $khold"
 bind -N "trails: the workspaces" W display-popup -E -w 60% -h 50% -s bg=$tbg -S bg=$tbg,fg=brightblack "$kq ws $khold"
+bind -N "trails: the workspaces, on a click on [session]" -n MouseDown1StatusLeft display-popup -E -w 60% -h 50% -s bg=$tbg -S bg=$tbg,fg=brightblack "$kq ws $khold"
 bind -N "trails: the editor beside the agent" E run-shell "TRAILS_CLIENT=#{client_name} $kq edit"
 bind -N "trails: a shell beside the agent" \` run-shell "TRAILS_CLIENT=#{client_name} $kq shell"
 bind -N "trails: this codebase's checklist" N display-popup -E -w 60% -h 50% -s bg=$tbg -S bg=$tbg,fg=brightblack "$kq checklist"
@@ -4510,10 +4509,17 @@ bind -N "trails: the map" M run-shell "TRAILS_CLIENT=#{client_name} $kq map here
 bind -N "trails: every running trail" A display-popup -E -w 70% -h 70% -s bg=$tbg -S bg=$tbg,fg=brightblack "env TRAILS_PICKER=all $kq $khold"
 bind -N "trails: the diff beside the agent, shown or put away" G run-shell "TRAILS_CLIENT=#{client_name} $kq diff"
 bind -N "trails: rename this trail" R command-prompt -p "rename trail:" "run-shell \"TRAILS_CLIENT=#{client_name} $kq rename '%%'\""
-set -g status-left-length 60
+set -g status-left-length 40
 set -g status-right-length 80
 set -g status-right "$STATUS_TASK_FMT#($kq checklist --count '#{?@trails_dir,#{@trails_dir},#{pane_current_path}}')%H:%M "
-set -g status-left "${kws}│ "
+set -g status-left "$kws"
+# A session whose last window closes moves its terminal to another session no terminal shows,
+# a workspace or one of yours, instead of out of tmux (ADR 28); a trail's own session never
+# qualifies, since its nested client always shows it. Each trail's session keeps on itself
+# (launch), so a trail that ends lets go of that nested client: --hold sees to the ones made
+# before this.
+set -g detach-on-destroy no-detached
+run-shell -b "$kq --hold >/dev/null 2>&1"
 EOF
 }
 
@@ -4911,10 +4917,10 @@ map() {
 
   # Built aside under its own name and swapped in at the end, where the old map is killed
   # unconditionally — the line that makes "one map" true (see MAP above). A window sitting in
-  # the old one loses it there: detach-on-destroy sends its client home, its `tmux attach`
-  # exits, and it lands back on a shell. That is the whole cost of asking for a map while one
-  # is already open, and it is bounded — the agents never notice, because none of them live
-  # here.
+  # the old one loses it there: detach-on-destroy (no-detached, ADR 28) moves its client to a
+  # workspace no terminal shows, or detaches it when there is none. That is the whole cost of
+  # asking for a map while one is already open, and it is bounded — the agents never notice,
+  # because none of them live here.
   #
   # Aside and not in place, because `trails map new` run from a shell split inside the map —
   # the way the header says to add one — sits in the session being replaced. Killed first, it
@@ -5346,7 +5352,7 @@ config_check() {
   return 1
 }
 case $1 in
-  help | -h | --help | config | keys | --keys | --forget | --layout | --peek | rename) ;;
+  help | -h | --help | config | keys | --keys | --forget | --layout | --peek | --hold | rename) ;;
   ls) config_check || true ;;
   checklist) [ -n "$LIGHT" ] || config_check || exit 1 ;;
   *) config_check || exit 1 ;;
@@ -5357,7 +5363,7 @@ esac
 # config is broken, and boot, which tmux needs whatever the config says. ls carries on
 # without them (only its closed rows need them), so a typo in the file can't blank what reads it.
 case $1 in
-  help | -h | --help | config | keys | --keys | note | checklist | diff | --forget | --layout | --peek | boot | rename | --notify) AGENTS= ;;
+  help | -h | --help | config | keys | --keys | note | checklist | diff | --forget | --layout | --peek | --hold | boot | rename | --notify) AGENTS= ;;
   ls | ws) AGENTS=$(load_agents) || AGENTS= ;;
   *) AGENTS=$(load_agents) || exit 1 ;;
 esac
@@ -5373,7 +5379,7 @@ esac
 # Records from before 1.8 move to its layout, once (rec_migrate): first thing for anything that
 # reads them. Not for what never does; the wrapper's --forget sees to its own.
 case $1 in
-  help | -h | --help | config | keys | --keys | note | checklist | diff | --layout | --peek | --forget | --notify) ;;
+  help | -h | --help | config | keys | --keys | note | checklist | diff | --layout | --peek | --forget | --hold | --notify) ;;
   *) rec_migrate ;;
 esac
 
@@ -5466,6 +5472,17 @@ case $1 in
   # From the wrapper of a restore whose resume the agent refused after BOOT (see "Surviving
   # tmux"), run by the server: --refused TID SESSION. Once its session has gone, the trail
   # starts fresh in its place, as itself, if it is still lost.
+  # From trails keys, as the server reads it: detach-on-destroy on for every trail's session
+  # that was made before launch set it, so the server's no-detached never moves the nested
+  # client of one that ends (see launch).
+  --hold)
+    tmux list-windows -a -F "#{session_name}$US#{@trails_trail}" 2>/dev/null |
+      awk -F "$US" '$2 != "" { print $1 }' | sort -u |
+      while IFS= read -r hd_s; do
+        tmux set-option -t "=$hd_s:" detach-on-destroy on 2>/dev/null
+      done
+    exit 0
+    ;;
   --refused)
     rf_n=0
     while tmux has-session -t "=$3" 2>/dev/null && [ "$rf_n" -lt 50 ]; do

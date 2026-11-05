@@ -81,7 +81,7 @@ tmux -L keyscheck kill-server 2>/dev/null
 printf '%s\n' "run-shell \"'$TRAILS' keys | tmux source-file -\"" >"$T/one.conf"
 TRAILS_SOCKET=keysone tmux -L keysone -f "$T/one.conf" new-session -d 'sleep 10'
 wait_for 5 sh -c "tmux -L keysone list-keys -T prefix N >/dev/null 2>&1" || fail "the one line loaded no keys"
-assert_match "$(tmux -L keysone show -gv status-left)" "trails_workspace" "and the status line"
+assert_match "$(tmux -L keysone show -gv status-left)" "session_name" "and the status line"
 tmux -L keysone kill-server 2>/dev/null
 assert_match "$("$TRAILS" keys)" "^bind -N \"[^\"]*\" E run-shell \"TRAILS_CLIENT=#{client_name} '$TRAILS' edit\"$" "the editor binding names the pressing client"
 case $(tmux -V) in

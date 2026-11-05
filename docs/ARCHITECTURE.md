@@ -304,7 +304,9 @@ The agent says ([ADR 18](decisions/0018-status-from-the-agents-hooks.md)), and
 nothing else does ([ADR 19](decisions/0019-no-agents-files-read.md)).
 
 `trails state working|waiting|idle [--id ID] [--agent PROGRAM]`, run from the agent's
-hooks, sets `@trails_state` on the agent's pane, the hook's `TMUX_PANE`;
+hooks, sets `@trails_state` on the agent's pane, the hook's `TMUX_PANE`, and
+`@trails_state_at` (when it last changed, so a trail can say how long it has waited,
+[ADR 28](decisions/0028-a-tmux-native-server-that-tells-you-what-waits.md));
 `@trails_worked` once the conversation has had a turn (it said *working*, or any word
 after its first); and `@trails_said_id` when the hook passes the conversation. A call
 whose `--agent` isn't the trail's agent's program (`@trails_program`, set at launch)
@@ -817,13 +819,25 @@ races a launch only through `launch_lock` and restore's back-already check, as a
 two launches do. Its output goes nowhere, since a run-shell's output is shown over
 the pane.
 
-`trails keys` also sets `status-left` to the running workspaces: tmux's own
-`#{S/n:…}` loop over the sessions marked `@trails_workspace`, each in a
-`range=session|ID` that tmux's stock `MouseDown1Status` binding switches to on a
-click, the one the terminal is on in reverse video (its `client_session`, or a
-`<workspace>~N` grouped with it). Nothing of trails runs for it. `prefix K` and
-`J` run `trails ws prev` / `next` (`ws_step`): the same list, by name, round the
-end, through `switch_to`, so a grouped terminal stays grouped.
+`trails keys` also sets `status-left` to tmux's own `[session]`, `[▦ map]` on the map
+([ADR 28](decisions/0028-a-tmux-native-server-that-tells-you-what-waits.md)): up to
+1.18 it listed every running workspace, a session selector stock tmux never shows. A
+click on it opens the workspaces, as `prefix W` does: `MouseDown1StatusLeft`, the one
+binding outside the prefix table, which stock tmux leaves unbound (its right-click
+menu on the same spot stays). `prefix K` and `J` run `trails ws prev` / `next`
+(`ws_step`): the workspaces by name, round the end, through `switch_to`, so a grouped
+terminal stays grouped.
+
+It sets `detach-on-destroy no-detached`, so a session whose last window closes moves its
+terminal to the most recently used session no terminal shows, a workspace or one of
+yours, and detaches it only when there is none; stock tmux's `on` drops it out of
+tmux. A trail's own session never qualifies, since the nested client in its workspace
+window always shows it. Each keeps `on` itself (`launch` sets it with `status off`),
+so a trail that ends lets go of that nested client rather than having it moved to some
+other session inside the window; `--hold`, which the keys run in the background, sets
+it on trails' sessions made before. Windows, panes and sessions without trails' marks
+(`@trails_window`, `@trails_pane`, `@trails_workspace`) are the user's: plain tmux,
+never listed, renamed or restored.
 
 Its `status-right` starts with the current trail's task, before the checklist's
 count ([ADR 23](decisions/0023-the-task-in-the-status-line-and-rename.md)):
@@ -983,7 +997,10 @@ vhs assets/demo/map.tape
 ls, classify, picker, screens (the workspace screens), tools (the editor and the
 shell), inside (inside
 tmux: switch-client, a nested editor client, the refused collision), restore,
-autorestore, map, workspace and wsmap (the config), wsbar (the status line),
+autorestore, map, workspace and wsmap (the config), wsbar (the status line's
+`[session]` and `prefix K`/`J`), native (the click on it, `detach-on-destroy`,
+`@trails_state_at`), server (the socket), keys-scope (the keys on trails' server
+only), service (the service starting the server), boot,
 grouped (a second terminal on a workspace), all (every trail), edges, hooks
 (`trails state` and `--id`, the history, the plugin against the docs), notify
 (the escapes each config writes to the client), checklist,

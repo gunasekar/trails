@@ -166,7 +166,10 @@ assert_eq "$("$TRAILS" help | grep -c '^In tmux, from trails keys')" 1 "trails h
 assert_eq "$("$TRAILS" keys | grep -c -e ' --keys"$' -e '^bind -N "[^"]*" H ')" 0 "no prefix H"
 # Every key trails binds is a capital letter, but ` for the shell (ADR 24): tmux's own lower-case
 # keys and symbols stay tmux's.
-assert_eq "$("$TRAILS" keys | sed -n 's/^bind -N "[^"]*" \([^ ]*\) .*/\1/p' | grep -v '^[A-Z]$' | tr '\n' ' ')" '` ' "capitals only, and the backtick"
+assert_eq "$("$TRAILS" keys | sed -n 's/^bind -N "[^"]*" \([^ ]*\) .*/\1/p' | grep -v -e '^[A-Z]$' -e '^-n$' | tr '\n' ' ')" '` ' "capitals only, and the backtick"
+# Outside the prefix table, one binding only: a click on the status line's [session] (ADR 28),
+# which stock tmux leaves unbound.
+assert_eq "$("$TRAILS" keys | sed -n 's/^bind -N "[^"]*" -n \([^ ]*\) .*/\1/p' | tr '\n' ' ')" 'MouseDown1StatusLeft ' "the click, and no other key outside the prefix"
 # Every one with a note, so tmux's own list of keys (prefix ?, list-keys -N) shows it.
 assert_eq "$("$TRAILS" keys | grep '^bind ' | grep -cv '^bind -N "trails: [^"]*" ')" 0 "every binding noted"
-assert_eq "$("$TRAILS" keys | grep -c '^bind -N "trails: ')" 11 "all eleven"
+assert_eq "$("$TRAILS" keys | grep -c '^bind -N "trails: ')" 12 "all eleven, and the click"

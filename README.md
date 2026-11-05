@@ -164,13 +164,18 @@ acme/checkout-3f9a      ← a trail: claude in ~/code/checkout, its ID t3f9a
 acme/checkout-b07e      ← another, in the same codebase
 ```
 
-The status line lists the running workspaces at the left, a click away, and at
-the right what the current trail is working on, then the checklist's count before
-the clock:
+The status line is tmux's own: the workspace you are in as `[acme]`, its windows
+(the trails, and any window of yours), and at the right what the current trail is
+working on, then the checklist's count before the clock:
 
 ```text
- acme  personal │ 1:checkout-3f9a  2:checkout-b07e*  3:billing·nvim   Fix the flaky cart-total test · ☑ 2/5 · 14:05
+[acme] 1:checkout-3f9a  2:checkout-b07e*  3:billing·nvim   Fix the flaky cart-total test · ☑ 2/5 · 14:05
 ```
+
+A click on `[acme]` opens the workspaces, as `prefix W` does. Closing the last
+window of a session moves the terminal to a workspace, or one of your own
+sessions, instead of out of tmux. Windows, panes and sessions you make yourself
+are plain tmux: trails never lists, renames or restores them.
 
 The task is the title the agent gives its terminal, Claude's summary of the
 conversation, read as it changes and cut at 40 characters; a named trail has its
@@ -629,8 +634,8 @@ to the service, which restores them. Its log is
 ### The map
 
 `prefix M` (or `trails map 4`) puts up to four trails side by side in one window,
-across workspaces, each a live view you can type into. The status line lists it
-after the workspaces while it is up. `C-b d` leaves them all running.
+across workspaces, each a live view you can type into; on it, the status line shows
+`[▦ map]`. `C-b d` leaves them all running.
 
 ![prefix M: trails from two workspaces picked into the map, four agents at work side by side, and the map in the status line beside the workspaces](assets/map.gif)
 
@@ -795,6 +800,7 @@ life  state  session  agent  yolo  dir  id  when  workspace  trail  title
 ```text
 bind -N "trails: this workspace's trails, the picker" P display-popup -E -w 60% -h 70% -s bg=terminal -S bg=terminal,fg=brightblack "'trails' || { echo; echo press enter to close; read -r _; }"
 bind -N "trails: the workspaces" W display-popup -E -w 60% -h 50% -s bg=terminal -S bg=terminal,fg=brightblack "'trails' ws || { echo; echo press enter to close; read -r _; }"
+bind -N "trails: the workspaces, on a click on [session]" -n MouseDown1StatusLeft display-popup -E -w 60% -h 50% -s bg=terminal -S bg=terminal,fg=brightblack "'trails' ws || { echo; echo press enter to close; read -r _; }"
 bind -N "trails: the editor beside the agent" E run-shell "TRAILS_CLIENT=#{client_name} 'trails' edit"
 bind -N "trails: a shell beside the agent" ` run-shell "TRAILS_CLIENT=#{client_name} 'trails' shell"
 bind -N "trails: this codebase's checklist" N display-popup -E -w 60% -h 50% -s bg=terminal -S bg=terminal,fg=brightblack "'trails' checklist"
@@ -804,14 +810,16 @@ bind -N "trails: the map" M run-shell "TRAILS_CLIENT=#{client_name} 'trails' map
 bind -N "trails: every running trail" A display-popup -E -w 70% -h 70% -s bg=terminal -S bg=terminal,fg=brightblack "env TRAILS_PICKER=all 'trails' || { echo; echo press enter to close; read -r _; }"
 bind -N "trails: the diff beside the agent, shown or put away" G run-shell "TRAILS_CLIENT=#{client_name} 'trails' diff"
 bind -N "trails: rename this trail" R command-prompt -p "rename trail:" "run-shell \"TRAILS_CLIENT=#{client_name} 'trails' rename '%%'\""
-set -g status-left-length 60
+set -g status-left-length 40
 set -g status-right-length 80
 set -g status-right "#{?@trails_window,…}#('trails' checklist --count '#{?@trails_dir,#{@trails_dir},#{pane_current_path}}')%H:%M "
-set -g status-left "#{S/n:#{?@trails_workspace,…}}│ "
+set -g status-left "[#{?@trails_map,▦ map,#{session_name}}] "
+set -g detach-on-destroy no-detached
+run-shell -b "'trails' --hold >/dev/null 2>&1"
 ```
 
-It prints trails' full path where these show `trails`, the full `status-left`
-and `status-right` formats where they show `…`, and `bg=default` for
+It prints trails' full path where these show `trails`, the full `status-right`
+format where it shows `…`, and `bg=default` for
 `bg=terminal` before tmux 3.8. Both status lines replace yours: set yours after
 the `trails keys` line to keep them. Or paste only the lines you want, and paste again when they change.
 

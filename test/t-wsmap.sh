@@ -1,6 +1,6 @@
 #!/bin/sh
 # The map a key away: prefix M (`trails map here`) goes to the map, which the status line
-# lists after the workspaces as ▦ map; with none up, its pick (`trails map new`, in a popup)
+# shows as [▦ map]; with none up, its pick (`trails map new`, in a popup)
 # builds it, four trails at most from every workspace, the four that most want you ticked.
 . "$REPO/test/lib.sh"
 t_setup
@@ -43,11 +43,11 @@ on_is trails_map || fail "the terminal is not on the map: $(on)"
 assert_eq "$(grep -cv '^--- ' "$T/d1")" 5 "all five trails offered"
 assert_eq "$(tmux list-panes -t '=trails_map:' | wc -l | tr -d ' ')" 4 "four panes, no more"
 
-# The status line lists the map after the workspaces.
+# On the map, the status line says so, as tmux's own [session] does for any other.
 "$TRAILS" keys | grep -E '^(set -g status-left|%if|%else|%endif)' | tmux source-file - || fail "tmux refused the status lines"
 sleep 1
 bar=$(tmux capture-pane -ep -t driver-1 | tail -n 1 | sed 's/\x1b\[[0-9;]*m//g')
-assert_match "$bar" "^ alpha  beta  ▦ map │" "the workspaces, then the map"
+assert_match "$bar" "^\\[▦ map\\] " "[▦ map]"
 
 # prefix M from a workspace goes to the map, building nothing.
 tmux switch-client -c "$term" -t '=alpha:'
