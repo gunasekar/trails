@@ -545,6 +545,14 @@ systemd restarts only a unit that failed, so `boot_run` waits for it rather than
 exec'ing it, and exits 1 when it ends unasked; asked to stop (TERM), it kills the
 server and exits 0.
 
+A server started from a terminal while the service is installed would defeat it, so
+`tmux_door`, the one call that can start the server, first has the service start it
+when none is up (`service_wake`, [ADR 27](decisions/0027-the-service-starts-the-server.md)):
+`launchctl kickstart` or `systemctl --user start` on the unit `service_unit` finds by
+what it runs, then a wait of up to 15 seconds for the socket. A server that got there
+first anyway is logged once per stretch by `boot_refused`, with the time, and
+announced on the attached terminals hourly.
+
 ## History
 
 A trail's record moves to `history/<conversation id>`, under the state directory,

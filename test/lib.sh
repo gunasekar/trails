@@ -12,9 +12,10 @@
 #                                          `tmux` and trails share one server under TMUX_TMPDIR
 #   TMUX, TMUX_PANE                        unset, so trails thinks it is outside tmux
 #                                          even when the tests run inside one
-#   TERM_PROGRAM, NVIM, ZED_TERM, TRAILS_ATTACH
+#   TERM_PROGRAM, NVIM, ZED_TERM, TRAILS_ATTACH, TRAILS_SERVICE
 #                                          unset, so trails sees a plain terminal, not
-#                                          the editor the tests may be run from
+#                                          the editor the tests may be run from, and
+#                                          no trails service, however HOME is
 #   PATH                                   test/bin first: the stub agent, the stub fzf
 #
 # The directory is under /tmp, not the usual scratch locations: a unix socket path has
@@ -35,7 +36,7 @@ t_setup() {
   mkdir -p "$TMPDIR"
   PATH=$REPO/test/bin:$PATH
   export HOME XDG_CONFIG_HOME XDG_STATE_HOME TMUX_TMPDIR TMPDIR PATH TRAILS_SOCKET
-  unset TMUX TMUX_PANE TERM_PROGRAM NVIM ZED_TERM TRAILS_ATTACH TRAILS_CLIENT
+  unset TMUX TMUX_PANE TERM_PROGRAM NVIM ZED_TERM TRAILS_ATTACH TRAILS_CLIENT TRAILS_SERVICE
   # A UTF-8 locale for the tmux server the first driver starts, as a terminal has. With none
   # (CI's runner) tmux 3.4 rewrites what it can't print as _ (the · in a window's name, the
   # unit separator between fields), and every trail reads as lost. trails sets one for a

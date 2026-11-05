@@ -607,8 +607,13 @@ again after a crash or a `kill-server`. The server takes your login shell's
 environment, so put the `PATH` your agents need in `~/.zprofile` or `~/.zshenv`
 (or bash's `~/.bash_profile`), not only in `~/.zshrc`. `brew services stop trails`
 stops it, and with it every trail; they come back as lost, as after a reboot.
-While another process already holds that socket, the service waits for it to go.
-Its log is `$(brew --prefix)/var/log/trails-boot.log`.
+With the service installed and no server up, `trails` asks the service to start
+one rather than starting it in your terminal. A server on that socket started
+some other way (the service stopped, a `tmux -L trails` of your own) is not
+guarded: the service waits for it to go, and the attached terminals are told,
+once an hour, until it does. `tmux -L trails kill-server` hands the agents over
+to the service, which restores them. Its log is
+`$(brew --prefix)/var/log/trails-boot.log`.
 
 ### The map
 
