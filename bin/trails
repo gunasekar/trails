@@ -990,7 +990,7 @@ switch_to() {
       esac
     fi
   fi
-  exec tmux switch-client ${CLIENT:+-c "$CLIENT"} -t "$st"
+  exec tmux -L "$TRAILS_SERVER" switch-client ${CLIENT:+-c "$CLIENT"} -t "$st"
 }
 
 # The workspace the client's session is: its @trails_workspace, or, on a session grouped with
@@ -2272,7 +2272,7 @@ ws_switch() {
     top=$(top_trail "$1")
     [ -z "$top" ] || top=$(ensure_window "$top" "$(trail_key "$top")" "$1") || exit 1
     [ -z "$TMUX" ] || switch_to "=$1${top:+:$top}"
-    exec tmux attach-session -t "=$1${top:+:$top}"
+    exec tmux -L "$TRAILS_SERVER" attach-session -t "=$1${top:+:$top}"
   fi
   known=$(printf '%s\n' "$WORKSPACES" | cut -d'|' -f1)
   case "
@@ -2942,9 +2942,9 @@ attach_to() {
     switch_to "$at_target"
   fi
   if from_editor; then
-    exec tmux attach-session -t "=$at_key"
+    exec tmux -L "$TRAILS_SERVER" attach-session -t "=$at_key"
   fi
-  exec tmux attach-session -t "$at_target"
+  exec tmux -L "$TRAILS_SERVER" attach-session -t "$at_target"
 }
 
 # attach_to by key, for a caller holding a record key or a session name rather than a
@@ -3699,8 +3699,8 @@ EOF
   # gone): a shell that sat under the editor would otherwise keep its column, tall and narrow.
   pane=$(tmux list-panes -t "$wid" -F '#{pane_id} #{@trails_pane}' 2>/dev/null | awk -v k="$mark" '$2 == k { print $1; exit }')
   if [ -n "$pane" ] && [ "$pane" = "$cur_pane" ]; then
-    [ "$(tmux list-panes -t "$wid" 2>/dev/null | wc -l)" -gt 1 ] && exec tmux select-pane -l
-    exec tmux last-window
+    [ "$(tmux list-panes -t "$wid" 2>/dev/null | wc -l)" -gt 1 ] && exec tmux -L "$TRAILS_SERVER" select-pane -l
+    exec tmux -L "$TRAILS_SERVER" last-window
   fi
   if [ -z "$pane" ]; then
     if [ "$ck" = edit ]; then
@@ -3716,7 +3716,7 @@ EOF
   window_layout "$wid"
   tmux select-pane -t "$pane"
   [ -z "$TMUX" ] || switch_to "=$ws:$wid"
-  exec tmux attach-session -t "=$ws:$wid"
+  exec tmux -L "$TRAILS_SERVER" attach-session -t "=$ws:$wid"
 }
 
 # The editor pane's command: the editor on the codebase, as `nvim .`, the way you would open
@@ -4408,7 +4408,7 @@ diff_cmd() {
     dt_win=$(tmux display-message -p -t "$CLIENT" '#{?@trails_window,#{window_id},}' 2>/dev/null)
     [ -z "$dt_win" ] || ! diff_toggle "$dt_win" || exit 0
     dbg=$(popup_bg)
-    exec tmux display-popup -c "$CLIENT" -E -w 90% -h 90% -d "$dir" -s "bg=$dbg" -S "bg=$dbg,fg=brightblack" \
+    exec tmux -L "$TRAILS_SERVER" display-popup -c "$CLIENT" -E -w 90% -h 90% -d "$dir" -s "bg=$dbg" -S "bg=$dbg,fg=brightblack" \
       -T " $(codebase_label "$dir") " "$(shq "$SELF") diff --show $(shq "$dir")"
   fi
   diff_show "$dir"
@@ -4731,7 +4731,7 @@ map_here() {
     switch_to "=$MAP"
   fi
   mh_bg=$(popup_bg)
-  exec tmux display-popup ${CLIENT:+-c "$CLIENT"} -E -w 70% -h 60% \
+  exec tmux -L "$TRAILS_SERVER" display-popup ${CLIENT:+-c "$CLIENT"} -E -w 70% -h 60% \
     -s "bg=$mh_bg" -S "bg=$mh_bg,fg=brightblack" \
     "env TRAILS_CLIENT=$(shq "$CLIENT") $(shq "$SELF") map new"
 }
@@ -4766,7 +4766,7 @@ map() {
   # inside tmux, attach outside — the same fork the build path ends on.
   if [ -z "${1:-}" ] && tmux has-session -t "=$MAP" 2>/dev/null; then
     [ -z "$TMUX" ] || switch_to "=$MAP"
-    exec tmux attach-session -t "=$MAP"
+    exec tmux -L "$TRAILS_SERVER" attach-session -t "=$MAP"
   fi
 
   rows=$(map_menu)
@@ -5005,13 +5005,13 @@ map() {
   # already here — switched to the new one before the old goes, so it is never sent home.
   if [ -n "$TMUX" ]; then
     if tmux has-session -t "=$MAP" 2>/dev/null; then
-      exec tmux switch-client ${CLIENT:+-c "$CLIENT"} -t "=$build" \; kill-session -t "=$MAP" \; rename-session -t "=$build" "$MAP"
+      exec tmux -L "$TRAILS_SERVER" switch-client ${CLIENT:+-c "$CLIENT"} -t "=$build" \; kill-session -t "=$MAP" \; rename-session -t "=$build" "$MAP"
     fi
-    exec tmux switch-client ${CLIENT:+-c "$CLIENT"} -t "=$build" \; rename-session -t "=$build" "$MAP"
+    exec tmux -L "$TRAILS_SERVER" switch-client ${CLIENT:+-c "$CLIENT"} -t "=$build" \; rename-session -t "=$build" "$MAP"
   fi
   tmux kill-session -t "=$MAP" 2>/dev/null
   tmux rename-session -t "=$build" "$MAP" || exit 1
-  exec tmux attach-session -t "=$MAP"
+  exec tmux -L "$TRAILS_SERVER" attach-session -t "=$MAP"
 }
 
 # ─── Where an agent may not be opened ────────────────────────────────────────
@@ -5543,7 +5543,7 @@ case $1 in
     if [ -n "$TMUX" ] && [ -n "$CLIENT" ] && { [ -n "${TRAILS_CLIENT:-}" ] || [ -n "${TMUX_PANE:-}" ]; }; then
       kb=$(popup_bg)
       # shellcheck disable=SC2046 # -w W -h H, four words on purpose
-      exec tmux display-popup -c "$CLIENT" -E $(keys_popup_size "$CLIENT") -s "bg=$kb" -S "bg=$kb,fg=brightblack" \
+      exec tmux -L "$TRAILS_SERVER" display-popup -c "$CLIENT" -E $(keys_popup_size "$CLIENT") -s "bg=$kb" -S "bg=$kb,fg=brightblack" \
         -T " trails keys " "$(shq "$SELF") help keys | less -R"
     fi
     keys_help | less -R
@@ -6016,7 +6016,7 @@ case $choice in
   # An editor or shell window, in its workspace: switched to or attached, never nested.
   tool*)
     [ -z "$TMUX" ] || switch_to "=$(trail_ws "$target"):$target"
-    exec tmux attach-session -t "=$(trail_ws "$target"):$target"
+    exec tmux -L "$TRAILS_SERVER" attach-session -t "=$(trail_ws "$target"):$target"
     ;;
   # A lost row comes back in its own directory, which on a workspace's screen is not here.
   restore*)

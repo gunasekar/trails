@@ -67,6 +67,13 @@ tmux -L default has-session -t '=default/on-mine' 2>/dev/null &&
 key=$(trail_key mine default/on-mine)
 [ -n "$key" ] || fail "no trail id on mine"
 assert_eq "$(rec_server "$key")" mine "record stores mine"
+# And the terminal is attached to it there: the attach is an `exec tmux`, which no shell
+# function reaches, so it has to name the socket itself. Without it, it went to the ordinary
+# default and tmux said "no sessions" (1.17 and 1.18).
+# The driver's own terminal, by its tty: the trail's window holds a nested client of its own.
+dtty=$(tmux display-message -pt "driver-$DRIVERS" '#{pane_tty}')
+wait_for 10 sh -c "tmux -L mine list-clients -F '#{client_tty}' 2>/dev/null | grep -qx '$dtty'" ||
+  fail "the terminal never attached on mine: $(screen "driver-$DRIVERS")"
 
 # Empty string means trails (dedicated), not the ordinary default.
 write_cfg '""'
