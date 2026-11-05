@@ -159,6 +159,21 @@ if [ "${1:-}" = state ]; then
     fi
   fi
   tmux "$@" >/dev/null 2>&1
+  # A trail that now wants you, blocked on a question or done with a turn, rings tmux's bell in
+  # its workspace window (ADR 28): tmux flags that window unless it is in front of you, sounds
+  # the terminal as its bell-action says, and clears the flag when the window is opened. The
+  # BEL goes to the window's pane, as if what runs there printed it. The window carries the
+  # trail's session as @trails_window; its names have no spaces.
+  if [ -n "$st_trail" ] && [ "$st_word" != "$st_before" ]; then
+    case $st_word:$st_before in
+      waiting:* | idle:working)
+        st_tty=$(tmux list-windows -a -F '#{@trails_window} #{pane_tty}' 2>/dev/null |
+          awk -v t="$st_trail" '$1 == t { print $2; exit }')
+        [ -z "$st_tty" ] || printf '\a' >"$st_tty" 2>/dev/null
+        ;;
+      *) ;;
+    esac
+  fi
   if [ -n "$st_id" ] && [ "$st_id" != "$st_carried" ]; then
     "$0" --said </dev/null >/dev/null 2>&1 &
   fi
@@ -221,6 +236,8 @@ TRAILS_NAME=
 #                  installed.
 #   notify         desktop notifications on the terminals attached, when a trail needs you
 #                  or ends its turn (see "Notifications"); false turns them off.
+#   alerts         the status line's bell for the trails that want you (ADR 28):
+#                  { "glyph": "…" }, a Nerd Font bell by default; false for none.
 #   server         the tmux socket name trails uses (`tmux -L NAME`). Empty string means
 #                  "trails" (dedicated). A missing key also means "trails", except when
 #                  upgrading: session records still on the ordinary default server pin the
@@ -4490,6 +4507,22 @@ keys() {
   # workspaces, as prefix W does: MouseDown1StatusLeft, which stock tmux leaves unbound (its
   # right-click menu stays).
   kws='[#{?@trails_map,▦ map,#{session_name}}] '
+  # The bell (ADR 28): the config's glyph, a Nerd Font bell by default, "alerts": false for none.
+  # After [session], one bell and a count for the trails that want you in the workspaces you are
+  # not in: every workspace's (@trails_wants_all, the server's) less this one's
+  # (@trails_wants_here, the session's; a name of its own, since a session reads a user option
+  # it lacks from the server's). Kept by trails --wants, run from tmux's hooks below, so
+  # nothing runs for the status line itself. @trails_bell is the same glyph for a window, to put
+  # in a theme's window-status-format, and @trails_bell_style the badge's colour, to put before
+  # the window's name: a theme that colours the name itself (#[fg=...]) keeps tmux's own
+  # window-status-bell-style from showing. tmux's stock format shows the bell as ! already.
+  kglyph=$(jq -r 'if (.alerts | type) == "object" and (.alerts.glyph | type) == "string" then .alerts.glyph elif .alerts == false then "" else "󰂚" end' "$CONFIG" 2>/dev/null) || kglyph='󰂚'
+  [ -f "$CONFIG" ] || kglyph='󰂚'
+  kbadge=
+  if [ -n "$kglyph" ]; then
+    kn='#{e|-:#{@trails_wants_all},#{@trails_wants_here}}'
+    kbadge="#{?#{e|>:$kn,0},#[fg=yellow]$kglyph $kn#[default] ,}"
+  fi
   cat <<EOF
 # trails: one line in tmux.conf loads all of these, and follows every upgrade:
 #   run-shell "$kq keys | tmux source-file -"
@@ -4512,7 +4545,9 @@ bind -N "trails: rename this trail" R command-prompt -p "rename trail:" "run-she
 set -g status-left-length 40
 set -g status-right-length 80
 set -g status-right "$STATUS_TASK_FMT#($kq checklist --count '#{?@trails_dir,#{@trails_dir},#{pane_current_path}}')%H:%M "
-set -g status-left "$kws"
+set -g status-left "$kws$kbadge"
+set -g @trails_bell "#{?window_bell_flag,#[fg=yellow] $kglyph,}"
+set -g @trails_bell_style "#{?window_bell_flag,#[fg=yellow],}"
 # A session whose last window closes moves its terminal to another session no terminal shows,
 # a workspace or one of yours, instead of out of tmux (ADR 28); a trail's own session never
 # qualifies, since its nested client always shows it. Each trail's session keeps on itself
@@ -4520,6 +4555,12 @@ set -g status-left "$kws"
 # before this.
 set -g detach-on-destroy no-detached
 run-shell -b "$kq --hold >/dev/null 2>&1"
+# The count of the bells, again whenever one rings or a window is opened, closed or left. At
+# index 42 of each hook: beside a tmux.conf's own (index 0), and the same one on every reload.
+set-hook -g "alert-bell[42]" "run-shell -b \"$kq --wants >/dev/null 2>&1\""
+set-hook -g "session-window-changed[42]" "run-shell -b \"$kq --wants >/dev/null 2>&1\""
+set-hook -g "client-session-changed[42]" "run-shell -b \"$kq --wants >/dev/null 2>&1\""
+set-hook -g "window-unlinked[42]" "run-shell -b \"$kq --wants >/dev/null 2>&1\""
 EOF
 }
 
@@ -5352,7 +5393,7 @@ config_check() {
   return 1
 }
 case $1 in
-  help | -h | --help | config | keys | --keys | --forget | --layout | --peek | --hold | rename) ;;
+  help | -h | --help | config | keys | --keys | --forget | --layout | --peek | --hold | --wants | rename) ;;
   ls) config_check || true ;;
   checklist) [ -n "$LIGHT" ] || config_check || exit 1 ;;
   *) config_check || exit 1 ;;
@@ -5363,7 +5404,7 @@ esac
 # config is broken, and boot, which tmux needs whatever the config says. ls carries on
 # without them (only its closed rows need them), so a typo in the file can't blank what reads it.
 case $1 in
-  help | -h | --help | config | keys | --keys | note | checklist | diff | --forget | --layout | --peek | --hold | boot | rename | --notify) AGENTS= ;;
+  help | -h | --help | config | keys | --keys | note | checklist | diff | --forget | --layout | --peek | --hold | --wants | boot | rename | --notify) AGENTS= ;;
   ls | ws) AGENTS=$(load_agents) || AGENTS= ;;
   *) AGENTS=$(load_agents) || exit 1 ;;
 esac
@@ -5379,7 +5420,7 @@ esac
 # Records from before 1.8 move to its layout, once (rec_migrate): first thing for anything that
 # reads them. Not for what never does; the wrapper's --forget sees to its own.
 case $1 in
-  help | -h | --help | config | keys | --keys | note | checklist | diff | --layout | --peek | --forget | --hold | --notify) ;;
+  help | -h | --help | config | keys | --keys | note | checklist | diff | --layout | --peek | --forget | --hold | --wants | --notify) ;;
   *) rec_migrate ;;
 esac
 
@@ -5475,6 +5516,41 @@ case $1 in
   # From trails keys, as the server reads it: detach-on-destroy on for every trail's session
   # that was made before launch set it, so the server's no-detached never moves the nested
   # client of one that ends (see launch).
+  # From tmux's hooks (trails keys): how many trails want you, by the bells on their windows
+  # (ADR 28), per workspace as @trails_wants_here and in all as @trails_wants_all, for the
+  # status line's count. Only a trail's window in a workspace counts; one tmux, one count.
+  #
+  # Hooks fire in bursts (a bell, then the window it opens), and two counts at once could end in
+  # the older one's: so one at a time, per server. Each run marks the count stale; the one
+  # holding the lock counts until nothing is, and a run that finds it held leaves the mark for
+  # it. Checked again once the lock is let go, for a mark that came in between. A lock older
+  # than a minute is a run that was killed in it.
+  --wants)
+    mkdir -p "$STATE_DIR"
+    wn_lock=$STATE_DIR/.wants-$TRAILS_SERVER
+    : >"$wn_lock.stale"
+    while :; do
+      if ! mkdir "$wn_lock" 2>/dev/null; then
+        [ -n "$(find "$wn_lock" -maxdepth 0 -mmin +1 2>/dev/null)" ] || exit 0
+        rmdir "$wn_lock" 2>/dev/null
+        continue
+      fi
+      while [ -f "$wn_lock.stale" ]; do
+        rm -f "$wn_lock.stale"
+        wn_all=0
+        set --
+        for wn_line in $(tmux list-windows -a -F "#{session_name}$US#{?@trails_workspace,1,0}$US#{?@trails_window,#{window_bell_flag},0}" 2>/dev/null |
+          awk -F "$US" '$2 == 1 { n[$1] += $3 } END { for (s in n) print s "=" n[s] }'); do
+          wn_s=${wn_line%=*} wn_n=${wn_line##*=}
+          wn_all=$((wn_all + wn_n))
+          set -- "$@" set-option -t "=$wn_s:" @trails_wants_here "$wn_n" \;
+        done
+        tmux "$@" set-option -g @trails_wants_all "$wn_all" >/dev/null 2>&1
+      done
+      rmdir "$wn_lock" 2>/dev/null
+      [ -f "$wn_lock.stale" ] || exit 0
+    done
+    ;;
   --hold)
     tmux list-windows -a -F "#{session_name}$US#{@trails_trail}" 2>/dev/null |
       awk -F "$US" '$2 != "" { print $1 }' | sort -u |

@@ -177,6 +177,24 @@ window of a session moves the terminal to a workspace, or one of your own
 sessions, instead of out of tmux. Windows, panes and sessions you make yourself
 are plain tmux: trails never lists, renames or restores them.
 
+**A bell for what wants you.** A trail blocked on a question, or done with a turn,
+rings tmux's bell in its window: tmux marks the window (stock tmux shows `!` after
+its name), your terminal plays its bell, and the mark goes when you open the
+window. After `[acme]`, one bell and a count stand for the trails that want you in
+the workspaces you are not in, and nothing at all when none do:
+
+```text
+[acme] 󰂚 2 1:checkout-3f9a  2:checkout-b07e!  3:billing·nvim   Fix the flaky cart-total test · 14:05
+```
+
+The bell is a Nerd Font glyph; set another, or none, in the config:
+`"alerts": { "glyph": "*" }`, or `"alerts": false`. A theme whose window format
+shows no tmux flags can show the same bell after a window's name with
+`#{E:@trails_bell}`, and colour the name as the bell's with `#{E:@trails_bell_style}`
+before it (a theme that sets the name's colour itself keeps tmux's own bell style
+from showing), for example
+`set -g window-status-format "#{E:@trails_bell_style}#I:#W#{E:@trails_bell}"`.
+
 The task is the title the agent gives its terminal, Claude's summary of the
 conversation, read as it changes and cut at 40 characters; a named trail has its
 name in its window instead.
@@ -813,13 +831,19 @@ bind -N "trails: rename this trail" R command-prompt -p "rename trail:" "run-she
 set -g status-left-length 40
 set -g status-right-length 80
 set -g status-right "#{?@trails_window,…}#('trails' checklist --count '#{?@trails_dir,#{@trails_dir},#{pane_current_path}}')%H:%M "
-set -g status-left "[#{?@trails_map,▦ map,#{session_name}}] "
+set -g status-left "[#{?@trails_map,▦ map,#{session_name}}] #{?…}"
+set -g @trails_bell "#{?window_bell_flag,#[fg=yellow] 󰂚,}"
+set -g @trails_bell_style "#{?window_bell_flag,#[fg=yellow],}"
 set -g detach-on-destroy no-detached
 run-shell -b "'trails' --hold >/dev/null 2>&1"
+set-hook -g "alert-bell[42]" "run-shell -b \"'trails' --wants >/dev/null 2>&1\""
+set-hook -g "session-window-changed[42]" "run-shell -b \"'trails' --wants >/dev/null 2>&1\""
+set-hook -g "client-session-changed[42]" "run-shell -b \"'trails' --wants >/dev/null 2>&1\""
+set-hook -g "window-unlinked[42]" "run-shell -b \"'trails' --wants >/dev/null 2>&1\""
 ```
 
-It prints trails' full path where these show `trails`, the full `status-right`
-format where it shows `…`, and `bg=default` for
+It prints trails' full path where these show `trails`, the full `status-left`
+and `status-right` formats where they show `…`, and `bg=default` for
 `bg=terminal` before tmux 3.8. Both status lines replace yours: set yours after
 the `trails keys` line to keep them. Or paste only the lines you want, and paste again when they change.
 

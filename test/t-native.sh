@@ -20,7 +20,10 @@ driver_attached || fail "the terminal never attached"
 
 # ── The keys ────────────────────────────────────────────────────────────────────
 "$TRAILS" keys | tmux source-file - || fail "tmux refused the keys"
-assert_eq "$(tmux show -gv status-left)" '[#{?@trails_map,▦ map,#{session_name}}] ' "status-left is tmux's [session]"
+case $(tmux show -gv status-left) in
+  '[#{?@trails_map,▦ map,#{session_name}}] '*) ;;
+  *) fail "status-left is not tmux's [session]: $(tmux show -gv status-left)" ;;
+esac
 assert_match "$(tmux list-keys -T root MouseDown1StatusLeft)" "display-popup .* ws " "a click on it opens the workspaces"
 assert_eq "$(tmux show -gv detach-on-destroy)" no-detached "the server moves a terminal on, not out"
 

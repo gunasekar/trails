@@ -1,7 +1,8 @@
 # 28. A tmux-native server that tells you what waits
 
 - Status: accepted, built in parts: the status line's left, `detach-on-destroy` and
-  `@trails_state_at` in 1.19; the bells, the popup, the watch list and notifications to come
+  `@trails_state_at` in 1.19; the bells in 1.20; the popup, the watch list and
+  notifications to come
 - Date: 2026-11
 
 ## Context
@@ -102,7 +103,8 @@ the marked pane". They stay for now; to be revisited.
   never a polling job. The popup opens as slowly as the picker does until the port.
 - `trails keys` sets more of the server's options (`detach-on-destroy`, the status
   line); they are trails' server's only, since 1.18.
-- Open: the window's bell has to sit in the window format, which is usually the
-  user's theme (the demo's pads each name to 25 columns and shows no tmux flags).
-  trails must not overwrite it: likely a format of its own (`#{E:@trails_bell}`) to
-  add to one's theme, appended to tmux's stock format when the theme has none.
+- The window's bell sits in the window format, which is usually the user's theme, and
+  trails does not touch it: tmux's stock format shows the bell flag as `!`, and a theme
+  that shows no flags adds `#{E:@trails_bell}`, the glyph when the window's flag is up,
+  and `#{E:@trails_bell_style}` before the name, to colour it as the bell, since a theme
+  that colours the name itself hides tmux's own bell style.

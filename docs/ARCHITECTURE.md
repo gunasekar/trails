@@ -828,6 +828,26 @@ menu on the same spot stays). `prefix K` and `J` run `trails ws prev` / `next`
 (`ws_step`): the workspaces by name, round the end, through `switch_to`, so a grouped
 terminal stays grouped.
 
+**The bells** ([ADR 28](decisions/0028-a-tmux-native-server-that-tells-you-what-waits.md)).
+When `trails state` sees a trail's word change to *waiting*, or to *idle* from
+*working*, it writes a BEL to the pane of the trail's workspace window (the one whose
+`@trails_window` is the trail's session), as if what runs there printed it. tmux does
+the rest by its own rules: it flags the window unless it is the current one of a
+session a terminal shows, sounds the terminal as `bell-action` says, and clears the
+flag when the window is opened. No state of trails' says what was seen. The count after
+`[session]` is tmux's own arithmetic, `#{e|-:#{@trails_wants_all},#{@trails_wants_here}}`:
+every workspace's flagged trail windows less this session's, shown with the glyph only
+when above nought. `trails --wants` keeps both, from tmux's hooks at index 42
+(`alert-bell`, `session-window-changed`, `client-session-changed`, `window-unlinked`),
+beside a tmux.conf's own at 0 and the same one on every reload. The per-session one has a
+name of its own because a session reads a user option it lacks from the server's.
+Hooks fire in bursts, so `--wants` runs one at a time per server, under a lock: each run
+marks the count stale, and the holder counts again until nothing is. `@trails_bell` is the
+glyph for one window, `#{?window_bell_flag,#[fg=yellow] 󰂚,}`, for a theme's window format,
+and `@trails_bell_style` its colour alone, to put before the window's name: a theme that
+colours the name itself (`#[fg=…]`) keeps tmux's own `window-status-bell-style` from
+showing. tmux's stock format shows the bell flag as `!` already.
+
 It sets `detach-on-destroy no-detached`, so a session whose last window closes moves its
 terminal to the most recently used session no terminal shows, a workspace or one of
 yours, and detaches it only when there is none; stock tmux's `on` drops it out of
@@ -999,7 +1019,7 @@ shell), inside (inside
 tmux: switch-client, a nested editor client, the refused collision), restore,
 autorestore, map, workspace and wsmap (the config), wsbar (the status line's
 `[session]` and `prefix K`/`J`), native (the click on it, `detach-on-destroy`,
-`@trails_state_at`), server (the socket), keys-scope (the keys on trails' server
+`@trails_state_at`), bells (the bell on a trail's window, the count after `[session]`), server (the socket), keys-scope (the keys on trails' server
 only), service (the service starting the server), boot,
 grouped (a second terminal on a workspace), all (every trail), edges, hooks
 (`trails state` and `--id`, the history, the plugin against the docs), notify
