@@ -76,9 +76,10 @@ assert_match "$("$TRAILS" keys)" "^bind -N \"[^\"]*\" P display-popup .* \"'$TRA
 tmux -L keyscheck -f /dev/null new-session -d 'sleep 10'
 assert_eq "$(tmux -L keyscheck source-file "$T/keys.conf" 2>&1)" "" "tmux takes every line"
 tmux -L keyscheck kill-server 2>/dev/null
-# The one line it offers, as tmux.conf: a server started on it has the keys and the bar.
+# The one line it offers, as tmux.conf: trails' server started on it has the keys and the bar
+# (keysone is trails' socket here; another server takes none of them, see t-keys-scope).
 printf '%s\n' "run-shell \"'$TRAILS' keys | tmux source-file -\"" >"$T/one.conf"
-tmux -L keysone -f "$T/one.conf" new-session -d 'sleep 10'
+TRAILS_SOCKET=keysone tmux -L keysone -f "$T/one.conf" new-session -d 'sleep 10'
 wait_for 5 sh -c "tmux -L keysone list-keys -T prefix N >/dev/null 2>&1" || fail "the one line loaded no keys"
 assert_match "$(tmux -L keysone show -gv status-left)" "trails_workspace" "and the status line"
 tmux -L keysone kill-server 2>/dev/null

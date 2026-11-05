@@ -49,7 +49,9 @@ recommended for the diff, and `curl` keeps the picker's preview live.
 1. **Put trails on tmux's keys.** One line in `~/.config/tmux/tmux.conf` (or
    `~/.tmux.conf`) loads them from the installed trails, so they follow every
    upgrade; reload tmux after adding it. Trails uses its own tmux socket
-   (`trails` by default), and the same conf is read when that server starts:
+   (`trails` by default), and the same conf is read when that server starts.
+   Every other tmux server reads it too, but takes none of trails' keys or its
+   status line, so a plain `tmux` of yours stays as you configured it:
 
    ```tmux
    run-shell "trails keys | tmux source-file -"

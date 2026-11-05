@@ -907,8 +907,13 @@ in_trails() {
 
 # Inside another tmux server: clear TMUX so the rest of trails attaches to ours (nesting with
 # the foreign one as the outer terminal) instead of switch-client on the wrong socket. A
-# TMUX_PANE from that server must not leak into one trails starts either.
+# TMUX_PANE from that server must not leak into one trails starts either. Which server it
+# was is kept, for keys: a tmux.conf every server reads must not load trails' keys into
+# them all.
+FOREIGN_TMUX=
 if [ -n "${TMUX:-}" ] && ! in_trails; then
+  FOREIGN_TMUX=${TMUX%%,*}
+  FOREIGN_TMUX=${FOREIGN_TMUX##*/}
   unset TMUX TMUX_PANE
 fi
 
@@ -5429,8 +5434,15 @@ case $1 in
     checklist_cmd "$@"
     exit 0
     ;;
+  # From another server's tmux.conf (the run-shell line, which every server reads): nothing
+  # but a comment, so a tmux of your own keeps its keys and status line. Run from a shell,
+  # outside any tmux, it prints them all, to read or paste.
   keys)
-    keys
+    if [ -n "$FOREIGN_TMUX" ]; then
+      echo "# trails: keys are for the trails server ($TRAILS_SERVER), not this one ($FOREIGN_TMUX)"
+    else
+      keys
+    fi
     exit 0
     ;;
   diff)

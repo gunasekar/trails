@@ -803,7 +803,11 @@ trails needs no help key of its own (1.11 had `H`); the picker's `?` has the res
 
 `run-shell "trails keys | tmux source-file -"` in tmux.conf loads them all each time
 tmux reads it, so they follow an upgrade; the lines it prints that say so are tmux
-comments, which the sourcing skips.
+comments, which the sourcing skips. Every tmux server reads that tmux.conf, trails'
+and any other, so `keys` asks which one is running it: a `run-shell` job has its
+server's socket in `$TMUX`, and on a socket that isn't trails' (`FOREIGN_TMUX`) it
+prints one comment and nothing else. Run from a shell, outside tmux, it prints
+everything, to read or paste.
 
 One line is printed commented out, so the loader skips it and it stays opt-in:
 `run-shell -b "trails restore >/dev/null 2>&1"`, which brings back the trails tmux
