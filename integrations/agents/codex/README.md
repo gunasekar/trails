@@ -33,5 +33,8 @@ Codex 0.165.0 successfully installed this plugin in an isolated configuration, a
 its runtime discovered all seven hooks as enabled plugin hooks requiring trust.
 The installed user hooks were also trusted in a live Codex trail, which then
 reported working. Permission, interrupt, and session-start transitions have not
-all been exercised live. The hooks do not pass a conversation ID, so restoring
-Codex conversations after tmux dies is not covered.
+all been exercised live.
+
+`SessionStart` and `Stop` pass the hook input's `session_id` to Trails (`--id`), the
+ID `codex resume` takes, so a Codex trail is restored after tmux dies. Hooks
+installed before this need a new review in `/hooks`.

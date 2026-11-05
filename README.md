@@ -296,20 +296,23 @@ and session start, completion, or interruption mark idle.
 ```json
 {
   "hooks": {
-    "SessionStart": [{"hooks": [{"type": "command", "command": "trails state idle --agent codex 2>/dev/null || true", "statusMessage": "Trails: session ready"}]}],
+    "SessionStart": [{"hooks": [{"type": "command", "command": "trails state idle --id \"$(jq -r '.session_id // empty')\" --agent codex 2>/dev/null || true", "statusMessage": "Trails: session ready"}]}],
     "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "trails state working --agent codex 2>/dev/null || true", "statusMessage": "Trails: prompt started"}]}],
     "PreToolUse": [{"hooks": [{"type": "command", "command": "trails state working --agent codex 2>/dev/null || true", "statusMessage": "Trails: tool started"}]}],
     "PostToolUse": [{"hooks": [{"type": "command", "command": "trails state working --agent codex 2>/dev/null || true", "statusMessage": "Trails: tool finished"}]}],
     "PermissionRequest": [{"hooks": [{"type": "command", "command": "trails state waiting --agent codex 2>/dev/null || true", "statusMessage": "Trails: waiting for approval"}]}],
-    "Stop": [{"hooks": [{"type": "command", "command": "trails state idle --agent codex 2>/dev/null || true", "statusMessage": "Trails: turn finished"}]}],
+    "Stop": [{"hooks": [{"type": "command", "command": "trails state idle --id \"$(jq -r '.session_id // empty')\" --agent codex 2>/dev/null || true", "statusMessage": "Trails: turn finished"}]}],
     "Interrupt": [{"hooks": [{"type": "command", "command": "trails state idle --agent codex 2>/dev/null || true", "statusMessage": "Trails: turn interrupted"}]}]
   }
 }
 ```
 
-Codex picks its own conversation IDs, so without `--id` a Codex trail is not
-restored after tmux dies. Add `--id` to `SessionStart` once you have checked which
-field of its hook input holds the ID (not yet checked here).
+Codex picks its own conversation IDs, and passes each hook a JSON object on stdin
+with `session_id` among it, the ID `codex resume` takes. `SessionStart` and `Stop`
+hand it to trails, so a Codex trail comes back after tmux dies: `SessionStart` for
+a new session and after `/new` or a resume, `Stop` for a session that started
+before the hooks were trusted. After upgrading from hooks without `--id`, review
+them again in `/hooks`.
 
 ##### Gemini CLI
 
@@ -432,7 +435,7 @@ is the hook's job: trails takes what it is given.
 | Agent | Events | Conversation ID |
 |---|---|---|
 | claude | against 2.1.309 installed, the plugin validated | `session_id` on stdin, in its docs |
-| codex | 0.165.0: plugin install and discovery checked; trusted user hooks reported working in a live trail; other transitions not all checked | not yet |
+| codex | 0.165.0: plugin install and discovery checked; trusted user hooks reported working in a live trail; other transitions not all checked | `session_id` on stdin, from the 0.166.0 binary's hook input |
 | gemini | its docs only, not installed | not yet |
 | copilot | its docs only, not installed | not yet |
 | cursor | 2026.10.22-27dcf5f: plugin start and tool/shell events fired; headless prompt/stop skipped; resume skips start; interactive completion unverified | not yet |
