@@ -485,6 +485,15 @@ an empty config value — after untagged legacy records have been stamped
 `server=default` during the pin above. `rec_write` always stores the socket the
 trail was started on.
 
+So moving to another socket is not a config change: with `"server"` changed alone,
+every record still names the old one, and the new server restores none of them.
+`trails server NAME` (`server_move`) rewrites `server=` in every record of the
+current socket and the config's key together, and refuses while a trail window still
+runs on the current socket, whose agent would keep running with no record claiming
+it. A running agent can't change servers, so the move is: stop the old server (the
+service), `trails server NAME`, start it again, and `boot`'s restore resumes each
+trail on its conversation there.
+
 **The ID is chosen up front.** `trails` generates it and starts the agent under it
 (`claude --session-id`, `opencode --session`), then resumes by it (`--resume`,
 `--session`). `--continue` would not do: it means "the latest conversation in

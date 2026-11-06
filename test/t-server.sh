@@ -124,11 +124,23 @@ assert_match "$(printf '%s\n' "$out" | awk -F'\t' '$10 == "tdef2" { print $1, $2
 out2=$(cd "$PROJ" && env -u TRAILS_SOCKET "$TRAILS" ls -a 2>&1)
 assert_eq "$(printf '%s\n' "$out2" | grep -c 'ordinary tmux server')" 0 "pin notice only once"
 
-# Opt in to trails: set the key, rewrite records, restore on the new socket.
-jq '.server = "trails"' "$CFG" >"$CFG.tmp" && mv "$CFG.tmp" "$CFG"
-find "$STATE" -type f ! -name '*.tmp.*' 2>/dev/null | while IFS= read -r f; do
-  sed 's/^server=default$/server=trails/' "$f" >"$f.tmp" && mv "$f.tmp" "$f"
-done
+# Move to trails: `trails server trails` rewrites the records and the config together; the
+# config alone moved nothing, a record being restored only on its own server. Refused while a
+# trail still runs on the old server, which would keep running with no record claiming it.
+assert_eq "$(env -u TRAILS_SOCKET "$TRAILS" server)" default "trails server says where it is"
+tmux -L default new-session -d -s held 'sleep 60'
+tmux -L default set-option -w -t '=held:' @trails_trail tlive
+out=$(env -u TRAILS_SOCKET "$TRAILS" server trails 2>&1)
+assert_eq "$?" 1 "refused while a trail runs on the old server"
+assert_match "$out" "1 trail windows still run on the default tmux server; stop it first" "and says what to do"
+assert_eq "$(cfg_server) $(rec_server tabc1)" "default default" "nothing moved"
+tmux -L default kill-server
+out=$(env -u TRAILS_SOCKET "$TRAILS" server bad/name 2>&1)
+assert_match "$out" "a server name is letters" "a name tmux can't take, refused"
+out=$(env -u TRAILS_SOCKET "$TRAILS" server trails 2>&1)
+assert_eq "$out" "trails: moved 2 trails from the default tmux server to trails; brew services start trails (or trails restore) brings them up there" "moved"
+assert_eq "$(cfg_server) $(rec_server tabc1) $(rec_server tdef2)" "trails trails trails" "the config and every record"
+assert_eq "$(env -u TRAILS_SOCKET "$TRAILS" server trails 2>&1)" "trails: already on the trails tmux server" "again, nothing to do"
 out=$(cd "$PROJ" && env -u TRAILS_SOCKET "$TRAILS" restore 2>&1)
 assert_match "$out" 'restored' "restore brings legacy trails onto the trails socket"
 wait_for 10 sh -c "tmux -L trails list-windows -a -F '#{@trails_trail}' 2>/dev/null | grep -qx tabc1" ||

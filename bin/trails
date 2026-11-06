@@ -15,6 +15,7 @@
 #   trails boot             starts tmux, and the lost trails in it, for a service manager
 #                           to keep running (brew services start trails): tmux then
 #                           outlives any terminal, a Force Quit included. See boot_run.
+#   trails server [NAME]    the tmux socket, or move the trails to NAME (the old one stopped)
 #   trails config           the agents file, ~/.config/trails/config.json. See
 #                           "Agents" below.
 #   trails map [N]          several agents at once in one window. Pick them, or take the
@@ -299,6 +300,55 @@ server_config_set() {
     rm -f "$CONFIG.tmp"
     return 1
   }
+}
+
+# `trails server NAME`: move trails to tmux socket NAME. A running agent can't change servers,
+# so this moves what brings them back: every record of the current server says NAME, and so
+# does the config, together, then a restore (the service's start) brings them up there on
+# their conversations. Refused while a trail still runs on the current server, which the
+# move would leave running with a record that no longer claims it. Changing the config alone
+# moved nothing: a record is restored only on its own server (rec_is_dead).
+server_move() {
+  sm_old=$TRAILS_SERVER sm_new=$(server_name "$1")
+  case $sm_new in
+    *[!A-Za-z0-9_.-]*)
+      echo "trails: a server name is letters, digits, ., - and _ (got '$sm_new')" >&2
+      exit 1
+      ;;
+    *) ;;
+  esac
+  if [ "$sm_new" = "$sm_old" ]; then
+    echo "trails: already on the $sm_old tmux server"
+    return 0
+  fi
+  sm_run=$(command tmux -L "$sm_old" list-windows -a -F '#{@trails_trail}' 2>/dev/null | grep -c .)
+  if [ "$sm_run" -gt 0 ]; then
+    echo "trails: $sm_run trail windows still run on the $sm_old tmux server; stop it first (brew services stop trails, or tmux -L $sm_old kill-server), then move: they come back on $sm_new, each on its conversation" >&2
+    exit 1
+  fi
+  sm_n=0
+  if [ -d "$STATE_DIR" ]; then
+    for sm_f in "$STATE_DIR"/*/*; do
+      [ -f "$sm_f" ] || continue
+      case $sm_f in *.tmp.*) continue ;; *) ;; esac
+      [ "$(sed -n 's/^server=//p' "$sm_f" | head -n 1)" = "$sm_old" ] || continue
+      if ! { sed "s/^server=.*/server=$sm_new/" "$sm_f" >"$sm_f.tmp.$$" && mv -f "$sm_f.tmp.$$" "$sm_f"; }; then
+        rm -f "$sm_f.tmp.$$"
+        echo "trails: couldn't rewrite $sm_f; nothing else changed after it" >&2
+        exit 1
+      fi
+      sm_n=$((sm_n + 1))
+    done
+  fi
+  if [ -f "$CONFIG" ]; then
+    server_config_set "$sm_new" || {
+      echo "trails: couldn't write \"server\": \"$sm_new\" to $CONFIG; the records say $sm_new already" >&2
+      exit 1
+    }
+  else
+    mkdir -p "$(dirname "$CONFIG")" && printf '{ "server": "%s" }\n' "$sm_new" >"$CONFIG"
+  fi
+  echo "trails: moved $sm_n trails from the $sm_old tmux server to $sm_new; brew services start trails (or trails restore) brings them up there"
 }
 
 # Put server=NAME on every session record that lacks a server= line.
@@ -5605,6 +5655,9 @@ usage: trails [command]
                     tmux starts
   boot              start tmux and the trails it lost, for a service manager: brew
                     services start trails runs it at login, outside any terminal
+  server [NAME]     the tmux socket trails is on, or move its trails to NAME: with
+                    the old server stopped, rewrites the records and the config, and
+                    the next start brings them up on NAME
   ws [NAME]         the picker, or go to NAME: switch (inside tmux) or attach to its
                     session, or start a trail there when nothing runs
   ws list           the workspaces in the config, and the codebases each holds
@@ -5794,6 +5847,14 @@ case $1 in
     ;;
   boot)
     boot_run
+    ;;
+  server)
+    if [ -z "${2+x}" ]; then
+      printf '%s\n' "$TRAILS_SERVER"
+      exit 0
+    fi
+    server_move "$2"
+    exit 0
     ;;
   # From the wrapper of a restore whose resume the agent refused after BOOT (see "Surviving
   # tmux"), run by the server: --refused TID SESSION. Once its session has gone, the trail

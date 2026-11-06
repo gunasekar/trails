@@ -741,6 +741,7 @@ without a Trails-specific reporting hook or extension.
 | `trails ls [-a \| DIR]` | the trails, here, in `DIR` or everywhere |
 | `trails restore` | bring back every lost trail |
 | `trails boot` | start tmux and the lost trails, for `brew services start trails` |
+| `trails server [NAME]` | the tmux socket trails is on, or move its trails to `NAME` once the old server is stopped |
 | `trails map [N \| new]` | trails side by side in one window |
 | `trails keys` | the tmux.conf lines for the keys and the status line |
 | `trails state WORD [--id ID] [--agent PROGRAM]` | for an agent's hooks: `working`, `waiting` or `idle` |
@@ -777,7 +778,7 @@ and opens the file.
 | `agents` | what the picker can start: `name`, `program` (split on spaces), `yolo` (the flag Tab adds), `session` (how to restore it, below). Only agents on `PATH` are offered |
 | `default_agent` | listed first |
 | `mode` | `default` or `yolo`: the mode a new trail starts in; Tab flips it |
-| `server` | tmux socket name (`tmux -L NAME`). Empty means `trails`. A missing key means `trails` too, except an upgrade that still has records on the ordinary server pins `"default"` once. Use `default` to stay there; set `trails` and `trails restore` to move |
+| `server` | tmux socket name (`tmux -L NAME`). Empty means `trails`. A missing key means `trails` too, except an upgrade that still has records on the ordinary server pins `"default"` once. Use `default` to stay there. To move: `brew services stop trails`, `trails server trails`, `brew services start trails`; the trails come back on their conversations |
 | `workspaces` | see [Workspaces](#workspaces) |
 | `data` | a folder for each codebase's checklist; `.trails/checklist.md` in the codebase without it |
 | `diff` | what shows the diff: see [the diff](#the-editor-a-shell-and-the-diff) |
