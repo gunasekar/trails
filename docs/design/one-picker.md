@@ -1,7 +1,8 @@
 # One picker: design
 
 Status: implemented · 2026-11-07, in one change rather than the three phases
-below. [ADR 30](../decisions/0030-one-picker-one-list.md) records the decisions
+below. Since: no map row, no preview, and Enter on a workspace's header starts a
+trail there (see ADR 30). [ADR 30](../decisions/0030-one-picker-one-list.md) records the decisions
 that outlive this document. Where the build differs from the proposal, the
 section says so under **As built**.
 

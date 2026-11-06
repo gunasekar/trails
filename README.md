@@ -42,7 +42,7 @@ brew install gunasekar/tap/trails
 Or put [`bin/trails`](bin/trails), one POSIX `sh` script, anywhere on your
 `PATH`. It needs tmux 3.3 or later, fzf and jq, and at least one agent CLI.
 [delta](https://github.com/dandavison/delta) (`brew install git-delta`) is
-recommended for the diff, and `curl` keeps the picker's preview live.
+recommended for the diff, and `curl` keeps the editor picker's preview live.
 
 ## Quickstart
 
@@ -116,12 +116,12 @@ In the picker:
 | Key | Does |
 |---|---|
 | typing | filter the rows |
-| `enter` | go there: a trail, a window, a workspace, the map, a session; bring back a lost trail, resume a closed one, or start an agent |
+| `enter` | go there: a trail, a window, a session; on a workspace, a new trail there; bring back a lost trail, resume a closed one, or start an agent |
 | `ctrl-s` | star the trail under the cursor, or unstar it |
 | `ctrl-r` | rename the trail under the cursor; an empty name takes it away |
-| `ctrl-x` | end a running trail, close an editor or shell window or the map, or forget a lost or closed one |
+| `ctrl-x` | end a running trail, close an editor or shell window, or forget a lost or closed one |
 | `ctrl-e` | the editor for the row's codebase |
-| `ctrl-/` | show or hide the preview: the trail's screen, kept live; shown in the popup, hidden at first from a bare `trails` in a terminal |
+| `ctrl-/` | in an editor's picker and the old trails: show or hide the preview, the trail's screen kept live |
 | `ctrl-n` | a new workspace; in the agents, name the trail you are about to start |
 | `tab` | in the agents and the old trails: toggle YOLO (run everything unconfirmed) |
 | `?` | the keys and what the states mean |
@@ -228,15 +228,14 @@ another trail's while it lives.
 
 `trails`, `prefix P` or a click on `[acme]` opens one list of everything worth
 going to on trails' server: each workspace, the one you are in first, with its
-trails, its lost trails and its windows in the status line's order; the map,
-while one is up; the tmux sessions you made yourself; and the trails that ended.
-The cursor starts on where you are, and the highlighted trail's screen shows
-live under the list:
+trails, its lost trails and its windows in the status line's order; the tmux
+sessions you made yourself; and the trails that ended. The cursor starts on
+where you are. It is for starting a trail and going to one: the map has its own
+key (`prefix M`), and the row says what a trail is doing, with no preview:
 
 ```text
 trails ▸ █                    # enter: go · ctrl-s: star · ctrl-r: rename · ctrl-x: end · …
 ▌ ＋ new trail…  in checkout (acme)
-  ▦ map  4 trails · payments needs you
   acme  2 trails · 1 needs you · 1 lost
     1 checkout-3f9a  working          checkout  claude          Fix the flaky cart test
   ★ 2 payments       needs you   4m   checkout  claude · yolo   Which retry budget?
@@ -261,9 +260,10 @@ has waited on you, its codebase, its agent and what it is working on:
 | lost | tmux died under it: a reboot, a crash, `kill-server` | bring it back on its conversation |
 | closed | it ended in the last 10 days (in the old trails) | resume it, in the mode it last ran in |
 
-Enter on a workspace goes to it, on the trail that most wants you; on one with
-nothing running, it starts a trail there. **＋ new trail…** picks a codebase of
-the workspace you are in, the cursor on the one you are in, then the agent to
+Enter on a workspace starts a trail there: its codebases, then the agent, the
+same as **＋ new trail…** does for the workspace you are in (its trails and
+windows are rows of their own). **＋ new trail…** picks a codebase of the
+workspace you are in, the cursor on the one you are in, then the agent to
 start, with Tab for YOLO and ctrl-n to name the trail. **↩ resume old trails**
 lists every workspace's trails that ended, from trails' own history of the newest
 100. In an editor's terminal the picker is that codebase's trails alone

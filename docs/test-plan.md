@@ -52,7 +52,7 @@ covered yet.
 | | from an editor's terminal | A `t-inside`, `t-tools` · M8 |
 | | a second trail in a codebase (`<codebase>-<ID>`) | A `t-picker` |
 | | renamed as it runs: `trails rename`, prefix R, ctrl-r | A `t-rename` |
-| Finding | the one list: every workspace, where you are first, window order, lost trails beside their codebase, the map's row, the sessions of yours, stars | A `t-one`, `t-screens`, `t-picker` |
+| Finding | the one list: every workspace, where you are first, window order, lost trails beside their codebase, no map row and no preview, Enter on a header starts a trail, the sessions of yours, stars | A `t-one`, `t-screens`, `t-picker` |
 | | `trails ws NAME` | A `t-screens` |
 | | `trails ls`, `-a`, `DIR`, piped | A `t-ls` |
 | | Esc closes, back from the agents and old trails, ctrl-c out | A `t-screens`, `t-picker`, `t-all`, `t-one` |

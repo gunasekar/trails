@@ -1676,11 +1676,6 @@ kill_session() {
     one | one-old) ks_ws=--all ;;
     *) ;;
   esac
-  # The map's row: the map goes, its trails stay (it only showed them).
-  if [ "$1" = "$MAP" ]; then
-    ! is_map || tmux kill-session -t "=$MAP" 2>/dev/null
-    return 0
-  fi
   if rec_is_dead "$1"; then
     if [ -n "$ks_ws" ]; then
       :
@@ -1945,7 +1940,7 @@ print_menu() {
 # The one list's rows, in full: "＋ new trail…" first, for the workspace you're in: its
 # codebase tree, the cursor on the codebase you're in (ONE_DIR) when the tree lists it; for a
 # folder it doesn't, straight to that folder's agents. Then one_rows; then "↩ resume old
-# trails", every workspace's, with how many.
+# trails", every workspace's, with how many. The map has no row: prefix M is its key.
 one_menu() {
   if [ -n "${ONE_DIR:-}" ] && [ -z "${ONE_TREE:-}" ]; then
     printf 'agents\t%s\t＋ new trail…  %sin %s (%s)%s\n' "$ONE_DIR" "$DIM" "$(label_of "$ONE_DIR")" "${ONE_WS:-default}" "$RST"
@@ -1967,7 +1962,7 @@ one_menu() {
 # Where the one list is opened from, once, for its rows and its cursor: ONE_WS, the workspace
 # you're in; ONE_DIR, the codebase, when the window you're on (a trail's, an editor's) or the
 # directory you're in says one, and ONE_TREE when the workspace's codebase tree lists it; ONE_AT,
-# the row to start on (a row's target: the trail, the window, the map, the session you're on).
+# the row to start on (a row's target: the trail, the window, the session you're on).
 one_here() {
   ONE_WS='' ONE_DIR='' ONE_AT='' ONE_TREE=
   if [ -n "$TMUX" ] && [ -n "$CLIENT" ]; then
@@ -1977,7 +1972,7 @@ $oh
 OHEOF
     ONE_WS=$(client_ws)
     if [ "$oh_s" = "$MAP" ]; then
-      ONE_AT=$MAP
+      :
     elif [ -n "$oh_cell" ] || { [ -n "$oh_own" ] && [ "$oh_own" = "$oh_s" ]; }; then
       ONE_AT=$(agent_wid "${oh_cell:-$oh_own}")
       [ -z "$ONE_AT" ] || ONE_DIR=$(trail_dir "$ONE_AT")
@@ -1999,15 +1994,14 @@ OHEOF
 }
 
 # The one list (ADR 30): every workspace with what is in it, the one you're in first, then the
-# map, the sessions of yours and the way to the trails that ended. Built from one list-windows
-# over the server, the dispatch's cache of every trail classified (sessions | classify), the
-# lost records and the map's panes, all handed to one awk as tagged lines:
+# sessions of yours and the way to the trails that ended. Built from one list-windows over the
+# server, the dispatch's cache of every trail classified (sessions | classify) and the lost
+# records, all handed to one awk as tagged lines:
 #
 #   H  the workspace you're in, and 1 when the config names none
 #   S  a workspace the config names, in its order
 #   C  a classified trail: state, window id, key, workspace, agent label, dir, codebase, badge, task
 #   L  a lost trail: key, workspace, dir, codebase, agent, yolo, task, name
-#   P  a trail the map shows
 #   W  a window: session, id, index, name, workspace session?, map?, the trail it shows
 #      (@trails_window), its own trail (@trails_session), star, when its state last changed,
 #      tool kind, dir, session group
@@ -2022,21 +2016,13 @@ one_rows() {
     printf 'L\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$k" "$(rec_ws "$k")" "$(rec_get "$k" dir)" "$(rec_codebase "$k")" \
       "$(rec_get "$k" agent)" "$(rec_get "$k" yolo)" "$(rec_get "$k" task | tr '\t' ' ')" "$(rec_get "$k" name)"
   done)
-  or_map=
-  if [ -n "$USE_TMUX" ] && is_map; then
-    or_map=$(tmux list-panes -s -t "=$MAP" -F '#{pane_tty}' 2>/dev/null | while read -r t; do
-      tmux list-clients -F "#{client_tty}$TAB#{client_session}" 2>/dev/null | awk -F"$TAB" -v t="$t" '$1 == t { print "P\t" $2; exit }'
-    done)
-    [ -n "$or_map" ] || or_map="P$TAB"
-  fi
   {
     printf 'H\t%s\t%s\n' "${ONE_WS:-default}" "$([ -n "$WORKSPACES" ] || echo 1)"
     printf '%s\n' "$WORKSPACES" | cut -d'|' -f1 | awk 'NF && !seen[$0]++ { print "S\t" $0 }'
     [ -n "${TRAILS_MENU_CACHE:-}" ] && [ -s "$TRAILS_MENU_CACHE" ] && sed 's/^/C	/' "$TRAILS_MENU_CACHE"
     [ -z "$or_lost" ] || printf '%s\n' "$or_lost"
-    [ -z "$or_map" ] || printf '%s\n' "$or_map"
     [ -z "$USE_TMUX" ] || tmux list-windows -a -F "W$TAB#{session_name}$TAB#{window_id}$TAB#{window_index}$TAB#{window_name}$TAB#{?@trails_workspace,1,0}$TAB#{?@trails_map,1,0}$TAB#{@trails_window}$TAB#{@trails_session}$TAB#{@trails_starred}$TAB#{@trails_state_at}$TAB#{@trails_tool}$TAB#{@trails_dir}$TAB#{session_group}" 2>/dev/null
-  } | awk -F"$TAB" -v OFS="$TAB" -v now="$(date +%s)" -v map="$MAP" \
+  } | awk -F"$TAB" -v OFS="$TAB" -v now="$(date +%s)" \
     -v red="$RED" -v yel="$YEL" -v dim="$DIM" -v rst="$RST" -v bold="$(printf '\033[1m')" '
     function vlen(s) { gsub(/·|…|★|▦|─/, "x", s); return length(s) }
     function pad(s, w) { return s sprintf("%*s", w - vlen(s), "") }
@@ -2057,7 +2043,6 @@ one_rows() {
     function agent(label,  a) { a = label; sub(/ .*/, "", a); return a (label ~ /\(YOLO\)/ ? " · yolo" : "") }
     $1 == "H" { herews = $2; nocfg = $3 }
     $1 == "S" { addws($2) }
-    $1 == "P" { if ($2 != "") { nm++; mk[nm] = $2 }; mapon = 1 }
     $1 == "C" {
       k = $4; cst[k] = $2; cwid[k] = $3; cws[k] = $5; clab[k] = $6; cdir[k] = $7; ccb[k] = $8; ctask[k] = $10
       if (ctask[k] == $9 || "#" ctask[k] == $9) ctask[k] = ""
@@ -2120,17 +2105,6 @@ one_rows() {
           " " sprintf("%4s", ra[r]) "  " pad(rc[r], wc) "  " pad(rg[r], wa) "  " rk[r]
         sub(/ +$/, "", line)
         print "2" S wo[w] S w S rp[r] sprintf("%05d", r), rv[r], rt[r], line
-      }
-      # The map: what it shows, and the one of them that most wants you.
-      if (mapon) {
-        best = ""; bw = 9
-        for (i = 1; i <= nm; i++) {
-          k = mk[i]; v = cst[k] == "blocked" ? 0 : (cst[k] == "idle" ? 1 : 9)
-          if (v < bw) { bw = v; best = k }
-        }
-        sm = nm " trail" (nm == 1 ? "" : "s")
-        if (best != "") { b = best; sub(/.*\//, "", b); if (best in tname) b = tname[best]; sm = sm " · " (bw == 0 ? red b " needs you" : yel b " your turn") rst dim }
-        print "1", "map", map, "▦ map  " dim sm rst
       }
       # The sessions of yours: neither a workspace (nor one grouped with it), a trail, nor the map.
       for (s in sess) {
@@ -5546,11 +5520,11 @@ In tmux, from trails keys (prefix, then; tmux's own ? lists them too):
   R                 rename the trail you are on (trails rename)
 
 In the picker — "＋ new trail…" (for the codebase you are in, its agents; for a workspace, a
-codebase first), the map while one is up, then each workspace: its trails, lost ones and
-windows, in the status line's order, ★ for a starred one; then the sessions of yours, then
-"↩ resume old trails", the ones that ended (esc comes back). Typing filters the rows:
-  enter             go there: a trail, a window, a workspace, the map, a session; restore a
-                    lost trail, resume a closed one, or start the agent
+codebase first), then each workspace: its trails, lost ones and windows, in the status
+line's order, ★ for a starred one; then the sessions of yours, then "↩ resume old trails",
+the ones that ended (esc comes back). Typing filters the rows:
+  enter             go there: a trail, a window, a session; on a workspace, a new trail
+                    there; restore a lost trail, resume a closed one, or start the agent
   ctrl-s            star the trail under the cursor, or unstar it
   tab               toggle YOLO (run everything unconfirmed) on an agent to start or a
                     closed trail; "mode": "yolo" in the config starts new rows armed
@@ -5559,9 +5533,9 @@ windows, in the status line's order, ★ for a starred one; then the sessions of
   ctrl-r            rename the running trail under the cursor: type the name, then
                     enter; enter with none takes its name away
   ctrl-e            the editor for the row's codebase (trails edit)
-  ctrl-/            show or hide the preview: the trail's screen as it is now
+  ctrl-/            show or hide the preview, outside the picker: the trail's screen
   ctrl-x            end a running trail, forget a lost one, close an editor or shell
-                    window, or close the map; in the old trails, forget a closed one
+                    window; in the old trails, forget a closed one
   ?                 these keys; q comes back
   esc               close the picker; from the agents or the old trails, back to it
   ctrl-c            quit, from any screen
@@ -6093,18 +6067,14 @@ esac
 pv=$((rows - 2 - $(printf '%s\n' "$MENU" | wc -l)))
 hidden=
 [ "$pv" -ge 10 ] || hidden=,hidden pv=50%
-# A bare `trails` in a terminal is for going somewhere, the list all you read: the one list
-# starts there without its preview, and ctrl-/ brings it. The popup (prefix P, the click) is
-# for looking, and keeps it.
-[ "${TRAILS_PICKER:-}" != one ] || in_popup || hidden=,hidden
 pw_wrap=wrap
 fzf_ok wrapword && pw_wrap=wrap-word
 case ${TRAILS_PICKER:-} in
   agents) set -- "$@" --height=~80% --expect=ctrl-e,esc --bind="tab:execute-silent($0 --toggle-yolo {2})+reload($0 --print-menu)" ;;
   # The one list keeps its order while you type (the status line's), rather than fzf's best
-  # match first.
-  one) set -- "$@" --no-sort --preview="$0 --peek {2}" --preview-window="down,$pv,border-top,follow,$pw_wrap$hidden" \
-    --bind='ctrl-/:toggle-preview' --expect=ctrl-e,esc ;;
+  # match first. No preview: it is for starting a trail and going to one, and a row says
+  # what a trail is doing.
+  one) set -- "$@" --no-sort --expect=ctrl-e,esc ;;
   *) set -- "$@" --preview="$0 --peek {2}" --preview-window="down,$pv,border-top,follow,$pw_wrap$hidden" \
     --bind='ctrl-/:toggle-preview' --expect=ctrl-e,esc \
     --bind="tab:execute-silent($0 --toggle-yolo {2})+reload($0 --print-menu)" ;;
@@ -6134,7 +6104,7 @@ case ${TRAILS_PICKER:-} in
   # workspace, the query its name; ctrl-r renames the trail, the query its name.
   one)
     set -- "$@" --prompt='trails ▸ ' --print-query \
-      "$(hint_opt "# enter: go · ctrl-s: star · ctrl-r: rename · ctrl-x: end · ctrl-e: editor · ctrl-/: preview · ?: keys · esc: close")" \
+      "$(hint_opt "# enter: go · ctrl-s: star · ctrl-r: rename · ctrl-x: end · ctrl-e: editor · ?: keys · esc: close")" \
       --bind="ctrl-s:execute-silent($0 star {2} 2>/dev/null)+reload($0 --print-menu)" \
       --bind="ctrl-x:execute-silent($0 --kill {2})+reload($0 --print-menu)" \
       --bind="ctrl-n:execute-silent(touch '$TRAILS_TMP/naming')+change-prompt(Name the workspace: )+disable-search+clear-query" \
@@ -6187,7 +6157,7 @@ esac
 # picker's own directory, and preview_ticker asks it to refresh the preview once a second.
 ticker=
 case ${TRAILS_PICKER:-} in
-  agents) ;;
+  agents | one) ;;
   *)
     if command -v curl >/dev/null 2>&1 && fzf_ok listen; then
       set -- "$@" --listen="$TRAILS_TMP/fzf.sock"
@@ -6318,7 +6288,7 @@ if [ "$key" = ctrl-e ]; then
   case $choice in
     attach* | tool*) tool edit "$(trail_dir "$target")" ;;
     restore*) tool edit "$(rec_get "$target" dir)" ;;
-    browse* | more* | workspace* | map* | session* | window* | -*)
+    browse* | more* | workspace* | session* | window* | -*)
       case ${TRAILS_PICKER:-} in
         one)
           echo "trails: ctrl-e opens a codebase's editor — put the cursor on one of its rows" >&2
@@ -6339,17 +6309,15 @@ case $choice in
       *) TRAILS_PICKER=old exec "$SELF" ;;
     esac
     ;;
-  workspace*) ws_switch "$target" ;;
+  # A workspace's header: a new trail there, as "＋ new trail…" is for the one you're in. Its
+  # trails and windows are rows of their own, under it.
+  workspace*) new_in_ws "$target" ;;
   # The header over the sessions of yours.
   -*) exit 0 ;;
   # "＋ new trail…" for a codebase: its agents, Esc coming back here.
   agents*) TRAILS_BACK='' TRAILS_PICKER=agents exec "$SELF" ;;
   # "＋ new trail…" for a workspace: pick a directory, then an agent to start there.
   browse*) new_in_ws "${target#-}" ;;
-  map*)
-    [ -z "$TMUX" ] || switch_to "=$MAP"
-    exec tmux -L "$TRAILS_SERVER" attach-session -t "=$MAP"
-    ;;
   session*)
     [ -z "$TMUX" ] || switch_to "=$target"
     exec tmux -L "$TRAILS_SERVER" attach-session -t "=$target"

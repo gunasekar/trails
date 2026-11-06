@@ -2,8 +2,8 @@
 # The one list (ADR 30): prefix P, a click on [session] or a bare trails lists everything worth
 # going to on trails' server: each workspace, the one you're in first, with its trails (state,
 # how long it has waited, codebase, agent, task), lost trails beside their codebase's and
-# windows of yours, in window order; the map as a row of its own; then the sessions you made.
-# Enter goes there. A star (prefix S, ctrl-s in the picker, trails star) marks a trail with ★,
+# windows of yours, in window order; then the sessions you made. No map, no preview. Enter
+# goes there; on a workspace, it starts a trail there. A star (prefix S, ctrl-s in the picker, trails star) marks a trail with ★,
 # in its record too, so a restore keeps it.
 . "$REPO/test/lib.sh"
 t_setup
@@ -103,10 +103,14 @@ picker "FZF_PICK='a·two '"
 wait_for 5 sh -c "[ \"\$(tmux list-clients -F '#{client_name} #{session_name}' | awk -v c='$term' '\$1 == c { print \$2 }')\" = alpha ]" ||
   fail "Enter on two did not take the terminal to alpha"
 assert_eq "$(tmux display-message -p -t '=alpha:' '#{@trails_window}')" alpha/two "and to two's window"
-# A workspace's header: to it. A session of yours: to it.
-picker "FZF_PICK='beta.{0,8}  [0-9] trail'"
-wait_for 5 sh -c "[ \"\$(tmux list-clients -F '#{client_name} #{session_name}' | awk -v c='$term' '\$1 == c { print \$2 }')\" = beta ]" ||
-  fail "Enter on beta's header did not go to beta: $(cat $T/picker.err)"
+# A workspace's header: a new trail there, its codebase tree first; Esc comes back to the
+# list, and the terminal stays where it was. A session of yours: to it.
+rm -f "$T/hdr"
+printf '%s\n' 'beta.{0,8}  [0-9] trail' '!esc' '!esc' >"$T/hdrp"
+picker "FZF_PICKS='$T/hdrp' FZF_DUMP='$T/hdr'"
+assert_eq "$(grep -c '^--- ' "$T/hdr")" 3 "the list, beta's codebases, the list: $(cat "$T/picker.err")"
+assert_match "$(sed -n '/^--- 2$/,/^--- 3$/p' "$T/hdr" | cut -f1 | tr '\n' ' ')" "$T/other/c " "beta's codebase tree"
+assert_eq "$(tmux list-clients -F '#{client_name} #{session_name}' | awk -v c="$term" '$1 == c { print $2 }')" alpha "still in alpha"
 picker "FZF_PICK='  mine$'"
 wait_for 5 sh -c "[ \"\$(tmux list-clients -F '#{client_name} #{session_name}' | awk -v c='$term' '\$1 == c { print \$2 }')\" = mine ]" ||
   fail "Enter on mine did not go to mine: $(cat $T/picker.err) $(tmux list-clients -F '#{client_name} #{session_name}')"
@@ -160,35 +164,19 @@ assert_match "$rows" "a·one +lost +a +stub +agent ready" "drawn as lost, with i
 picker "FZF_PICK='a·one +lost'"
 wait_for 10 sh -c "tmux has-session -t '=alpha/one' 2>/dev/null" || fail "Enter on the lost row did not restore it"
 
-# ── The map ──────────────────────────────────────────────────────────────────────
+# ── No map row, no preview ─────────────────────────────────────────────────────────
+# prefix M is the map's key; the list is for starting and going to trails.
 "$TRAILS" map 2 >/dev/null 2>&1 </dev/null
 wait_for 5 sh -c "tmux has-session -t '=trails_map' 2>/dev/null" || fail "no map"
-rows=$(drawn)
-assert_eq "$(printf '%s\n' "$rows" | sed -n 2p | cut -c1-5)" "▦ map" "the map, its own row under new trail"
-assert_match "$(printf '%s\n' "$rows" | sed -n 2p)" "2 trails · c·three needs you" "with what it shows, and who wants you"
-case $(printf '%s\n' "$rows" | sed -n '/── yours ──/,$p') in *map*) fail "the map among yours" ;; *) ;; esac
-picker "FZF_PICK='^map	'"
-wait_for 5 sh -c "[ \"\$(tmux list-clients -F '#{client_name} #{session_name}' | awk -v c='$term' '\$1 == c { print \$2 }')\" = trails_map ]" ||
-  fail "Enter on the map did not go to it"
-assert_eq "$(menu | awk -F'\t' '$1 == "map" { print NR }')" 2 "the map's row"
-picker "FZF_PICK='^map	' FZF_KEYS=ctrl-x"
-wait_for 5 sh -c "! tmux has-session -t '=trails_map' 2>/dev/null" || fail "ctrl-x left the map"
-tmux has-session -t '=beta/three' || fail "closing the map ended a trail"
+case $(drawn) in *map*) fail "the map listed: $(drawn)" ;; *) ;; esac
+tmux kill-session -t '=trails_map'
+rm -f "$T/args"
+picker "FZF_PICK='!esc' FZF_ARGS='$T/args'"
+grep -q -- '--no-sort' "$T/args" || fail "the picker's own fzf never ran"
+if grep -q -- '^--preview\|ctrl-/' "$T/args"; then fail "a preview on the list: $(grep -- 'preview\|ctrl-/' "$T/args")"; fi
 
 # ── Esc closes it ───────────────────────────────────────────────────────────────
 rm -f "$T/dump"
 picker "FZF_PICK='!esc' FZF_DUMP='$T/dump'"
 sleep 0.5
 assert_eq "$(grep -c '^--- ' "$T/dump")" 1 "esc closes the picker"
-
-# ── The preview: the popup's, not a terminal's ─────────────────────────────────────
-# In the popup (tmux, no pane of its own) the preview shows; a bare `trails` in a terminal
-# starts without it, and ctrl-/ still brings it. Both 40 rows, room for a preview.
-FZF_PICK='!esc' driver env "TMUX=$sock,1,0" "TRAILS_CLIENT=$term" "FZF_ARGS=$T/args-popup" "$TRAILS"
-wait_for 5 grep -q '^--preview-window=' "$T/args-popup" || fail "the popup's picker never opened"
-pw=$(grep '^--preview-window=' "$T/args-popup")
-case $pw in *hidden*) fail "the popup hid its preview: $pw" ;; *) ;; esac
-FZF_PICK='!esc' driver env "FZF_ARGS=$T/args-term" "$TRAILS"
-wait_for 5 grep -q '^--preview-window=' "$T/args-term" || fail "the terminal's picker never opened"
-assert_match "$(grep '^--preview-window=' "$T/args-term")" ',hidden$' "a terminal's list starts without the preview"
-grep -qx -- '--bind=ctrl-/:toggle-preview' "$T/args-term" || fail "ctrl-/ no longer brings it"

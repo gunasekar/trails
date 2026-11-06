@@ -51,11 +51,19 @@ DRIVER_DIR=$T FZF_PICK='' FZF_DUMP=$T/d2 driver "$TRAILS"
 wait_for 5 test -s "$T/d2" || fail "the picker never reached fzf"
 assert_match "$(dumped "$T/d2" 1 | grep '^workspace	lattiq' | cut -f3)" '^lattiq +1 trail · 1 your turn$' "lattiq counted"
 
-# Picking lattiq attaches to it, on its trail: a second client there (the first is the
-# driver that started api), waited for by count, since the attach comes after BOOT.
-DRIVER_DIR=$T FZF_PICK='^workspace	lattiq' driver "$TRAILS"
-wait_for 10 sh -c "[ \"\$(tmux list-clients -F '#{session_name} #{window_name}' | grep -cx 'lattiq augur·api')\" -ge 2 ]" ||
-  fail "picking lattiq did not attach to it: $(tmux list-clients -F '#{session_name} #{window_name}' | tr '\n' '|')"
+# Picking lattiq, with a trail running, is a new trail there too: its codebase tree, not its
+# trail (which is a row of its own). Esc comes back to the list.
+rm -f "$T/d2b"
+printf '%s\n' '^workspace	lattiq' '!esc' '' >"$T/p2b"
+DRIVER_DIR=$T FZF_PICKS=$T/p2b FZF_DUMP=$T/d2b driver "$TRAILS"
+wait_for 5 sh -c "grep -q '^--- 3' '$T/d2b'" || fail "esc never came back: $(plain "$T/d2b" | tr '\n' '|')"
+assert_match "$(dumped "$T/d2b" 2 | cut -f1 | tr '\n' ' ')" "$T/work/lattiq/augur .*browse:" "lattiq's codebase tree"
+assert_match "$(dumped "$T/d2b" 3 | sed -n 1p)" "new trail" "back on the list"
+assert_eq "$(tmux list-clients -F '#{session_name} #{window_name}' | grep -cx 'lattiq augur·api')" 1 "and not attached to api"
+# A second terminal on lattiq, for the shell below to be seen in: `trails ws` attaches.
+DRIVER_DIR=$T driver "$TRAILS" ws lattiq
+wait_for 10 sh -c "[ \"\$(tmux list-clients -F '#{session_name}' | grep -cx lattiq)\" -ge 2 ]" ||
+  fail "trails ws lattiq did not attach: $(tmux list-clients -F '#{session_name} #{window_name}' | tr '\n' '|')"
 
 # Picking personal, with nothing running, starts a trail there: its codebase tree lists
 # ~/.dotfiles, then its agents, where "stub · new trail" starts a trail in personal.

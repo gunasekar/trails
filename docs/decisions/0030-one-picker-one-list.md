@@ -26,15 +26,20 @@ click on `[session]` and a bare `trails`.
   window is (`checkout-3f9a`, `checkout·payments`), not by the old `#` badge.
   Then the sessions of yours, then `↩ resume old trails` across every workspace.
 - **A trail's row has what `prefix A` shows**: ★, state word, how long it has
-  waited, codebase, agent · yolo, task, and the live preview of its screen.
+  waited, codebase, agent · yolo, task. No preview: the list is for starting a
+  trail and going to one, and the row says what a trail is doing.
 - **Lost trails sit in their workspace**, beside their codebase's trails, and
   Enter restores one.
-- **The map is a row of its own**, under `＋ new trail…`, while one is up, not a
-  session of yours.
+- **The map has no row**, nor a key in the list: `prefix M` goes to it or
+  builds one. It is not a session of yours either.
 - **`＋ new trail…` is the workspace you're in**: its codebase tree, the cursor on
   the codebase you're in, then the agents. A folder the tree doesn't list goes
   straight to its agents. On a trail's window the codebase is known, but a trail
   in another codebase of the workspace has to be one Enter away too.
+- **Enter on a workspace's header starts a trail there**, as `＋ new trail…` does
+  for the one you're in: its codebase tree, then the agents, whatever is running.
+  Its trails and windows are rows under it; going "into the workspace" landed on
+  a window you didn't pick.
 - **The keys act on the highlighted row**: Enter goes there, ctrl-s stars, ctrl-r
   renames, ctrl-x ends, forgets or closes, ctrl-e opens the editor, ctrl-n makes
   a workspace. Esc closes the list, and goes back to it from the agents and the
@@ -42,7 +47,8 @@ click on `[session]` and a bare `trails`.
 - **`prefix W` and `prefix A` go**, with `trails tree`, `ctrl-a` and the
   workspaces and workspace screens.
 - **Kept from ADR 17**: `＋ new trail…` and its codebase tree (D2, D5, D6),
-  `default` (D7), Enter on a workspace attaches (D1), ctrl-n makes one (D3).
+  `default` (D7), ctrl-n makes one (D3). Not D1: Enter on a workspace starts a
+  trail there rather than attaching.
   An editor's terminal still sees one codebase ([ADR 14](0014-editor-views.md)).
 
 ## Consequences
@@ -61,6 +67,11 @@ click on `[session]` and a bare `trails`.
 
 - **Flat, what wants you on top.** Best for triage, but a trail moves as its
   state does, and the list no longer matches the status line. Rejected (Q1).
+- **The map as a row, or a key in the list.** Built first as a row under
+  `＋ new trail…`; it was another kind of row for a place `prefix M` already
+  reaches, and `ctrl-m` is Enter to a terminal. Removed.
+- **A preview of the highlighted trail.** Built first, as `P` and `A` had it;
+  unused, and it made the popup a viewer rather than a list. Removed.
 - **Keep the tree for the click.** A smaller popup for a quick look, but a
   second list with keys of its own, which is what this ends. Rejected (Q2).
 - **Lost trails together at the bottom.** Easier to sweep, but they belong to a

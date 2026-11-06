@@ -620,16 +620,15 @@ subprocesses inherit). An editor's terminal gets its codebase's screen instead
 
 | Screen | `TRAILS_PICKER` | Rows |
 |---|---|---|
-| the one list | `one` | `＋ new trail…`, the map while one is up, each workspace (the one you are in first) with its trails, lost trails and windows, the sessions of yours, `↩ resume old trails` (`one_menu`) |
+| the one list | `one` | `＋ new trail…`, each workspace (the one you are in first) with its trails, lost trails and windows, the sessions of yours, `↩ resume old trails` (`one_menu`) |
 | every ended trail | `one-old` | closed, every workspace's, with a `workspace/codebase` column; Esc goes back |
 | this codebase | *(empty)* | an editor's terminal's: `＋ new trail…` (the agents screen), running and lost trails here, `↩ resume old trails` |
 | its ended trails | `old` | closed, this directory's; Esc goes back |
 | a codebase's agents | `agents` | a `new` row per agent, for the codebase picked; Esc goes back to the picker (`picker_back`) |
 
 **The one list** (`one_rows`) is one `list-windows -a`, the dispatch's cache of
-every trail classified (`sessions | classify`), the lost records and the map's
-panes (whose clients say which trails it shows), handed to one awk as lines tagged
-by kind. A workspace's rows are its windows in index order, the status line's: a
+every trail classified (`sessions | classify`) and the lost records, handed to one
+awk as lines tagged by kind. A workspace's rows are its windows in index order, the status line's: a
 trail (its workspace window's `@trails_window` names the trail's session, the
 join), an editor or shell window, or a window of yours. A lost trail follows the
 last window of its codebase, else ends its workspace; a running trail with no
@@ -638,7 +637,9 @@ are on its agent's window in the trail's own session. Rows carry a hidden sort k
 whose parts are joined by `\001`, below any character, so a workspace sorts before
 another whose name it begins; `sort` orders them, since awk has none everywhere,
 and the key goes before fzf sees them. Sessions that are neither a workspace, one
-grouped with a workspace's, a trail's nor the map's are *yours*.
+grouped with a workspace's, a trail's nor the map's are *yours*. The map has no
+row (`prefix M` is its key), and the list has no preview: it is for starting a
+trail and going to one, and a trail's row says what it is doing.
 
 `one_here` reads, once, where the picker was opened: the workspace (`ONE_WS`, the
 client's, read from a group's leader for a grouped session), the codebase
@@ -668,9 +669,8 @@ ctrl-x and ctrl-s pass the target to a subcommand of the script (`--toggle-yolo`
 runs its bindings through `$SHELL`, where zsh expands a leading `=` and silently
 ate the kill. The preview is `--peek`, the row's screen through `capture-pane`, trimmed of
 the blank rows under its last line and shown under the list, scrolled to the
-bottom (`follow`), as high as the list leaves room for. On the one list it
-starts hidden outside a popup (`in_popup`: tmux, and no pane): a bare `trails` in
-a terminal is for going somewhere, and ctrl-/ brings it. The screen is the
+bottom (`follow`), as high as the list leaves room for, on the editor's codebase
+screen and the old trails. The screen is the
 trail window's size, set by the terminal that last typed in it: a wider one
 wraps (`wrap-word`), its full-width rules redrawn at `$FZF_PREVIEW_COLUMNS`, and
 a narrower one stays as drawn. It is kept current by
@@ -700,10 +700,9 @@ day old.
 | `tool` | window id | an editor or shell window: switch or attach to it |
 | `window` | window id | a window of yours in a workspace: switch or attach to it |
 | `session` | name | a session of yours: switch or attach to it |
-| `map` | `trails_map` | the map: switch or attach to it; ctrl-x closes it |
 | `browse` | workspace | `pick_codebase`: the workspace's codebase tree (`codebase_tree`), walking the file system from a `browse:DIR` row (`walk_dir`), then the agents screen |
 | `agents` | directory, or `-` | "＋ new trail…" for a directory: the agents screen there |
-| `workspace` | name | `ws_switch`: switch or attach to its session on the trail that most wants you; with nothing running, `new_in_ws`, its codebase tree |
+| `workspace` | name | `new_in_ws`: a new trail there, its codebase tree then the agents, whatever is running (its trails and windows are rows of their own) |
 | `more` | | the ended-conversations screen |
 
 A codebase or agents screen in a directory no workspace claims first asks which
