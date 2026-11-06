@@ -88,9 +88,9 @@ chmod +x "$demo/bin/tmux"
   # the recording shows what was pressed: `bind E CMD` becomes `bind E { set the badge ; CMD }`.
   "$here/../../bin/trails" keys | awk '
     BEGIN {
-      what["P"] = "trails"; what["W"] = "workspaces"; what["E"] = "editor"; what["`"] = "shell"
-      what["N"] = "note"; what["K"] = "previous workspace"; what["J"] = "next workspace"; what["M"] = "map"
-      what["G"] = "diff"; what["A"] = "all trails"; what["R"] = "rename"
+      what["P"] = "trails"; what["S"] = "star"; what["F"] = "next starred"; what["E"] = "editor"
+      what["`"] = "shell"; what["N"] = "checklist"; what["K"] = "previous workspace"
+      what["J"] = "next workspace"; what["M"] = "map"; what["G"] = "diff"; what["R"] = "rename"
     }
     # Read past the note (bind -N "trails: …" KEY CMD): the key is the word after it.
     $1 == "bind" { line = $0; sub(/^bind -N "[^"]*" /, "bind ", line); split(line, w, " ") }

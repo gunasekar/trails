@@ -25,7 +25,7 @@ covered yet.
 
 | # | Scenario | Covered by |
 |---|---|---|
-| 1 | Arrive: workspaces from `~`, Enter attaches | A `t-screens` · M1 |
+| 1 | Arrive: every workspace from `~`, Enter on a trail goes to it, `trails ws NAME` attaches | A `t-screens`, `t-one` · M1 |
 | 2 | Get to the trail that needs you | A `t-picker` (cursor), `t-classify` (state) · M2 |
 | 3 | New trail in this codebase | A `t-picker` |
 | 4 | New trail in another codebase | A `t-screens` |
@@ -90,15 +90,15 @@ Each on the real machine, in Ghostty, with `trails keys` pasted into tmux.conf.
 
 | # | Do | Expect |
 |---|---|---|
-| M1 | From another machine: `ssh host -t trails`, pick a workspace, `prefix P` to another, detach, reconnect | Every workspace listed; attached on the trail that most wants you; switched without reconnecting; the cursor on where you were on return |
-| M2 | Ask claude something that needs a permission; let another finish its turn | `● needs you` and `● your turn` in the picker, the cursor on the one that needs you |
+| M1 | From another machine: `ssh host -t trails`, pick a trail, `prefix P` to a trail in another workspace, detach, reconnect | Every workspace listed; attached on that trail; switched without reconnecting; the cursor on where you were on return |
+| M2 | Ask claude something that needs a permission; let another finish its turn | `needs you` and `your turn` in the picker, the cursor on the one that needs you |
 | M3 | In a trail: `prefix E`, again, `` prefix ` ``, quit the agent | Editor right 60%, agent left; back to the agent; shell under the editor (a 40% column on the right with no editor); editor and shell kept as the codebase's window |
-| M4 | `tmux kill-server`, then `trails`, then `trails restore` | Trails shown `○ lost`; each back on its conversation, in its workspace |
+| M4 | `tmux kill-server`, then `trails`, then `trails restore` | Trails shown `lost` in the picker; each back on its conversation, in its workspace |
 | M5 | End a claude trail, then **↩ resume old trails**, Tab on it, Enter | Listed as closed; Tab flips YOLO; resumes on its conversation |
 | M6 | `brew install` or `bin/trails` on PATH; `trails keys` into tmux.conf, reload | Every line accepted, every key works |
 | M7 | *(retired in 1.6, with the menu-bar plugin)* | |
 | M8 | VS Code / Zed terminal (local and Remote-SSH): `trails`, pick a trail | The codebase's trails only; attached to that one trail; no workspace |
-| M9 | `prefix P` on a busy trail, on a wide one, on a narrow one; ctrl-/ | Preview under the list to the popup's bottom, latest output, updating every second; wide one wrapped, narrow one at its width; ctrl-/ hides and shows |
+| M9 | In an editor's terminal, `trails` on a busy trail, on a wide one, on a narrow one; ctrl-/. Then `prefix P` in a wide terminal, a 120-column one and an 80-column one | Preview under the list to the bottom, latest output, updating every second; wide one wrapped, narrow one at its width; ctrl-/ hides and shows. The popup 60% of the wide one, 130 columns or nearly all of the others; no preview; a long task cut with …, no agent column at 80 |
 | M10 | `prefix N`, type, Enter, type, Enter; ↓, Space; ↓, Enter, then ⌘V in the agent; `prefix N`, ctrl-e, quit the editor | Both items added to the checklist (`.trails/checklist.md`, or under `data`), the list open on each; the item under the cursor shown whole under the list; ticked, moved down, `☑` count in the status line drops; the item pasted; the file in a large popup, then the list again |
 
 ### Run, 2026-10-23

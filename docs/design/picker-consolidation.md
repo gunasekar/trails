@@ -1,7 +1,10 @@
 # Picker consolidation: design
 
-Status: implemented · 2026-10-22. Proposed 2026-10-21, decided D1 to D7, then
-built in three phases. [ADR 17](../decisions/0017-one-picker-levels-not-screens.md)
+Status: implemented · 2026-10-22, superseded in part · 2026-11-07: the levels
+(workspaces, workspace, codebase, agent) became one list, and Enter on a workspace
+starts a trail rather than attaching (D1), by
+[ADR 30](../decisions/0030-one-picker-one-list.md) and [one-picker.md](one-picker.md).
+Proposed 2026-10-21, decided D1 to D7, then built in three phases. [ADR 17](../decisions/0017-one-picker-levels-not-screens.md)
 records the decisions that outlive this document.
 
 trails has grown several pickers, each added for one way in. Which one you get,

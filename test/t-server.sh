@@ -1,5 +1,6 @@
 #!/bin/sh
-# Config "server", TRAILS_SOCKET, record server=, and upgrade from the ordinary default socket.
+# Config "server", TRAILS_SOCKET, record server=, the upgrade from the ordinary default socket,
+# and `trails server NAME` moving the records and the config to another.
 . "$REPO/test/lib.sh"
 t_setup
 

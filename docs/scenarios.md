@@ -15,7 +15,7 @@ star, `prefix F` the starred trail that wants you, `prefix E` the editor, `` pre
 
 | # | Scenario | How |
 |---|---|---|
-| 1 | Arrive at the machine: a fresh terminal, or an ssh login | `trails`, or `ssh host -t trails`: every workspace and its trails; Enter on a workspace attaches, on the trail that most wants you, Enter on a trail on that trail |
+| 1 | Arrive at the machine: a fresh terminal, or an ssh login | `trails`, or `ssh host -t trails`: every workspace and its trails; Enter on a trail goes to it, on a workspace starts a trail there; `trails ws NAME` attaches to a workspace, on the trail that most wants you |
 | 2 | Get to the trail that needs you | Selected on arrival; or `prefix P`, where the cursor starts on it |
 | 3 | Start a trail in this codebase | `trails` in the repo, or `prefix P`: **＋ new trail…**, then an agent |
 | 4 | Start a trail in another codebase of the workspace | `prefix P`: **＋ new trail…**, the codebase, then an agent |
@@ -59,8 +59,9 @@ star, `prefix F` the starred trail that wants you, `prefix E` the editor, `` pre
 ### Finding and moving
 
 1. `trails`, `prefix P` or a click on `[session]`: every workspace, the one you
-   are in first, with its trails, lost trails and windows in window order, the
-   map, the sessions of yours; the cursor on where you are. Typing filters it.
+   are in first, with its trails, lost trails and windows in window order, then
+   the sessions of yours; the cursor on where you are. Typing filters it. The map
+   is `prefix M`'s.
 2. `prefix F`: the starred trail that most wants you; again, the next.
 3. `trails ws NAME`: straight to a workspace.
 4. In an editor's terminal: that codebase's trails alone.
@@ -73,7 +74,9 @@ star, `prefix F` the starred trail that wants you, `prefix E` the editor, `` pre
 
 1. Each trail says where it is: needs you, your turn, working, lost, closed;
    ★ for a starred one (`prefix S`, ctrl-s in the picker).
-2. ctrl-/ previews a trail's screen without opening it.
+2. In an editor's terminal and the old trails, ctrl-/ previews a trail's screen
+   without opening it; the picker's one list has no preview, its row says what a
+   trail is doing.
 3. `trails map [N]`: several agents side by side in one window, the N that
    most want you; `map new` picks them again.
 
@@ -111,7 +114,8 @@ it works.
 
 1. ctrl-x in the picker ends a running trail, into the history, or forgets a lost
    one; in the old trails, it forgets a closed one.
-2. **↩ resume old trails**: the trails that ended here in the last 10 days, from
+2. **↩ resume old trails**: the trails that ended in the last 10 days (every
+   workspace's from the picker, this codebase's in an editor's terminal), from
    trails' own history; Enter resumes one in the mode it last ran in, and Tab
    flips it.
 

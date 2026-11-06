@@ -1,6 +1,6 @@
 # The map a key away: prefix M offers every trail in every workspace, the four that most want
-# you ticked, and puts them in one window, 2×2, four agents at work side by side. The status
-# line lists the map after the workspaces, ▦ map, one key from any of them.
+# you ticked, and puts them in one window, 2×2, four agents at work side by side. On it the
+# status line says [▦ map], one key from any workspace.
 #
 #   vhs assets/demo/map.tape         (from the repo root; writes assets/map.gif)
 #
@@ -118,7 +118,7 @@ Sleep 2s
 Enter
 # Four agents, four projects, one window.
 Sleep 16s
-# The map is in the status line beside the workspaces: prefix J to acme, prefix M back.
+# The map is a key away from any workspace: prefix J to acme, prefix M back.
 Ctrl+B
 Type "J"
 Sleep 3s

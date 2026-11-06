@@ -72,7 +72,7 @@ assert_eq "$(client_at "$a" '#{session_name} #{window_id}')" "ws $wid_two" "B mo
 # The grouped session is never a workspace of its own, nor a session of yours: not in the picker.
 rm -f "$T/wmenu"
 DRIVER_DIR=$T FZF_PICK='' FZF_DUMP=$T/wmenu driver "$TRAILS"
-wait_for 5 test -s "$T/wmenu" || fail "the workspaces screen never reached fzf"
+wait_for 5 test -s "$T/wmenu" || fail "the picker never reached fzf"
 assert_eq "$(grep '^workspace' "$T/wmenu" | cut -f2 | tr '\n' ' ')" "ws " "ws once"
 grep -q 'ws~2' "$T/wmenu" && fail "ws~2 listed: $(cut -f1,2 "$T/wmenu" | tr '\n' '|')"
 true

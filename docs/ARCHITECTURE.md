@@ -21,7 +21,7 @@ In scope:
 
 - **Starting** any agent CLI the config names, as a window in its workspace's
   session, in the directory you're in, in the agent's own mode or its YOLO flag.
-- **Finding:** the picker's levels (workspaces, workspace, codebase, agent), `trails ls` for this directory,
+- **Finding:** the picker's one list of every workspace's trails and windows ([ADR 30](decisions/0030-one-picker-one-list.md)), then a codebase and an agent to start one; `trails ls` for this directory,
   `trails ls -a` for every one, and whether each agent is working or waiting on
   you.
 - **Resuming:** a record per trail that outlives tmux, `trails restore`, and
@@ -229,9 +229,9 @@ carries `@agent` and `@trails_session` and lives in that session (the row from t
 session named by its key; the trail's window in the workspace has no `@agent`).
 Each row is `wid key ws agent-label dir codebase
 badge task`, and the pass also keeps every record's task and conversation current
-(below). `classify` adds the state in front. Everything above reads these rows: `live_trails` keeps this directory's or
-one workspace's for the picker, `ls_rows` the lot for `trails ls`, `map_menu` for
-the map.
+(below). `classify` adds the state in front. Everything above reads these rows: the one list classifies them all
+(`sessions | classify`), `live_trails` keeps this directory's for an editor's
+codebase screen, `ls_rows` the lot for `trails ls`, `map_menu` for the map.
 
 The badge (`#3f9a`, `#payments`; `#2` and `-` for unnamed trails from before 1.10)
 is read off the key against the codebase label and the name, never off a name alone.
@@ -839,10 +839,10 @@ a popup is `popup-style` itself, so on 3.8 it keeps the grey; 3.8 added
 Every key trails binds is a capital letter, but the backtick for the shell, which is
 the editors' own toggle-terminal key: trails' keys read apart from tmux's and from a
 tmux.conf's own, which are mostly lower case
-([ADR 24](decisions/0024-trails-keys-are-capitals.md)). `prefix P`, `W`, `A`, `N`,
+([ADR 24](decisions/0024-trails-keys-are-capitals.md)). `prefix P`, `S`, `F`, `N`,
 `G`, `R`, `J` and `K` are free in tmux 3.8's default table (`C`, `D`, `L` and `T`
-are taken); `P` is "pick a trail", `N` the checklist, `A` all trails, `G` the git
-diff, `R` rename, and `K` and `J` the previous and next workspace, vim's up and down, beside tmux's
+are taken); `P` is "pick a trail", `S` a star, `F` the starred trail that wants
+you, `N` the checklist, `G` the git diff, `R` rename, and `K` and `J` the previous and next workspace, vim's up and down, beside tmux's
 `(` and `)` for every session. `E` for the editor takes spreading the panes out
 evenly (still `:select-layout -E`), and `M` for the map takes clearing the marked
 pane (which `prefix m` on it still does). Each is bound with a note (`bind -N
@@ -1037,18 +1037,17 @@ it.
 (`is_map`) and the terminal elsewhere, it switches there; otherwise it opens
 `trails map new` in a popup on that terminal, since a run-shell job has none of its
 own. The pick is `--multi=4`, the first four rows, the ones that most want you,
-ticked on load. `trails keys`' `status-left` lists the map after the workspaces with
-a second `#{S:}` loop over the session marked `@trails_map`, so a name never sorts
-it in among them.
+ticked on load. `trails keys`' `status-left` is tmux's own `[session]`, and
+`[▦ map]` on the session marked `@trails_map`.
 
 ## The README demos
 
 `assets/trails.gif` and `assets/map.gif` are recorded with
 [VHS](https://github.com/charmbracelet/vhs) from `assets/demo/trails.tape` and
 `map.tape`, with the real Claude Code. The first is the tour, kept to the everyday loop: the
-workspaces, a workspace's trails with the live preview, the diff beside an agent,
-then the editor in its place and a shell under it, the status line's workspaces,
-and the map. The
+picker's one list of every workspace's trails, a trail picked from it, the same list
+in a popup, the diff beside an agent, then the editor in its place and a shell under
+it, the workspaces a key apart, and the map. The
 second is the map: prefix M's pick, across two workspaces, and four agents at work
 in one window. Both give their agents small tasks, so a recording costs a little of
 your plan; the tour's runs one, the map's five.
@@ -1085,7 +1084,7 @@ tmux: switch-client, a nested editor client, the refused collision), restore,
 autorestore, map, workspace and wsmap (the config), wsbar (the status line's
 `[session]` and `prefix K`/`J`), native (the click on it, `detach-on-destroy`,
 `@trails_state_at`), bells (the bell on a trail's window, the count after `[session]`),
-one (the one list: its order, where you are, lost trails, the map, Enter, stars and a restore keeping them), server (the socket), keys-scope (the keys on trails' server
+one (the one list: its order, where you are, lost trails, no map row and no preview, Enter on a header starting a trail, the popup's sizes and rows fitted to the width, stars and a restore keeping them), prefix (a workspace whose name begins a window's), server (the socket, and `trails server` moving to another), keys-scope (the keys on trails' server
 only), service (the service starting the server), boot,
 grouped (a second terminal on a workspace), all (every workspace, ctrl-x anywhere, every workspace's old trails), edges, hooks
 (`trails state` and `--id`, the history, the plugin against the docs), sound

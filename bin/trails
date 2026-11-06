@@ -29,10 +29,13 @@
 #                           `trails` there: the agent gets its own session as usual and
 #                           that pane becomes its session.
 #
-# In the picker: "＋ new trail…", which lists the agents you can start, then this directory's
-# trails — ● running, ○ not.
-# Enter opens the highlighted row (attach, restore, resume, start), tab toggles YOLO on an
-# agent or a closed session, ctrl-x ends a running session or forgets a lost one.
+# A bare `trails` opens the picker: one list (ADR 30), "＋ new trail…", then every workspace,
+# the one you're in first, with its trails, lost trails and windows, each trail's state a
+# word; then the sessions of yours and "↩ resume old trails". In an editor's terminal it is
+# that codebase's trails alone (ADR 14). Enter goes to the highlighted row (a trail, a window,
+# a session; on a workspace, a new trail there; a lost trail restored, a closed one resumed),
+# ctrl-x ends a running trail or forgets a lost one, tab toggles YOLO on an agent to start or
+# a closed trail.
 #
 # Env:
 #   TRAILS_RECENT_DAYS     how far back closed rows look, in the picker and `trails ls` (default 10)
@@ -239,7 +242,8 @@ TRAILS_NAME=
 #                  "trails" (dedicated). A missing key also means "trails", except when
 #                  upgrading: session records still on the ordinary default server pin the
 #                  config to "default" once so lost trails are not hidden. Set "default" to
-#                  stay on the ordinary server; set "trails" (or "") and restore to move.
+#                  stay on the ordinary server. Changing it alone moves nothing (a record
+#                  is restored only on its own server): `trails server NAME` moves them.
 #
 # Without a file, the built-in agents below apply; `trails config` writes them out as a
 # starting point. Only agents whose command is on PATH are offered, so listing an agent you
@@ -265,7 +269,8 @@ STATE_DIR=${XDG_STATE_HOME:-$HOME/.local/state}/trails/sessions
 #                          write it into the config so the next run is explicit
 #
 # A record's server= matches the same names. Missing server= means trails — the same default
-# as an empty config value — after legacy records have been stamped (server_migrate).
+# as an empty config value — after legacy records have been stamped (server_stamp_untagged,
+# from load_server).
 #
 # server_name $1 → the socket name to use for a raw config value (empty → trails).
 server_name() {
@@ -1824,7 +1829,7 @@ agent_rows() {
 # subprocesses inherit):
 #
 #   one            the one list (ADR 30, one_menu): every workspace with its trails, lost
-#                  trails and windows, the map, the sessions of yours, and "↩ resume old
+#                  trails and windows, the sessions of yours, and "↩ resume old
 #                  trails"; what a bare `trails` opens, but in an editor's terminal
 #   one-old        every workspace's ended trails (closed), with a workspace/codebase column
 #   ''             this codebase, an editor's terminal's (ADR 14): "＋ new trail…", which
@@ -2456,8 +2461,8 @@ ws_step() {
 }
 
 # Go to workspace $1: switch the client you are in, or attach, to its session, landing on
-# the trail that most wants you — or, when nothing runs there, show its screen, since no
-# session is made for an empty workspace. A session of its name that is not a workspace is
+# the trail that most wants you — or, when nothing runs there, start a trail there (new_in_ws:
+# its codebase tree, then the agents), since no session is made for an empty workspace. A session of its name that is not a workspace is
 # refused (D1).
 ws_switch() {
   check_ws_name "$1" || exit 1
@@ -3825,8 +3830,8 @@ recent_rows() {
     END { row() }' {} + 2>/dev/null | sort -t "$TAB" -k1,1nr | head -n "$RECENT_MAX"
 }
 
-# The closed rows for the picker's screen (TRAILS_PICKER): none on the workspaces, agents and
-# every-trail screens; on a workspace's, those whose directory it claims; else this directory's.
+# The closed rows for the picker's screen (TRAILS_PICKER): none on the agents screen; every
+# workspace's on the one list and its old trails; else this directory's.
 # Read once into the picker's cache, and again after ctrl-x forgets one.
 recent_cache() {
   case ${TRAILS_PICKER:-} in
@@ -4643,13 +4648,15 @@ diff_cmd() {
 # ─── Keys ────────────────────────────────────────────────────────────────────
 # trails binds nothing (principle 2 of the design). `trails keys` prints lines for a
 # tmux.conf, to paste or ignore, or to load whole with the one run-shell line it opens with:
-# the picker, the workspace picker and every running trail in a popup, which leaves no
-# window behind, the editor and the shell, a note in a popup, the previous and next
-# workspace, the map, the diff, and the workspaces and the map at the status line's left.
+# the picker in a popup, which leaves no window behind (prefix P, and a click on [session]),
+# a star and the starred trail that wants you, the editor and the shell, the checklist in a
+# popup, the previous and next workspace, the map, the diff, rename, and the status line:
+# tmux's own [session] at its left ([▦ map] on the map), and the checklist's count.
 # Every key trails binds is a capital letter, so trails' keys read apart from tmux's and your own
-# (ADR 24), but for ` for the shell, the editors' own toggle-terminal key. P, W, A, N, G, R, J
+# (ADR 24), but for ` for the shell, the editors' own toggle-terminal key. P, S, F, N, G, R, J
 # and K are free in tmux 3.8's default prefix table (C, D, L and T are taken); P for "pick a
-# trail", W the workspaces, A all trails, N a note, G the diff beside the agent, R rename. No key for trails'
+# trail", S star, F the starred trail that wants you, N the checklist, G the diff beside the
+# agent, R rename. No key for trails'
 # own help: tmux's ? lists trails' keys with its own, by their notes, and ? in the picker has the
 # rest (trails help keys). K and J the previous and next workspace, vim's
 # up and down, beside tmux's ( and ), which cycle through every session. Two take tmux's own:
@@ -4703,7 +4710,7 @@ keys() {
   # own double quotes: a path with a space or a ' still runs.
   kq=$(shq "$SELF" | sed 's/\\/\\\\/g')
   # A popup closes the moment its command exits, so a refusal printed on the way out would go
-  # unread: on a failure the picker's and the workspaces' popups wait for Enter.
+  # unread: on a failure the picker's popup waits for Enter.
   khold='|| { echo; echo press enter to close; read -r _; }'
   # The picker's popup: 60% x 70% where that holds a trail's row (about 130 columns: its
   # details, then a task), else 130 columns, else all but the edge of a narrower terminal; and
@@ -5675,9 +5682,10 @@ usage: trails [command]
                     to one, space ticks it done or back, enter with nothing typed copies
                     it and closes; ctrl-e opens the file in $EDITOR, then the list again
                     (the config's "data" says where); esc closes
-  keys              print tmux.conf lines that bind the picker, every trail, the editor,
-                    the shell, the checklist, the workspaces, the map and the diff, and put
-                    the workspaces and the checklist's count in the status line
+  keys              print tmux.conf lines that bind the picker, a star and the starred
+                    trail that wants you, the editor, the shell, the checklist, the
+                    previous and next workspace, the map, the diff and rename, and put
+                    [session] and the checklist's count in the status line
   diff [DIR]        this codebase's changes, untracked files too, side by side; from
                     prefix G on a trail's window, the diff beside the agent, shown or put
                     away, and elsewhere a popup; the config's "diff" says what shows that
@@ -5919,7 +5927,7 @@ case $1 in
     launch "$(rec_get "$2" agent)" "$(rec_get "$2" yolo)" "" "$2" >/dev/null
     exit 0
     ;;
-  # `trails ws` on a terminal is the workspace picker, and `trails ws NAME` goes straight
+  # `trails ws` on a terminal is the picker (the one list), and `trails ws NAME` goes straight
   # there; the rest is about the config. Piped, bare `ws` lists, for a script.
   ws)
     shift
@@ -6071,7 +6079,7 @@ esac
 #                     trail's state, so recomputing it per keystroke would delay the Tab
 #                     relabel. The snapshot does not change over the picker's
 #                     life (fzf never refreshes it on its own), so caching loses no freshness.
-#                     On the workspace picker it holds every trail classified, for the counts.
+#                     On the one list it holds every trail classified, for the counts.
 # TRAILS_RECENT_CACHE — the closed rows' raw TSV, for the same reason: read once, drawn per reload.
 TRAILS_TMP=$(mktemp -d "${TMPDIR:-/tmp}/trails.XXXXXX") || exit 1
 TRAILS_YOLO_STATE=$TRAILS_TMP/yolo
@@ -6144,7 +6152,7 @@ MENU=$(print_menu) || exit 1
 # every row the list doesn't need: the prompt, a row per entry, one to spare for an entry
 # that wraps. A share of the height instead left blank rows under a short list, and an 80%
 # box left a fifth of the popup empty. A preview under ten rows is hidden until ctrl-/. The
-# workspaces and the agents, with no preview, hug their rows.
+# agents, with no preview, hug their rows; the one list, with none either, takes the popup.
 # ? shows the keys (keys_help, --keys); q comes back to the list.
 set -- --reverse --ansi --wrap --no-separator \
   --info='inline:   ' --color='info:dim' \
@@ -6258,9 +6266,9 @@ case ${TRAILS_PICKER:-} in
     ;;
 esac
 
-# ctrl-c quits, from any screen. Esc goes up a level (D4 in docs/design/picker-consolidation.md):
-# fzf reports it as a key (--expect), handled below, where an abort could not tell the two apart.
-# The workspaces screen, the top, has no Esc key of its own: there it quits.
+# ctrl-c quits, from any screen. Esc closes the one list, and an editor's codebase screen; on
+# the screens reached from them it goes back (picker_back). fzf reports it as a key
+# (--expect), handled below, where an abort could not tell the two apart.
 choice=$(printf '%s\n' "$MENU" | fzf "$@")
 picked=$?
 [ -z "$ticker" ] || kill "$ticker" 2>/dev/null
@@ -6287,7 +6295,7 @@ case ${TRAILS_PICKER:-} in
 esac
 
 # Field 2 is the target either way — a running trail's window id, a lost one's key, an agent
-# to start (agent:dir on a workspace's screen), a workspace's name. cut splits on TAB by
+# to start, a closed trail's agent:id:dir, a workspace's name. cut splits on TAB by
 # default, the delimiter the menu is built with.
 target=$(printf '%s' "$choice" | cut -f2)
 
@@ -6349,8 +6357,7 @@ if [ -n "$named" ]; then
   TRAILS_NAME=$query
 fi
 
-# A "new" row on a workspace's screen carries its codebase (agent:dir), and a closed row its
-# conversation's (agent:id:dir): start there.
+# A closed row carries its conversation's directory (agent:id:dir): resume there.
 # Neither an agent's name nor a conversation's ID has a ":", and a directory may: the directory
 # is what follows the first one or two, not the last.
 case $target in

@@ -1,11 +1,11 @@
-# trails from one terminal: the workspaces, a workspace's trails with the live preview, the
-# diff beside the agent, then the editor in its place and a shell under it, the status line's
-# workspaces, moved between with a key, and the map: every trail side by side.
+# trails from one terminal: the picker's one list of every workspace's trails, the same list in
+# a popup over a trail, the diff beside the agent, then the editor in its place and a shell
+# under it, the workspaces moved between with a key, and the map: every trail side by side.
 #
 #   vhs assets/demo/trails.tape      (from the repo root; writes assets/trails.gif)
 #
-# Off camera: two real Claude Code trails in the acme workspace (one handed a task, so the
-# preview has something to show) and one in personal. Runs in sandbox.sh's sandbox, on the
+# Off camera: two real Claude Code trails in the acme workspace (one handed a task, so its
+# row and its diff have something to show) and one in personal. Runs in sandbox.sh's sandbox, on the
 # demo's own tmux config (the `trails keys` lines, C-b prefix).
 Output assets/trails.gif
 Require claude
@@ -67,25 +67,23 @@ Wait+Line@90s /^~ \$\s*$/
 Sleep 20s
 Set TypingSpeed 55ms
 Show
-# From nowhere in particular: the workspaces, with what runs in each.
+# From nowhere in particular: one list, every workspace with its trails and what each is
+# doing; typing filters it.
 Type "trails"
 Sleep 400ms
 Enter
-Sleep 3s
-# Into acme: the status line lists the workspaces, acme in reverse.
-Type "acme"
-Sleep 600ms
+Sleep 3.5s
+# To checkout's trail, typed, in acme: the status line is acme's windows.
+Type "checkout"
+Sleep 2s
 Enter
 Sleep 3.5s
-# The workspace's trails, in a popup, the live preview under them: checkout, typed (the rows
-# sort by who wants you, so a Down could land elsewhere), then open it.
+# The same list in a popup over the trail, prefix P; esc closes it.
 Ctrl+B
 Type "P"
-Sleep 3s
-Type "checkout"
 Sleep 3.5s
-Enter
-Sleep 2.5s
+Escape
+Sleep 1.5s
 # The agent's changes beside it, live, in Hunk: prefix G.
 Ctrl+B
 Type "G"
