@@ -25,6 +25,10 @@ if [ -n "$keys" ] && [ -f "$keys" ]; then
   keys=$(head -n 1 "$f")
   sed -i.bak 1d "$f" && rm -f "$f.bak"
 fi
+# $FZF_ARGS names a file this fzf writes its arguments to, one a line, for a test to read:
+# whole, by a rename, so a test waiting for it never reads half. trails' probes of what fzf
+# can do (--filter) write it too, before the picker's own.
+[ -z "${FZF_ARGS:-}" ] || { printf '%s\n' "$@" >"$FZF_ARGS.$$" && mv "$FZF_ARGS.$$" "$FZF_ARGS"; }
 query=; expect=; esc=; multi=1
 for a in "$@"; do
   case $a in

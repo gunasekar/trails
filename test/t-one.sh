@@ -180,3 +180,15 @@ rm -f "$T/dump"
 picker "FZF_PICK='!esc' FZF_DUMP='$T/dump'"
 sleep 0.5
 assert_eq "$(grep -c '^--- ' "$T/dump")" 1 "esc closes the picker"
+
+# ── The preview: the popup's, not a terminal's ─────────────────────────────────────
+# In the popup (tmux, no pane of its own) the preview shows; a bare `trails` in a terminal
+# starts without it, and ctrl-/ still brings it. Both 40 rows, room for a preview.
+FZF_PICK='!esc' driver env "TMUX=$sock,1,0" "TRAILS_CLIENT=$term" "FZF_ARGS=$T/args-popup" "$TRAILS"
+wait_for 5 grep -q '^--preview-window=' "$T/args-popup" || fail "the popup's picker never opened"
+pw=$(grep '^--preview-window=' "$T/args-popup")
+case $pw in *hidden*) fail "the popup hid its preview: $pw" ;; *) ;; esac
+FZF_PICK='!esc' driver env "FZF_ARGS=$T/args-term" "$TRAILS"
+wait_for 5 grep -q '^--preview-window=' "$T/args-term" || fail "the terminal's picker never opened"
+assert_match "$(grep '^--preview-window=' "$T/args-term")" ',hidden$' "a terminal's list starts without the preview"
+grep -qx -- '--bind=ctrl-/:toggle-preview' "$T/args-term" || fail "ctrl-/ no longer brings it"

@@ -6093,6 +6093,10 @@ esac
 pv=$((rows - 2 - $(printf '%s\n' "$MENU" | wc -l)))
 hidden=
 [ "$pv" -ge 10 ] || hidden=,hidden pv=50%
+# A bare `trails` in a terminal is for going somewhere, the list all you read: the one list
+# starts there without its preview, and ctrl-/ brings it. The popup (prefix P, the click) is
+# for looking, and keeps it.
+[ "${TRAILS_PICKER:-}" != one ] || in_popup || hidden=,hidden
 pw_wrap=wrap
 fzf_ok wrapword && pw_wrap=wrap-word
 case ${TRAILS_PICKER:-} in

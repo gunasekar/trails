@@ -121,7 +121,7 @@ In the picker:
 | `ctrl-r` | rename the trail under the cursor; an empty name takes it away |
 | `ctrl-x` | end a running trail, close an editor or shell window or the map, or forget a lost or closed one |
 | `ctrl-e` | the editor for the row's codebase |
-| `ctrl-/` | show or hide the preview: the trail's screen, kept live |
+| `ctrl-/` | show or hide the preview: the trail's screen, kept live; shown in the popup, hidden at first from a bare `trails` in a terminal |
 | `ctrl-n` | a new workspace; in the agents, name the trail you are about to start |
 | `tab` | in the agents and the old trails: toggle YOLO (run everything unconfirmed) |
 | `?` | the keys and what the states mean |

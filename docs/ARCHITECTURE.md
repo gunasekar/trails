@@ -668,7 +668,9 @@ ctrl-x and ctrl-s pass the target to a subcommand of the script (`--toggle-yolo`
 runs its bindings through `$SHELL`, where zsh expands a leading `=` and silently
 ate the kill. The preview is `--peek`, the row's screen through `capture-pane`, trimmed of
 the blank rows under its last line and shown under the list, scrolled to the
-bottom (`follow`), as high as the list leaves room for. The screen is the
+bottom (`follow`), as high as the list leaves room for. On the one list it
+starts hidden outside a popup (`in_popup`: tmux, and no pane): a bare `trails` in
+a terminal is for going somewhere, and ctrl-/ brings it. The screen is the
 trail window's size, set by the terminal that last typed in it: a wider one
 wraps (`wrap-word`), its full-width rules redrawn at `$FZF_PREVIEW_COLUMNS`, and
 a narrower one stays as drawn. It is kept current by
