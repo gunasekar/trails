@@ -114,13 +114,12 @@ if [ "${1:-}" = state ]; then
     *[!A-Za-z0-9_.-]*) st_id= ;;
     *) ;;
   esac
-  st_pane=$(tmux display-message -p -t "$TMUX_PANE" '#{pane_pid}|#{@trails_session}|#{@trails_program}|#{@trails_said_depth}|#{@trails_state}|#{@trails_notified}|#{@trails_id}' 2>/dev/null) || exit 0
+  st_pane=$(tmux display-message -p -t "$TMUX_PANE" '#{pane_pid}|#{@trails_session}|#{@trails_program}|#{@trails_said_depth}|#{@trails_state}|#{@trails_id}' 2>/dev/null) || exit 0
   st_root=${st_pane%%|*} st_pane=${st_pane#*|}
   st_trail=${st_pane%%|*} st_pane=${st_pane#*|}
   st_prog=${st_pane%%|*} st_pane=${st_pane#*|}
   st_known=${st_pane%%|*} st_pane=${st_pane#*|}
-  st_before=${st_pane%%|*} st_pane=${st_pane#*|}
-  st_notified=${st_pane%%|*} st_carried=${st_pane#*|}
+  st_before=${st_pane%%|*} st_carried=${st_pane#*|}
   [ -z "$st_agent" ] || [ -z "$st_prog" ] || [ "$st_agent" = "$st_prog" ] || exit 0
   set -- set-option -pq -t "$TMUX_PANE" @trails_state "$st_word"
   # When the word last changed, so a trail can say how long it has waited (ADR 28). Only on a
@@ -130,18 +129,15 @@ if [ "${1:-}" = state ]; then
     set -- "$@" \; set-option -pq -t "$TMUX_PANE" @trails_worked 1
   fi
   # A trail's word that changed may notify (--notify, see "Notifications"): waiting, and idle
-  # after working, a notification; anything else the end of one, so it starts a --notify only
-  # when there is one to take away. A turn starts on a working that doesn't follow a waiting, a
-  # permission granted being the same turn going on, and when is what idle_after measures.
+  # after working. A turn starts on a working that doesn't follow a waiting, a permission
+  # granted being the same turn going on, and when is what idle_after measures.
   st_note=
   if [ -n "$st_trail" ] && [ "$st_word" != "$st_before" ]; then
     case $st_word in
-      working)
-        [ "$st_before" = waiting ] || set -- "$@" \; set-option -pq -t "$TMUX_PANE" @trails_turn_at "$(date +%s)"
-        [ -z "$st_notified" ] || st_note=1
-        ;;
-      idle) [ "$st_before" != working ] && [ -z "$st_notified" ] || st_note=1 ;;
-      *) st_note=1 ;;
+      working) [ "$st_before" = waiting ] || set -- "$@" \; set-option -pq -t "$TMUX_PANE" @trails_turn_at "$(date +%s)" ;;
+      idle) [ "$st_before" != working ] || st_note=1 ;;
+      waiting) st_note=1 ;;
+      *) ;;
     esac
   fi
   [ -n "$st_trail" ] || st_id=
@@ -234,7 +230,7 @@ TRAILS_NAME=
 #                  finds them itself, run in the popup; or { "command": ..., "gui": true }
 #                  for a program with a window of its own. delta, side by side, when
 #                  installed.
-#   notify         desktop notifications on the terminals attached, when a trail needs you
+#   notify         the operating system's notifications, with a sound, when a trail needs you
 #                  or ends its turn (see "Notifications"); false turns them off.
 #   alerts         the status line's bell for the trails that want you (ADR 28):
 #                  { "glyph": "…" }, a Nerd Font bell by default; false for none.
@@ -1201,39 +1197,36 @@ classify() {
 }
 
 # ─── Notifications ───────────────────────────────────────────────────────────
-# A trail that needs you, or whose turn has ended, says so on the terminals you are looking at
-# (ADR 26). `trails state` sees the word change and starts `trails --notify WORD BEFORE` in the
-# background, in the agent's pane; that writes an escape sequence to the tty of every tmux
-# client attached, whichever session it shows, so it reaches the terminal in front of you,
-# over ssh too, and needs no passthrough. Which escape a terminal gets is the config's, by the
-# client's #{client_termtype} (kitty(0.49.2), iTerm2 3.6.6), never trails' code:
+# A trail that needs you, or whose turn has ended, plays a sound (ADR 28), on the machine running
+# the agents, whatever app or terminal is in front: afplay on macOS, canberra-gtk-play or paplay
+# elsewhere. Which trail it was, the bell in the status line says. `trails state` sees the word
+# change and starts `trails --notify WORD BEFORE` in the background, in the agent's pane. Up to
+# 1.20 it wrote an escape sequence to each attached terminal instead, chosen per terminal (ADR
+# 26); a popup through the operating system came between, and went: macOS shows osascript's as
+# Script Editor's, and refuses one from an app not signed with a Developer ID.
 #
 #   "notify": {
-#     "on": ["waiting", "idle"],          which words notify: needs you, your turn
+#     "on": ["waiting", "idle"],          which words sound: needs you, your turn
 #     "idle_after": 30,                   your turn only after a turn this many seconds long
-#     "show": "always",                   osc99's o=: always, unfocused or invisible
-#     "sound": "system",                  osc99's s=: system, silent, or a sound's name
-#     "terminals": {                      client_termtype globs, first match: osc99, osc9,
-#       "kitty*": "osc99",                osc777, or none. iTerm2 shows OSC 9 as an Alert,
-#       "iTerm2*": "osc9" }               "Session <name>: ...", and takes no OSC 777
+#     "show": "unfocused",                unfocused: not while a focused terminal shows the
+#                                         trail's window (tmux's focus-events; without them,
+#                                         always); always
+#     "sound": "system",                  system (macOS: Blow), a sound's name, or a file
+#     "only": "all"                       all, or starred: only the starred trails
 #   }
 #
-# "notify": false turns it off. Each key falls back to the default above, terminals whole: a
-# terminal no glob matches, a nested client of trails' own included (termtype tmux), gets
-# nothing. osc99 is kitty's protocol: the trail's ID names the notification, so a new one
-# replaces it and going back to work closes it (p=close). osc9 and osc777 have no IDs: theirs
-# stay until dismissed.
+# "notify": false turns it off, as "sound": "silent" does. Each key falls back to the default
+# above; keys of the escapes' days (terminals) are ignored.
 NOTIFY_JQ='
   def strs: if type == "array" then map(select(type == "string")) else null end;
   (if type == "object" then .notify else null end) as $n
-  | if $n == false then "off" else
+  | if $n == false or ($n | type) == "object" and $n.sound == "silent" then "off" else
       (if ($n | type) == "object" then $n else {} end) as $n
-      | ([($n.on | strs) // ["waiting", "idle"] | join(" "),
-          ($n.idle_after | if type == "number" and . >= 0 then floor else 30 end | tostring),
-          ($n.show | if . == "always" or . == "unfocused" or . == "invisible" then . else "always" end),
-          ($n.sound | if type == "string" and . != "" then . else "system" end)] | join("\u001f")),
-        (($n.terminals | if type == "object" then . else {"kitty*": "osc99", "iTerm2*": "osc9"} end)
-          | to_entries[] | select(.value | type == "string") | .key + "\t" + .value)
+      | [($n.on | strs) // ["waiting", "idle"] | join(" "),
+         ($n.idle_after | if type == "number" and . >= 0 then floor else 30 end | tostring),
+         ($n.show | if . == "always" then . else "unfocused" end),
+         ($n.sound | if type == "string" and . != "" then . else "system" end),
+         ($n.only | if . == "starred" then . else "all" end)] | join("\u001f")
     end'
 
 notify_cfg() {
@@ -1244,93 +1237,87 @@ notify_cfg() {
   fi
 }
 
-# Text for an escape: no control characters, so nothing in a task can end the sequence early.
-notify_clean() { printf '%s' "$1" | tr -d '\000-\037\177'; }
-
-# --notify WORD BEFORE, in the agent's pane (TMUX_PANE): a notification for waiting, and for
-# idle after a turn of idle_after seconds or more; for anything else, or a word the config
-# leaves out, the trail's notification closed, if it has one up (@trails_notified).
+# --notify WORD BEFORE, in the agent's pane (TMUX_PANE): the sound for waiting, and for idle
+# after a turn of idle_after seconds or more, for the words the config lists; with "only":
+# "starred", for a starred trail alone (its agent's window, this pane's, carries it).
 notify_run() {
   nr_cfg=$(notify_cfg) || return 0
   case $nr_cfg in off | '') return 0 ;; *) ;; esac
-  nr_head=$(printf "%s\n" "$nr_cfg" | sed -n 1p)
-  nr_terms=$(printf "%s\n" "$nr_cfg" | sed 1d)
-  IFS="$US" read -r nr_on nr_after nr_show nr_sound <<EOF
-$nr_head
+  IFS="$US" read -r nr_on nr_after nr_show nr_sound nr_only <<EOF
+$nr_cfg
 EOF
-  nr_info=$(tmux display-message -p -t "$TMUX_PANE" \
-    "#{@trails_trail}${US}#{@trails_turn_at}${US}#{@trails_notified}${US}#{@agent}${US}#{@trails_ws}${US}#{@trails_label}${US}#{@trails_name}${US}$TASK_FMT" 2>/dev/null) || return 0
-  IFS="$US" read -r nr_tid nr_at nr_up nr_agent nr_ws nr_label nr_name nr_task <<EOF
+  case " $nr_on " in *" $1 "*) ;; *) return 0 ;; esac
+  nr_info=$(tmux display-message -p -t "$TMUX_PANE" "#{@trails_turn_at}${US}#{session_name}${US}#{@trails_starred}" 2>/dev/null) || return 0
+  IFS="$US" read -r nr_at nr_sess nr_star <<EOF
 $nr_info
 EOF
-  nr_do=close
-  case " $nr_on " in
-    *" $1 "*)
-      case $1 in
-        waiting) nr_do=send ;;
-        idle)
-          if [ "$2" = working ]; then
-            nr_now=$(date +%s)
-            case $nr_at in
-              '' | *[!0-9]*) nr_do=send ;;
-              *) [ $((nr_now - nr_at)) -lt "$nr_after" ] || nr_do=send ;;
-            esac
-          fi
-          ;;
-        *) ;;
+  [ "$nr_only" != starred ] || [ -n "$nr_star" ] || return 0
+  case $1 in
+    waiting) ;;
+    idle)
+      [ "$2" = working ] || return 0
+      case $nr_at in
+        '' | *[!0-9]*) ;;
+        *) [ $(($(date +%s) - nr_at)) -ge "$nr_after" ] || return 0 ;;
       esac
       ;;
-    *) ;;
+    *) return 0 ;;
   esac
-  [ "$nr_do" = send ] || [ -n "$nr_up" ] || return 0
-
-  nr_id=trails-$(printf '%s' "${nr_tid:-$TMUX_PANE}" | tr -cd 'A-Za-z0-9_.+-')
-  nr_agent=${nr_agent% (YOLO)}
-  if [ "$1" = waiting ]; then
-    nr_title="$nr_agent · needs you" nr_u=2
-  else
-    nr_title="$nr_agent · your turn" nr_u=1
-  fi
-  nr_body="$nr_ws/${nr_name:-$nr_label}${nr_task:+ — $nr_task}"
-  nr_title=$(notify_clean "$nr_title") nr_body=$(notify_clean "$nr_body")
-  nr_s=
-  [ "$nr_sound" = system ] || nr_s=:s=$(printf '%s' "$nr_sound" | base64 | tr -d '\n')
-
-  nr_clients=$(tmux list-clients -F "#{client_tty}$TAB#{client_termtype}" 2>/dev/null) || return 0
-  nr_sent=
-  while IFS="$TAB" read -r nr_tty nr_tt; do
-    [ -n "$nr_tty" ] && [ -w "$nr_tty" ] || continue
-    nr_fmt=none
-    while IFS="$TAB" read -r nr_pat nr_f; do
-      [ -n "$nr_pat" ] || continue
-      # shellcheck disable=SC2254 # the config's pattern, a glob on purpose
-      case $nr_tt in $nr_pat) nr_fmt=$nr_f && break ;; *) ;; esac
-    done <<EOF
-$nr_terms
-EOF
-    case $nr_do.$nr_fmt in
-      send.osc99)
-        printf '\033]99;i=%s:d=0:u=%s:o=%s:f=dHJhaWxz%s;%s\033\\\033]99;i=%s:p=body;%s\033\\' \
-          "$nr_id" "$nr_u" "$nr_show" "$nr_s" "$nr_title" "$nr_id" "$nr_body" >"$nr_tty" 2>/dev/null
-        ;;
-      send.osc9) printf '\033]9;%s: %s\007' "$nr_title" "$nr_body" >"$nr_tty" 2>/dev/null ;;
-      send.osc777)
-        printf '\033]777;notify;%s;%s\007' "$(printf '%s' "$nr_title" | tr ';' ',')" "$nr_body" >"$nr_tty" 2>/dev/null
-        ;;
-      close.osc99) printf '\033]99;i=%s:p=close;\033\\' "$nr_id" >"$nr_tty" 2>/dev/null ;;
-      *) continue ;;
-    esac
-    nr_sent=1
-  done <<EOF
-$nr_clients
-EOF
-
-  if [ "$nr_do" = send ]; then
-    [ -z "$nr_sent" ] || tmux set-option -pq -t "$TMUX_PANE" @trails_notified 1 2>/dev/null
-  else
-    tmux set-option -pqu -t "$TMUX_PANE" @trails_notified 2>/dev/null
-  fi
+  [ "$nr_show" = always ] || ! notify_watched "$nr_sess" || return 0
+  notify_sound "$nr_sound"
   return 0
+}
+
+# True while a focused terminal shows the window of trail session $1 in its workspace: you are
+# looking at it, so no sound. tmux knows focus only with focus-events on; without them it calls
+# every client focused, so then this is never true, and the sound always plays.
+notify_watched() {
+  [ "$(tmux show-options -gv focus-events 2>/dev/null)" = on ] || return 1
+  nw_win=$(tmux list-windows -a -F "#{window_id}$TAB#{@trails_window}" 2>/dev/null |
+    awk -F"$TAB" -v s="$1" '$2 == s { print $1; exit }')
+  [ -n "$nw_win" ] || return 1
+  tmux list-clients -F "#{window_id}$TAB#{client_flags}" 2>/dev/null |
+    awk -F"$TAB" -v w="$nw_win" '$1 == w && ("," $2 ",") ~ /,focused,/ { f = 1 } END { exit !f }'
+}
+
+# The config's sound $1: system, a sound's name, or a file (a path, with a /). By name, macOS's
+# from ~/Library/Sounds, /Library/Sounds or /System/Library/Sounds; elsewhere the sound theme's
+# (canberra-gtk-play -i), or the freedesktop theme's file through paplay.
+notify_sound() {
+  case $(uname -s) in
+    Darwin)
+      command -v afplay >/dev/null 2>&1 || return 1
+      case $1 in
+        system) ns_f=/System/Library/Sounds/Blow.aiff ;;
+        */*) ns_f=$1 ;;
+        *)
+          ns_f=
+          for ns_d in "$HOME/Library/Sounds" /Library/Sounds /System/Library/Sounds; do
+            for ns_x in aiff wav caf m4a mp3; do
+              [ -f "$ns_d/$1.$ns_x" ] && { ns_f=$ns_d/$1.$ns_x; break 2; }
+            done
+          done
+          [ -n "$ns_f" ] || return 1
+          ;;
+      esac
+      afplay "$ns_f" >/dev/null 2>&1
+      ;;
+    *)
+      case $1 in system) ns_n=message-new-instant ;; *) ns_n=$1 ;; esac
+      case $ns_n in
+        */*) ns_f=$ns_n ;;
+        *)
+          if command -v canberra-gtk-play >/dev/null 2>&1; then
+            canberra-gtk-play -i "$ns_n" >/dev/null 2>&1
+            return
+          fi
+          ns_f=/usr/share/sounds/freedesktop/stereo/$ns_n.oga
+          ;;
+      esac
+      command -v paplay >/dev/null 2>&1 && [ -f "$ns_f" ] || return 1
+      paplay "$ns_f" >/dev/null 2>&1
+      ;;
+  esac
 }
 
 # ─── Session states ───────────────────────────────────────────────────────────
@@ -2633,6 +2620,7 @@ EOF
     \; set-option -w -t "=$sess:=$win" @trails_program "$(basename "$cmd")" \
     \; set-option -w -t "=$sess:=$win" @trails_since "$(date +%s)" \
     \; set-option -w -t "=$sess:=$win" @trails_id "$id" \
+    \; set-option -w -t "=$sess:=$win" @trails_starred "$(rec_get "$tid" starred)" \
     \; set-option -p -t "=$sess:=$win" @trails_worked "${3:+1}") || {
     if [ -n "$rec_prev" ]; then
       printf '%s\n' "$rec_prev" >"$(rec_path "$tid")"
@@ -2752,6 +2740,8 @@ EOF
       ec_win=$(tmux new-window -d -t "=$ec_ws:" -n "$ec_win" -c "${ec_dir:-$PWD}" -P -F '#{window_id}' "$(attach_cmd "$ec_key")")
   } || return 1
   [ -n "$ec_win" ] || return 1
+  ec_star=$(tmux display-message -pt "$ec_wid" '#{@trails_starred}' 2>/dev/null)
+  [ -z "$ec_star" ] || tmux set-option -w -t "$ec_win" @trails_starred 1
   tmux set-option -t "$ec_win" @trails_workspace "$ec_ws" \
     \; set-option -t "$ec_win" set-titles on \
     \; set-option -t "$ec_win" set-titles-string "$WS_TITLE" \
@@ -3221,8 +3211,11 @@ rec_write() {
   rw_to=$(rec_path "$1")
   [ "$rw_to" != "$STATE_DIR/.no-such-record" ] || rw_to=$(rec_home "$1" "$4")
   mkdir -p "$(dirname "$rw_to")" || return 0
-  printf 'agent=%s\ndir=%s\nid=%s\nyolo=%s\ntask=\nworkspace=%s\nlabel=%s\nname=%s\nserver=%s\ntrail=%s\nsession=%s\n' \
-    "$3" "$4" "$5" "$6" "${7:-}" "${8:-}" "${9:-}" "$(tmux_server)" "$1" "$2" >"$rw_to.tmp.$$" &&
+  # A star is the user's, not the launch's: kept from the record this one replaces (ADR 28).
+  rw_star=$(sed -n 's/^starred=//p' "$rw_to" 2>/dev/null | head -n 1)
+  { printf 'agent=%s\ndir=%s\nid=%s\nyolo=%s\ntask=\nworkspace=%s\nlabel=%s\nname=%s\nserver=%s\ntrail=%s\nsession=%s\n' \
+    "$3" "$4" "$5" "$6" "${7:-}" "${8:-}" "${9:-}" "$(tmux_server)" "$1" "$2"
+    [ -z "$rw_star" ] || printf 'starred=%s\n' "$rw_star"; } >"$rw_to.tmp.$$" &&
     mv -f "$rw_to.tmp.$$" "$rw_to"
   rm -f "$rw_to.tmp.$$"
 }
@@ -4516,6 +4509,18 @@ keys() {
   # in a theme's window-status-format, and @trails_bell_style the badge's colour, to put before
   # the window's name: a theme that colours the name itself (#[fg=...]) keeps tmux's own
   # window-status-bell-style from showing. tmux's stock format shows the bell as ! already.
+  #
+  # A starred trail's window starts with ★ in the window list, before its number: @trails_star,
+  # for a theme's window-status-format as @trails_bell is, its workspace window carrying
+  # @trails_starred as its agent's window does. It leaves the colour yellow, so a theme sets its
+  # own after it (#[default] would drop a theme's background too). tmux's stock formats have no
+  # place for it, so while they are tmux's own (the same text expanded) they are set to the same
+  # with the star in front, back to the window's style after it; a theme's are left alone.
+  # Compared expanded: a format's text can't be compared to a literal in %if, which expands both
+  # sides.
+  kstock='#I:#W#{?window_flags,#{window_flags}, }'
+  kstar='#{?@trails_starred,#[fg=yellow]★ ,}'
+  kstarred='#{?@trails_starred,#[fg=yellow]★#[default] ,}'
   kglyph=$(jq -r 'if (.alerts | type) == "object" and (.alerts.glyph | type) == "string" then .alerts.glyph elif .alerts == false then "" else "󰂚" end' "$CONFIG" 2>/dev/null) || kglyph='󰂚'
   [ -f "$CONFIG" ] || kglyph='󰂚'
   kbadge=
@@ -4531,8 +4536,10 @@ keys() {
 # the trails it lost (a reboot, a crash). To drop one for good, ctrl-x on its lost row.
 # run-shell -b "$kq restore >/dev/null 2>&1"
 bind -N "trails: this workspace's trails, the picker" P display-popup -E -w 60% -h 70% -s bg=$tbg -S bg=$tbg,fg=brightblack "$kq $khold"
-bind -N "trails: the workspaces" W display-popup -E -w 60% -h 50% -s bg=$tbg -S bg=$tbg,fg=brightblack "$kq ws $khold"
-bind -N "trails: the workspaces, on a click on [session]" -n MouseDown1StatusLeft display-popup -E -w 60% -h 50% -s bg=$tbg -S bg=$tbg,fg=brightblack "$kq ws $khold"
+bind -N "trails: everything, every workspace's windows" W display-popup -E -w 70% -h 70% -s bg=$tbg -S bg=$tbg,fg=brightblack "$kq tree $khold"
+bind -N "trails: everything, on a click on [session]" -n MouseDown1StatusLeft display-popup -E -w 70% -h 70% -s bg=$tbg -S bg=$tbg,fg=brightblack "$kq tree $khold"
+bind -N "trails: star this trail, or unstar it" S run-shell "TRAILS_CLIENT=#{client_name} $kq star"
+bind -N "trails: the starred trail that most wants you" F run-shell "TRAILS_CLIENT=#{client_name} $kq next"
 bind -N "trails: the editor beside the agent" E run-shell "TRAILS_CLIENT=#{client_name} $kq edit"
 bind -N "trails: a shell beside the agent" \` run-shell "TRAILS_CLIENT=#{client_name} $kq shell"
 bind -N "trails: this codebase's checklist" N display-popup -E -w 60% -h 50% -s bg=$tbg -S bg=$tbg,fg=brightblack "$kq checklist"
@@ -4548,6 +4555,13 @@ set -g status-right "$STATUS_TASK_FMT#($kq checklist --count '#{?@trails_dir,#{@
 set -g status-left "$kws$kbadge"
 set -g @trails_bell "#{?window_bell_flag,#[fg=yellow] $kglyph,}"
 set -g @trails_bell_style "#{?window_bell_flag,#[fg=yellow],}"
+set -g @trails_star "$kstar"
+%if "#{==:#{E:window-status-format},$kstock}"
+set -g window-status-format "$kstarred$kstock"
+%endif
+%if "#{==:#{E:window-status-current-format},$kstock}"
+set -g window-status-current-format "$kstarred$kstock"
+%endif
 # A session whose last window closes moves its terminal to another session no terminal shows,
 # a workspace or one of yours, instead of out of tmux (ADR 28); a trail's own session never
 # qualifies, since its nested client always shows it. Each trail's session keeps on itself
@@ -5114,6 +5128,175 @@ check_name() {
   fi
 }
 
+# `trails star [TRAIL]`: star a trail, or unstar it (ADR 28). TRAIL is its ID;
+# without one, the trail you are on, as rename finds it; given empty (a row of the tree that is
+# no trail), nothing. The star is on the agent's window (@trails_starred), where the tree reads
+# it, and in the record (starred=1), where a restore finds it again; a trail with no record yet
+# (no conversation) keeps it on its window only.
+star_trail() {
+  if [ $# -eq 0 ]; then
+    [ -n "$TMUX" ] || {
+      echo "trails: star which trail? run it in one, or: trails star TRAIL (trails ls -a has the IDs)" >&2
+      exit 1
+    }
+    sr_here=${TMUX_PANE:-$CLIENT}
+    # shellcheck disable=SC2086 # the -t and its target are two words on purpose
+    sr_out=$(tmux display-message -p ${sr_here:+-t "$sr_here"} "#{@trails_window}${US}#{@trails_session}${US}#{session_name}" 2>/dev/null)
+    IFS="$US" read -r sr_cell sr_sess sr_sname <<EOF
+$sr_out
+EOF
+    [ -n "$sr_cell" ] || { [ -n "$sr_sess" ] && [ "$sr_sess" = "$sr_sname" ] && sr_cell=$sr_sess; }
+    sr_wid=
+    [ -z "$sr_cell" ] || sr_wid=$(agent_wid "$sr_cell")
+  else
+    [ -n "$1" ] || return 0
+    sr_wid=
+    tid_ok "$1" && sr_wid=$(tmux list-windows -a -F "#{@trails_trail}$TAB#{@trails_session}$TAB#{session_name}$TAB#{window_id}" 2>/dev/null |
+      awk -F"$TAB" -v t="$1" '$1 == t && $2 == $3 { print $4; exit }')
+  fi
+  [ -n "$sr_wid" ] || {
+    echo "trails: ${1:-this} is no running trail${1:+ — trails ls -a has the IDs}" >&2
+    exit 1
+  }
+  sr_out=$(tmux display-message -pt "$sr_wid" "#{@trails_trail}${US}#{@trails_starred}${US}#{@trails_ws}${US}#{?@trails_name,#{@trails_name},#{@trails_label}}${US}#{@trails_session}" 2>/dev/null)
+  IFS="$US" read -r sr_tid sr_on sr_ws sr_label sr_key <<EOF
+$sr_out
+EOF
+  # Its workspace window too, where the window list shows it (@trails_star).
+  set -- "$sr_wid"
+  sr_cell=$(window_of "$sr_key" "$sr_ws")
+  [ -z "$sr_cell" ] || set -- "$@" "$sr_cell"
+  if [ -n "$sr_on" ]; then
+    for sr_w; do tmux set-option -wu -t "$sr_w" @trails_starred; done
+    rec_rewrite "$sr_tid" '/^starred=/ { next } 1'
+    sr_said="unstarred"
+  else
+    for sr_w; do tmux set-option -w -t "$sr_w" @trails_starred 1; done
+    rec_rewrite "$sr_tid" '/^starred=/ { next } 1 END { print "starred=1" }'
+    sr_said="★ starred"
+  fi
+  [ -z "$CLIENT" ] || tmux display-message -c "$CLIENT" "trails: $sr_ws/$sr_label $sr_said" 2>/dev/null
+  return 0
+}
+
+# `trails next`, prefix F: to the starred trail that most wants you (ADR 28), in its workspace
+# window. Of those needing you or done with a turn, the one whose bell still rings (not yet
+# seen) first, then needs you before your turn, then the longest waiting; the window you are on
+# never, so pressed again it goes on to the next. With none, it says so.
+next_trail() {
+  [ -n "$TMUX" ] || [ -n "$CLIENT" ] || {
+    echo "trails: next is for inside tmux: prefix F" >&2
+    exit 1
+  }
+  # shellcheck disable=SC2086 # the -t and its target are two words on purpose
+  nx_here=$(tmux display-message -p ${CLIENT:+-t "$CLIENT"} "#{session_name}${US}#{window_id}" 2>/dev/null)
+  nx_pick=$(tmux list-windows -a -F "#{session_name}$US#{window_id}$US#{?@trails_workspace,1,0}$US#{@trails_window}$US#{@trails_session}$US#{@trails_starred}$US#{@trails_state}$US#{@trails_state_at}$US#{window_bell_flag}" 2>/dev/null |
+    awk -F"$US" -v OFS="$TAB" -v here="$nx_here" -v us="$US" '
+      BEGIN { split(here, h, us) }
+      $5 != "" && $5 == $1 && $6 != "" && ($7 == "waiting" || $7 == "idle") { want[$1] = ($7 == "waiting" ? 0 : 1); at[$1] = $8 }
+      $3 == 1 && $4 != "" { ws[$4] = $1; wid[$4] = $2; bell[$4] = $9 }
+      END {
+        for (c in want) {
+          if (!(c in ws) || (ws[c] == h[1] && wid[c] == h[2])) continue
+          printf "%d%d%012d%s%s%s%s%s\n", (bell[c] == 1 ? 0 : 1), want[c], at[c] + 0, OFS, ws[c], OFS, wid[c], OFS c
+        }
+      }' | LC_ALL=C sort | head -n 1)
+  if [ -z "$nx_pick" ]; then
+    if [ -n "$CLIENT" ]; then
+      tmux display-message -c "$CLIENT" "trails: no starred trail wants you" 2>/dev/null
+    else
+      echo "trails: no starred trail wants you" >&2
+    fi
+    return 0
+  fi
+  nx_s=$(printf '%s' "$nx_pick" | cut -f2)
+  nx_w=$(printf '%s' "$nx_pick" | cut -f3)
+  tmux select-window -t "$nx_w" 2>/dev/null
+  switch_to "=$nx_s:"
+}
+
+# `trails tree`, in a popup (prefix W, or a click on [session]): everything on trails' server
+# worth going to, in one list (ADR 28): each workspace with its windows, a trail's state, its
+# star and how long it has been in its state, and any window of yours; then the sessions you
+# made, offered and never managed. Enter goes there; ctrl-s stars or unstars the trail under the
+# cursor. ▸ is where the terminal is.
+#
+# One list-windows over the server. A trail's state and its star are on its agent's window, in
+# the trail's own session (the agent pane's options read through it); its workspace window
+# carries the trail's session as @trails_window. Rows are TAB-separated: a hidden sort key, the
+# session and window to go to, the trail's ID, then what is drawn. Sorted outside awk, which
+# has no sort of its own everywhere: the key's parts joined by \001, below any character, so a
+# workspace sorts before another whose name it begins.
+tree_rows() {
+  tr_here=
+  [ -z "$CLIENT" ] || tr_here=$(tmux display-message -p -t "$CLIENT" "#{session_name}${US}#{window_id}" 2>/dev/null)
+  tmux list-windows -a -F "#{session_name}$US#{window_id}$US#{window_index}$US#{window_name}$US#{?@trails_workspace,1,0}$US#{?@trails_map,1,0}$US#{@trails_window}$US#{@trails_session}$US#{@trails_trail}$US#{@trails_starred}$US#{@trails_state}$US#{@trails_state_at}$US#{?@trails_name,#{@trails_name},#{@trails_label}}$US#{@agent}" 2>/dev/null |
+    awk -F"$US" -v OFS="$TAB" -v now="$(date +%s)" -v here="$tr_here" -v us="$US" '
+      function ago(t,  s) {
+        if (t == "" || t !~ /^[0-9]+$/) return ""
+        s = now - t
+        if (s < 3600) return int(s / 60) "m"
+        if (s < 86400) return int(s / 3600) "h"
+        return int(s / 86400) "d"
+      }
+      function word(st) {
+        if (st == "waiting") return "\033[31m● needs you\033[0m"
+        if (st == "idle") return "\033[33m● your turn\033[0m"
+        if (st == "working") return "\033[2m● working\033[0m"
+        return "\033[2m● unknown\033[0m"
+      }
+      function trailtext(k, mark,  st, a) {
+        st = state[k]
+        a = (st == "waiting" || st == "idle") ? ago(at[k]) : ""
+        return sprintf("%s%-22s %s %s %s", mark, label[k], (star[k] != "" ? "\033[33m★\033[0m" : " "), word(st), (a == "" ? "" : sprintf("%5s", a)))
+      }
+      function mark(s, w) { return (s == hs && w == hw) ? "▸ " : "  " }
+      BEGIN { split(here, h, us); hs = h[1]; hw = h[2]; S = "\001" }
+      {
+        n++; sess[n] = $1; wid[n] = $2; idx[n] = $3; name[n] = $4; isws[n] = $5; ismap[n] = $6; cell[n] = $7
+        if ($8 != "" && $8 == $1 && $9 != "") {
+          trail[$1] = $9; star[$1] = $10; state[$1] = $11; at[$1] = $12; label[$1] = $13
+          trailsess[$1] = 1
+        }
+        if ($5 == 1) wsess[$1] = 1
+      }
+      END {
+        for (i = 1; i <= n; i++) {
+          s = sess[i]
+          if (isws[i]) {
+            if (!(s in wshead)) { wshead[s] = 1; print "1" S s S "", s, "", "", ((s == hs) ? "▸ " : "  ") "\033[1m" s "\033[0m" }
+            k = cell[i]
+            if (k != "" && (k in trail)) {
+              print "1" S s S sprintf("%05d", idx[i]), s, wid[i], trail[k], "  " trailtext(k, mark(s, wid[i]))
+            } else {
+              print "1" S s S sprintf("%05d", idx[i]), s, wid[i], "", "  " sprintf("%s%-22s   \033[2myours\033[0m", mark(s, wid[i]), name[i])
+            }
+          } else if (!(s in trailsess) && !(s in seen)) {
+            seen[s] = 1; others++
+            print "2" S (ismap[i] ? "" : s), s, "", "", "  " ((s == hs) ? "▸ " : "  ") (ismap[i] ? "▦ map" : s)
+          }
+        }
+        if (others) print "2", "", "", "", "\033[2m── yours ──\033[0m"
+      }' | LC_ALL=C sort -t "$TAB" -k1,1 | cut -f2-
+}
+
+tree_ui() {
+  need_fzf
+  [ -n "$TMUX" ] || {
+    echo "trails: the tree is for inside tmux: prefix W, or a click on [session]" >&2
+    exit 1
+  }
+  tu_self=$(shq "$SELF")
+  tu_pick=$(tree_rows | SHELL=/bin/sh fzf --ansi --reverse --no-sort --no-info --delimiter="$TAB" --with-nth=4.. \
+    --prompt="trails ▸ " --header="enter: go · ctrl-s: star / unstar · esc: close" \
+    --bind="ctrl-s:execute-silent($tu_self star {3})+reload($tu_self tree --rows)") || exit 0
+  tu_s=$(printf '%s' "$tu_pick" | cut -f1)
+  tu_w=$(printf '%s' "$tu_pick" | cut -f2)
+  [ -n "$tu_s" ] || exit 0
+  [ -z "$tu_w" ] || tmux select-window -t "$tu_w" 2>/dev/null
+  switch_to "=$tu_s:"
+}
+
 # `trails rename [TRAIL] NAME`: name a running trail, or with NAME '' take its name away, when
 # the work in it has moved on from what its agent's title says (ADR 23). TRAIL is its ID
 # (t3f9a), or a window id (the picker's ctrl-r passes its row's); without one, the trail you are
@@ -5258,7 +5441,11 @@ keys_help() {
   cat <<'EOF'
 In tmux, from trails keys (prefix, then; tmux's own ? lists them too):
   P                 this workspace's trails, in a popup (the picker)
-  W                 the workspaces
+  W                 everything, in a popup: each workspace with its windows, each trail's
+                    state, star (★) and how long it has waited, then your own sessions;
+                    enter goes there, ctrl-s stars; a click on [session] opens it too
+  S                 star the trail you are on, or unstar it
+  F                 to the starred trail that most wants you; again, the next one
   A                 every running trail, in every workspace
   E                 the editor beside the agent, on the right; again, back
   `                 a shell beside the agent, on the right; again, back
@@ -5318,6 +5505,9 @@ usage: trails [command]
   rename [TRAIL] NAME
                     name the trail you are on, or TRAIL (its ID), when the work in it
                     has moved on; NAME '' takes its name away
+  star [TRAIL]      prefix S: star the trail you are on, or TRAIL, or unstar it
+  next              prefix F: to the starred trail that most wants you
+  tree              prefix W: everything worth going to, in tmux
   ls [-a | DIR]     this directory's trails, running or not; DIR's, or -a for
                     every directory — a table, or TSV when piped
   map here          prefix M: to the map; with none up, or on it, pick up to four
@@ -5393,7 +5583,7 @@ config_check() {
   return 1
 }
 case $1 in
-  help | -h | --help | config | keys | --keys | --forget | --layout | --peek | --hold | --wants | rename) ;;
+  help | -h | --help | config | keys | --keys | --forget | --layout | --peek | --hold | --wants | rename | star | next | tree) ;;
   ls) config_check || true ;;
   checklist) [ -n "$LIGHT" ] || config_check || exit 1 ;;
   *) config_check || exit 1 ;;
@@ -5404,7 +5594,7 @@ esac
 # config is broken, and boot, which tmux needs whatever the config says. ls carries on
 # without them (only its closed rows need them), so a typo in the file can't blank what reads it.
 case $1 in
-  help | -h | --help | config | keys | --keys | note | checklist | diff | --forget | --layout | --peek | --hold | --wants | boot | rename | --notify) AGENTS= ;;
+  help | -h | --help | config | keys | --keys | note | checklist | diff | --forget | --layout | --peek | --hold | --wants | boot | rename | star | next | tree | --notify) AGENTS= ;;
   ls | ws) AGENTS=$(load_agents) || AGENTS= ;;
   *) AGENTS=$(load_agents) || exit 1 ;;
 esac
@@ -5436,6 +5626,25 @@ case $1 in
   ls)
     shift
     list_sessions "$@"
+    exit 0
+    ;;
+  # Box-wide like rename: a trail's ID, or the one you are on.
+  star)
+    shift
+    star_trail "$@"
+    exit 0
+    ;;
+  next)
+    next_trail
+    exit 0
+    ;;
+  # The popup of prefix W; --rows, its list, for its own reload.
+  tree)
+    if [ "${2:-}" = --rows ]; then
+      tree_rows
+    else
+      tree_ui
+    fi
     exit 0
     ;;
   # Box-wide like ls, by the trail's ID; or the trail you are on.

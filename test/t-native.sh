@@ -24,7 +24,7 @@ case $(tmux show -gv status-left) in
   '[#{?@trails_map,▦ map,#{session_name}}] '*) ;;
   *) fail "status-left is not tmux's [session]: $(tmux show -gv status-left)" ;;
 esac
-assert_match "$(tmux list-keys -T root MouseDown1StatusLeft)" "display-popup .* ws " "a click on it opens the workspaces"
+assert_match "$(tmux list-keys -T root MouseDown1StatusLeft)" "display-popup .* tree " "a click on it opens the tree"
 assert_eq "$(tmux show -gv detach-on-destroy)" no-detached "the server moves a terminal on, not out"
 
 # ── A trail's session lets go of its nested client ─────────────────────────────

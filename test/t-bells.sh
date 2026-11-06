@@ -66,13 +66,26 @@ assert_eq "$(tmux show -v -t '=beta:' @trails_wants_here)" 1 "beta's: three"
 wait_for 5 sh -c "tmux capture-pane -p -t driver-1 | tail -n 1 | grep -q '^\\[alpha\\] 󰂚 1 '" ||
   fail "the status line does not say one elsewhere: $(bar)"
 
+# Starred, a trail's window has ★ before its number in the window list (tmux's stock format).
+"$TRAILS" star "$(tmux display-message -pt '=alpha/two:' '#{@trails_trail}')"
+assert_eq "$(tmux show -wqv -t "$(win alpha alpha/two)" @trails_starred)" 1 "the star on its workspace window"
+wait_for 5 sh -c "tmux capture-pane -p -t driver-1 | tail -n 1 | grep -q '★ [0-9]*:'" || fail "no star before the window's number: $(bar)"
+case $(bar) in "[alpha] ★"*) fail "a star count after [alpha]: $(bar)" ;; *) ;; esac
+
 # Opening two clears its bell; on beta, alpha's count is what is elsewhere.
 tmux select-window -t "$(win alpha alpha/two)"
 wait_for 5 sh -c "[ \"\$(tmux show -v -t '=alpha:' @trails_wants_here)\" = 0 ]" || fail "two's bell outlived opening it"
 tmux switch-client -c "$term" -t "=beta:"
 wait_for 5 sh -c "[ \"\$(tmux show -gv @trails_wants_all)\" = 0 ]" || fail "beta's bell outlived opening it: $(tmux show -gv @trails_wants_all)"
 wait_for 5 sh -c "! tmux capture-pane -p -t driver-1 | tail -n 1 | grep -q '󰂚'" || fail "a bell with nothing waiting: $(bar)"
+"$TRAILS" star "$(tmux display-message -pt '=alpha/two:' '#{@trails_trail}')"
+assert_eq "$(tmux show -wqv -t "$(win alpha alpha/two)" @trails_starred)" "" "unstarred, off its workspace window"
 
 # A theme's window format can show the same bell.
 assert_eq "$(tmux show -gv @trails_bell)" '#{?window_bell_flag,#[fg=yellow] 󰂚,}' "@trails_bell for a theme"
 assert_eq "$(tmux show -gv @trails_bell_style)" '#{?window_bell_flag,#[fg=yellow],}' "and its colour, for the window's name"
+assert_eq "$(tmux show -gv @trails_star)" '#{?@trails_starred,#[fg=yellow]★ ,}' "and the star"
+# A theme's window format is its own: the keys leave it be.
+tmux set -g window-status-format '#I|#W'
+"$TRAILS" keys | tmux source-file - || fail "tmux refused the keys again"
+assert_eq "$(tmux show -gv window-status-format)" '#I|#W' "a theme's format kept"

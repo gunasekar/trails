@@ -1,7 +1,10 @@
 # 26. Notifications on the terminal you are looking at
 
-- Status: accepted. Amends [ADR 6](0006-a-launcher-not-an-app.md), which left
-  notifications to tools reading `trails ls`
+- Status: superseded by [ADR 28](0028-a-tmux-native-server-that-tells-you-what-waits.md)
+  in 1.21: notifications come through the operating system, not escape sequences, which
+  depended on the emulator and needed a line per terminal. Amended
+  [ADR 6](0006-a-launcher-not-an-app.md), which left notifications to tools reading
+  `trails ls`
 - Date: 2026-10
 
 ## Context

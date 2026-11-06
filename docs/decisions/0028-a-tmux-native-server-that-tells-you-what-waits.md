@@ -1,8 +1,8 @@
 # 28. A tmux-native server that tells you what waits
 
-- Status: accepted, built in parts: the status line's left, `detach-on-destroy` and
-  `@trails_state_at` in 1.19; the bells in 1.20; the popup, the watch list and
-  notifications to come
+- Status: accepted, built: the status line's left, `detach-on-destroy` and
+  `@trails_state_at` in 1.19; the bells in 1.20; notifications as a sound, the
+  tree (the popup) and stars in 1.21. `E` and `M` deferred
 - Date: 2026-11
 
 ## Context
@@ -44,8 +44,7 @@ These were tried on a demo server (`showcase-*` on airbochs) before deciding.
 
 ### The popup
 
-One key (`prefix W`) or a click on `[session]` opens a tree: the ★ watch list first,
-then each workspace with its windows, each trail's state and how long it has
+One key (`prefix W`) or a click on `[session]` opens a tree: each workspace with its windows, each trail's state and how long it has
 waited, then the sessions you made yourself under "yours". Enter goes there, in any
 session. Your own sessions are offered, never managed.
 
@@ -56,23 +55,30 @@ popup can say how long each has waited and the status line can tell a trail that
 just finished from one that has waited long: within `"alerts": { "fresh_for": 900 }`
 seconds it is fresh.
 
-### The watch list
+### Stars
 
 `prefix S` (free in stock tmux), or ctrl-s in the popup, stars the trail; the star
-is in its record, so it survives a restore. Starred trails come first in the popup
-and their bells always show. Notifications still come for every trail.
+is in its record, so it survives a restore. A starred trail has ★ beside its name
+in the popup, with no list of its own there; its window has ★ before its number in the window list; `prefix F` (free in stock tmux) goes to the
+starred trail that most wants you, again to the next. Notifications come for every
+trail, or with `"only": "starred"` for starred trails alone.
 
-### Notifications, whatever the terminal
+### Notifications: a sound
 
-`"notify": { "via": [...] }`, any of:
+A sound, on the machine running the agents (`afplay` on macOS, `canberra-gtk-play`
+or `paplay` on Linux), Blow by default: heard over any app, any terminal, or none.
+Which trail it was, the bell on the status line says, so there is no popup. Not
+while a focused terminal shows the trail's window (`"show": "unfocused"`, the
+default; tmux knows focus only with `focus-events on`). The escape sequences of
+[ADR 26](0026-notifications-on-the-terminal.md) go: terminal-specific, a line of
+config per emulator, nothing for one that reports no type. Which words sound, and
+`idle_after`, are unchanged.
 
-- `os` (the default): the operating system's own, with a sound, on the machine
-  running the agents (`osascript` on macOS, `notify-send` on Linux). Shows over any
-  app, any terminal.
-- `terminal`: today's escape sequences, per terminal, for when you are over ssh.
-- `ntfy`: a push to a topic you subscribe to, on a laptop or a phone, anywhere.
-
-Which words notify, and `idle_after`, are unchanged.
+A popup through the operating system was built first and dropped: macOS shows
+`osascript`'s as Script Editor's, a generic notification that doesn't read as
+trails', and refused one from a Trails app signed on the machine; it takes an app
+signed with a Developer ID. That stays open, should the popup be wanted. A push
+service (ntfy) was considered and left out.
 
 ### Closing the last window
 
@@ -96,8 +102,9 @@ the marked pane". They stay for now; to be revisited.
 ## Consequences
 
 - The status line reads as stock tmux plus one bell, and only when something waits.
-- Notifications reach you in any terminal, and outside one, on the agents' machine;
-  elsewhere through ntfy, or the terminal escapes as before.
+- Notifications reach you in any terminal, and outside one, on the agents' machine.
+  Over ssh from another machine, the bell on the trail's window still reaches you;
+  the notification does not.
 - Built in shell, before the port to Go ([ADR 29](0029-trails-in-go.md)): the
   status line by events (`trails state` keeps the counts, tmux's formats show them),
   never a polling job. The popup opens as slowly as the picker does until the port.

@@ -172,4 +172,4 @@ assert_eq "$("$TRAILS" keys | sed -n 's/^bind -N "[^"]*" \([^ ]*\) .*/\1/p' | gr
 assert_eq "$("$TRAILS" keys | sed -n 's/^bind -N "[^"]*" -n \([^ ]*\) .*/\1/p' | tr '\n' ' ')" 'MouseDown1StatusLeft ' "the click, and no other key outside the prefix"
 # Every one with a note, so tmux's own list of keys (prefix ?, list-keys -N) shows it.
 assert_eq "$("$TRAILS" keys | grep '^bind ' | grep -cv '^bind -N "trails: [^"]*" ')" 0 "every binding noted"
-assert_eq "$("$TRAILS" keys | grep -c '^bind -N "trails: ')" 12 "all eleven, and the click"
+assert_eq "$("$TRAILS" keys | grep -c '^bind -N "trails: ')" 14 "all thirteen, and the click"

@@ -1,0 +1,4 @@
+#!/bin/sh
+# Stands in for canberra-gtk-play: logs what it was given, so a test plays nothing.
+printf '%s ' "$(basename "$0")" "$@" >>"$HOME/sound.log"
+echo >>"$HOME/sound.log"

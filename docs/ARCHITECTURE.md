@@ -32,8 +32,8 @@ In scope:
 - **The editor and a shell** beside a codebase's trails
   ([ADR 15](decisions/0015-companions-are-marked-windows.md)).
 - **The map**, several trails in one window, as a window that owns nothing.
-- **Notifications** on the terminals attached, when a trail needs you or ends a
-  turn ([ADR 26](decisions/0026-notifications-on-the-terminal.md)).
+- **Notifications** through the operating system, when a trail needs you or ends a
+  turn ([ADR 28](decisions/0028-a-tmux-native-server-that-tells-you-what-waits.md)).
 - **A TSV contract** (`trails ls`) for other tools to build on: a status bar, a
   notifier, a script.
 
@@ -354,24 +354,41 @@ Cursor have no hook for a permission prompt, so their hooks say working through 
 `trails state` knows the word it replaces (`@trails_state`, read in its one
 `display-message`), so it sees a change and nothing else. A change to *waiting*, or
 from *working* to *idle*, starts `trails --notify WORD BEFORE` in the background in
-the agent's pane; any other change starts one only when the trail has a
-notification up (`@trails_notified`), to close it. A *working* that doesn't follow
-*waiting* starts a turn and stamps `@trails_turn_at`: a permission granted is the
-same turn going on. `--notify` is a light run, like `--said`: no agents, no
-workspaces, no record migration.
+the agent's pane. A *working* that doesn't follow *waiting* starts a turn and stamps
+`@trails_turn_at`: a permission granted is the same turn going on. `--notify` is a
+light run, like `--said`: no agents, no workspaces, no record migration.
 
 `notify_run` reads the config's `notify` (`notify_cfg`, defaults filled in by jq),
 and decides: *waiting* notifies, *idle* after *working* notifies when the turn ran
-`idle_after` seconds or more, and everything else, or a word left out of `on`,
-closes. It writes to the tty of every client in `list-clients`, the escape its
-`#{client_termtype}` matches first in `terminals`: `osc99` (title and body in two
-chunks, `i=trails-<trail ID>` so the next replaces it and `p=close` takes it away,
-`u` 2 for *needs you* and 1 for *your turn*, `f` trails, `o` and `s` from the
-config), `osc9` or `osc777` (no ID, nothing to close). Title and body lose their
-control characters first, so a task can't end the sequence. Writing to the client
-and not the pane needs no passthrough, reaches a trail no client shows, and over
-ssh lands on the remote terminal. A client of trails' own nested in a pane reports
-tmux as its terminal, which no default glob matches.
+`idle_after` seconds or more, and a word left out of `on` does not. With `show`
+`unfocused`, the default, it skips one while a focused terminal shows the trail's
+window in its workspace (`notify_watched`: a client whose `window_id` is that
+window, with `focused` in its `client_flags`). tmux tracks focus only with
+`focus-events on`, and without them calls every client focused, so then
+`notify_watched` is never true rather than always.
+
+`notify_sound` plays the configured sound
+([ADR 28](decisions/0028-a-tmux-native-server-that-tells-you-what-waits.md)), on the
+machine running the agents, and nothing else: which trail it was, the bell on its
+window says. On macOS `afplay` with a file: `system` is Blow, a name is looked up in
+`~/Library/Sounds`, `/Library/Sounds` and `/System/Library/Sounds`, a path is played as
+it is. Elsewhere `canberra-gtk-play -i` by the sound theme's name (`system` is
+`message-new-instant`), or without it `paplay` with the freedesktop theme's file.
+`silent` is the same as `"notify": false`. The tests put stand-in players first on
+`PATH` (`test/bin`), which log what they were given, so no test run plays one.
+
+A popup through the operating system was built, and dropped before release:
+`osascript`'s comes as Script Editor's, with its icon, and macOS refused one from an
+app of trails' own, signed on the machine (`UNUserNotificationCenter`: "Notifications
+are not allowed for this application"); one signed with a Developer ID is what it takes.
+
+Up to 1.20 it wrote an escape sequence to each attached client's tty instead, the
+one its `client_termtype` matched in a `terminals` map: kitty's OSC 99, iTerm2's
+OSC 9, OSC 777 ([ADR 26](decisions/0026-notifications-on-the-terminal.md)). Each
+emulator needed its own line, one that reported no type got nothing, and only kitty
+could close one. A sound reaches
+whatever is in front; what it loses is a terminal on another machine, over ssh, which
+the bell on the trail's window still reaches.
 
 ## trails ls
 
@@ -780,7 +797,7 @@ run in the codebase instead, with no popup.
 ## Keys
 
 trails binds nothing. `trails keys` prints lines for a tmux.conf: the picker and
-the workspace picker in a `display-popup`, which leaves no window behind and from
+the tree in a `display-popup`, which leaves no window behind and from
 which `switch-client` works (the popup check behind D4 of the design is
 `test/t-popup.sh`), and the editor and the shell. The popups are styled onto the
 terminal's own background (`-s`, `-S`, tmux 3.3): tmux 3.8's default
@@ -822,7 +839,7 @@ the pane.
 `trails keys` also sets `status-left` to tmux's own `[session]`, `[▦ map]` on the map
 ([ADR 28](decisions/0028-a-tmux-native-server-that-tells-you-what-waits.md)): up to
 1.18 it listed every running workspace, a session selector stock tmux never shows. A
-click on it opens the workspaces, as `prefix W` does: `MouseDown1StatusLeft`, the one
+click on it opens the tree, as `prefix W` does: `MouseDown1StatusLeft`, the one
 binding outside the prefix table, which stock tmux leaves unbound (its right-click
 menu on the same spot stays). `prefix K` and `J` run `trails ws prev` / `next`
 (`ws_step`): the workspaces by name, round the end, through `switch_to`, so a grouped
@@ -847,6 +864,32 @@ glyph for one window, `#{?window_bell_flag,#[fg=yellow] 󰂚,}`, for a theme's w
 and `@trails_bell_style` its colour alone, to put before the window's name: a theme that
 colours the name itself (`#[fg=…]`) keeps tmux's own `window-status-bell-style` from
 showing. tmux's stock format shows the bell flag as `!` already.
+
+**The tree** (`trails tree`, `prefix W`, ADR 28) is one `list-windows -a` shaped by
+awk (`tree_rows`). A trail's state, its star and when its state last changed are on
+its agent's window in the trail's own session (`@trails_state` read through the
+agent pane, the window's active one); its workspace window names that session in
+`@trails_window`, which joins the two. Rows go out TAB-separated, a hidden sort key
+first, then the session and window to go to and the trail's ID, then what is drawn:
+each workspace's windows in their order, a starred trail's with ★, then sessions with neither mark, offered and never managed. awk has no
+portable sort, so the key's parts are joined by `\001`, below any character, and
+`sort` orders them: a workspace sorts before another whose name it begins. Enter
+selects the window, then `switch_to` the session, which keeps a grouped terminal
+grouped. A trail with no workspace window (a map pane's only) is not listed.
+
+**A star** (`trails star [TRAIL]`, `prefix S`, ctrl-s in the tree) is
+`@trails_starred` on the agent's window and `starred=1` in the record. `rec_write`
+carries a record's `starred=` over when it rewrites it, and `launch` sets the window
+option from the record, so a restore keeps a star; a trail without a record (no
+conversation yet) keeps it on its window only. The star is set on the trail's
+workspace window too (and by `ensure_window` when it makes one), where the window list's
+`@trails_star` reads it. A theme puts `#{E:@trails_star}` at the start of its window formats; tmux's
+stock ones get the star in front from `trails keys`, under `%if` while they expand the same as the stock
+text (`%if` expands both sides, so a format's raw text can't be compared to a literal). `notify_run` reads `@trails_starred` through the agent pane for
+`"only": "starred"`. `trails next` (`prefix F`, `next_trail`) is a join of the agent's
+windows (the star, the state) and the workspace windows (the bell) by `@trails_window`: starred trails needing you or done with a turn, ordered by an unseen bell, then
+waiting before idle, then `@trails_state_at`, leaving out the window the terminal is
+on, so pressed again it goes to the next.
 
 It sets `detach-on-destroy no-detached`, so a session whose last window closes moves its
 terminal to the most recently used session no terminal shows, a workspace or one of
@@ -1019,11 +1062,12 @@ shell), inside (inside
 tmux: switch-client, a nested editor client, the refused collision), restore,
 autorestore, map, workspace and wsmap (the config), wsbar (the status line's
 `[session]` and `prefix K`/`J`), native (the click on it, `detach-on-destroy`,
-`@trails_state_at`), bells (the bell on a trail's window, the count after `[session]`), server (the socket), keys-scope (the keys on trails' server
+`@trails_state_at`), bells (the bell on a trail's window, the count after `[session]`),
+tree (the tree, its order, Enter, stars and a restore keeping them), server (the socket), keys-scope (the keys on trails' server
 only), service (the service starting the server), boot,
 grouped (a second terminal on a workspace), all (every trail), edges, hooks
-(`trails state` and `--id`, the history, the plugin against the docs), notify
-(the escapes each config writes to the client), checklist,
+(`trails state` and `--id`, the history, the plugin against the docs), sound
+(the OS's notifications, through stand-ins), checklist,
 diff, diffpane (the diff beside the agent), rename (the status line's task and
 renaming), and the popup check behind D4 of the design. CI runs them after ShellCheck. Each test is
 its own process on its own tmux server in a throwaway `HOME`: `TMUX_TMPDIR` puts

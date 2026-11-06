@@ -100,7 +100,9 @@ In tmux, after `prefix`, from `trails keys`:
 | Key | Does |
 |---|---|
 | `P` | this workspace's trails, in a popup: the picker |
-| `W` | the workspaces |
+| `W` | everything: each workspace with its windows, your own sessions ([the tree](#the-tree-and-stars)) |
+| `S` | star the trail you are on, or unstar it ([stars](#the-tree-and-stars)) |
+| `F` | to the starred trail that most wants you; again, the next one |
 | `A` | every running trail, in every workspace |
 | `E` | the editor beside the agent; again, back where you were |
 | `` ` `` | a shell beside the agent; again, back |
@@ -127,7 +129,7 @@ In the picker:
 
 Every trails key is a capital letter, but `` ` `` for the shell, so tmux's own
 keys stay tmux's: `?` still lists every binding, trails' among them as
-`trails: …`, and `(` and `)` still cycle through every session. `P`, `W`, `A`,
+`trails: …`, and `(` and `)` still cycle through every session. `P`, `W`, `S`, `A`,
 `N`, `G`, `R`, `J` and `K` are unbound in tmux's defaults; `E` replaces spreading the panes out evenly (still
 `:select-layout -E`), and `M` clearing the marked pane (still `prefix m` on it). A
 line after the `trails keys` one that binds the same key wins.
@@ -172,10 +174,40 @@ working on, then the checklist's count before the clock:
 [acme] 1:checkout-3f9a  2:checkout-b07e*  3:billing·nvim   Fix the flaky cart-total test · ☑ 2/5 · 14:05
 ```
 
-A click on `[acme]` opens the workspaces, as `prefix W` does. Closing the last
+A click on `[acme]` opens the tree, as `prefix W` does. Closing the last
 window of a session moves the terminal to a workspace, or one of your own
 sessions, instead of out of tmux. Windows, panes and sessions you make yourself
 are plain tmux: trails never lists, renames or restores them.
+
+#### The tree and stars
+
+`prefix W`, or a click on `[acme]`, opens everything worth going to on trails'
+server: each workspace with its windows, each trail's state, its star and how
+long it has been in its state, and any window of yours, then the sessions you
+made yourself. Enter goes there, in any workspace:
+
+```text
+  acme
+  ▸ checkout-3f9a            ● working
+    payments               ★ ● needs you     4m
+    notes                    yours
+  personal
+    blog                     ● your turn    12m
+── yours ──
+    scratch
+```
+
+`prefix S` stars the trail you are on, or unstars it (`ctrl-s` in the tree, or
+`trails star [TRAIL]`): a trail you want to see through, whatever state it is in.
+The star is kept in the trail's record, so it survives tmux going down and
+`trails restore`. A starred trail:
+
+- has ★ beside its name in the tree, and before its number in the window list;
+- is where `prefix F` (`trails next`) takes you: the starred trail that most wants
+  you, one whose bell you haven't seen first, then needs you before your turn,
+  then the longest waiting; pressed again, the next one;
+- can be the only kind that notifies: `"notify": { "only": "starred" }`
+  ([notifications](#notifications)).
 
 **A bell for what wants you.** A trail blocked on a question, or done with a turn,
 rings tmux's bell in its window: tmux marks the window (stock tmux shows `!` after
@@ -194,6 +226,10 @@ shows no tmux flags can show the same bell after a window's name with
 before it (a theme that sets the name's colour itself keeps tmux's own bell style
 from showing), for example
 `set -g window-status-format "#{E:@trails_bell_style}#I:#W#{E:@trails_bell}"`.
+A starred trail's ★ is `#{E:@trails_star}`, for the start of a theme's window
+formats, before the window's number. It leaves the colour yellow, so set yours
+after it: `#{E:@trails_star}#[fg=#686868]#I:#W`. tmux's stock formats get it from
+`trails keys`; a theme's are left as they are.
 
 The task is the title the agent gives its terminal, Claude's summary of the
 conversation, read as it changes and cut at 40 characters; a named trail has its
@@ -474,41 +510,37 @@ is the hook's job: trails takes what it is given.
 
 ### Notifications
 
-When a trail needs you, or ends a turn that ran 30 seconds or more, the terminals
-attached to tmux get a desktop notification: the agent and what it wants, the
-trail and its task. It goes to every client, whichever session it shows, so over
-ssh it pops up on the laptop in front of you, not on the machine running the
-agent, and needs no `allow-passthrough`
-([ADR 26](docs/decisions/0026-notifications-on-the-terminal.md)). It rides on
-the [hooks](#status-from-the-agents-hooks): a trail without them never notifies.
-
-kitty and iTerm2 work out of the box. Which escape a terminal gets is set by its
-`client_termtype` (`tmux list-clients -F '#{client_termtype}'` shows it), so
-another terminal that speaks OSC 9, 777 or 99 is a line in `terminals`:
+When a trail needs you, or ends a turn that ran 30 seconds or more, a sound
+plays, whatever app or terminal is in front, on the machine running the agents:
+`afplay` on macOS, `canberra-gtk-play` (or `paplay`) on Linux. Which trail it was,
+the bell on the status line says. It rides on the
+[hooks](#status-from-the-agents-hooks): a trail without them stays quiet. There
+is no popup: up to 1.20 notifications were escape sequences to the terminal,
+which depended on the emulator, and the operating system's would show as Script
+Editor's, not trails'
+([ADR 28](docs/decisions/0028-a-tmux-native-server-that-tells-you-what-waits.md)).
 
 ```json
 "notify": {
   "on": ["waiting", "idle"],
   "idle_after": 30,
-  "show": "always",
+  "show": "unfocused",
   "sound": "system",
-  "terminals": { "kitty*": "osc99", "iTerm2*": "osc9" }
+  "only": "all"
 }
 ```
 
 | Key | Means |
 |---|---|
-| `on` | the states that notify: `waiting` (needs you), `idle` (your turn) |
-| `idle_after` | your turn notifies only after a turn this many seconds long; `0` for every turn |
-| `show` | `always`, `unfocused` or `invisible`: when kitty shows it (OSC 99's `o`) |
-| `sound` | `system`, `silent` or a sound's name (OSC 99's `s`) |
-| `terminals` | `client_termtype` globs, first match wins: `osc99` (kitty's), `osc9`, `osc777` or `none`. Replaces the default whole |
+| `on` | the states that sound: `waiting` (needs you), `idle` (your turn) |
+| `idle_after` | your turn sounds only after a turn this many seconds long; `0` for every turn |
+| `show` | `unfocused`: not while a focused terminal shows that trail's window; `always` |
+| `sound` | `system` (on macOS, Blow), a sound's name (`Tink`, `Pop`, … from `/System/Library/Sounds` or `~/Library/Sounds`), a file's path, or `silent` |
+| `only` | `all`, or `starred`: only the [starred](#the-tree-and-stars) trails; the rest still ring their bell |
 
-`"notify": false` turns it off. Each key left out keeps its default. With
-`osc99`, a trail's new notification replaces its last, and going back to work
-closes it; OSC 9 and 777 have no way to, so theirs stay until dismissed.
-A terminal that reports no type, as macOS Terminal does, can't be matched and gets
-nothing; it has no notification escape to take anyway.
+`"notify": false` turns it off. Each key left out keeps its default. `unfocused`
+needs tmux to know which terminal has focus, `set -g focus-events on`; without
+it, the sound always plays.
 
 ### The editor, a shell and the diff
 
@@ -693,6 +725,7 @@ without a Trails-specific reporting hook or extension.
 | `trails ws [NAME]` | pick a workspace, or go to `NAME` |
 | `trails ws list` / `of [DIR]` / `add NAME [DIR]` / `next`, `prev` | the workspaces; the one `DIR` belongs to; add `DIR` to `NAME`; the next or previous running one |
 | `trails new NAME [AGENT]` | start a trail named `NAME`, `-y` for YOLO |
+| `trails star [TRAIL]` / `next` / `tree` | star the trail you are on, or `TRAIL`; to the starred trail that most wants you; the tree, in tmux |
 | `trails rename [TRAIL] NAME` | name the trail you are on, or `TRAIL` (its ID); `''` takes its name away |
 | `trails edit` / `shell` `[DIR]` | the editor or a shell beside the agent |
 | `trails diff [DIR]` | the codebase's changes, side by side; from `prefix G`, the diff beside the agent |
@@ -741,7 +774,7 @@ and opens the file.
 | `data` | a folder for each codebase's checklist; `.trails/checklist.md` in the codebase without it |
 | `diff` | what shows the diff: see [the diff](#the-editor-a-shell-and-the-diff) |
 | `map` | `two` (`side`, `stacked`, `auto`) and `layout` (a tmux layout for three or more) |
-| `notify` | desktop notifications on the terminal: see [Notifications](#notifications) |
+| `notify` | the operating system's notifications: see [Notifications](#notifications) |
 
 <details>
 <summary><b>Restoring an agent</b>: the <code>session</code> block, and the built-in agents</summary>
@@ -817,8 +850,10 @@ life  state  session  agent  yolo  dir  id  when  workspace  trail  title
 
 ```text
 bind -N "trails: this workspace's trails, the picker" P display-popup -E -w 60% -h 70% -s bg=terminal -S bg=terminal,fg=brightblack "'trails' || { echo; echo press enter to close; read -r _; }"
-bind -N "trails: the workspaces" W display-popup -E -w 60% -h 50% -s bg=terminal -S bg=terminal,fg=brightblack "'trails' ws || { echo; echo press enter to close; read -r _; }"
-bind -N "trails: the workspaces, on a click on [session]" -n MouseDown1StatusLeft display-popup -E -w 60% -h 50% -s bg=terminal -S bg=terminal,fg=brightblack "'trails' ws || { echo; echo press enter to close; read -r _; }"
+bind -N "trails: everything, every workspace's windows" W display-popup -E -w 70% -h 70% -s bg=terminal -S bg=terminal,fg=brightblack "'trails' tree || { echo; echo press enter to close; read -r _; }"
+bind -N "trails: everything, on a click on [session]" -n MouseDown1StatusLeft display-popup -E -w 70% -h 70% -s bg=terminal -S bg=terminal,fg=brightblack "'trails' tree || { echo; echo press enter to close; read -r _; }"
+bind -N "trails: star this trail, or unstar it" S run-shell "TRAILS_CLIENT=#{client_name} 'trails' star"
+bind -N "trails: the starred trail that most wants you" F run-shell "TRAILS_CLIENT=#{client_name} 'trails' next"
 bind -N "trails: the editor beside the agent" E run-shell "TRAILS_CLIENT=#{client_name} 'trails' edit"
 bind -N "trails: a shell beside the agent" ` run-shell "TRAILS_CLIENT=#{client_name} 'trails' shell"
 bind -N "trails: this codebase's checklist" N display-popup -E -w 60% -h 50% -s bg=terminal -S bg=terminal,fg=brightblack "'trails' checklist"
@@ -834,6 +869,13 @@ set -g status-right "#{?@trails_window,…}#('trails' checklist --count '#{?@tra
 set -g status-left "[#{?@trails_map,▦ map,#{session_name}}] #{?…}"
 set -g @trails_bell "#{?window_bell_flag,#[fg=yellow] 󰂚,}"
 set -g @trails_bell_style "#{?window_bell_flag,#[fg=yellow],}"
+set -g @trails_star "#{?@trails_starred,#[fg=yellow]★ ,}"
+%if "#{==:#{E:window-status-format},#I:#W#{?window_flags,#{window_flags}, }}"
+set -g window-status-format "#{?@trails_starred,#[fg=yellow]★#[default] ,}#I:#W#{?window_flags,#{window_flags}, }"
+%endif
+%if "#{==:#{E:window-status-current-format},#I:#W#{?window_flags,#{window_flags}, }}"
+set -g window-status-current-format "#{?@trails_starred,#[fg=yellow]★#[default] ,}#I:#W#{?window_flags,#{window_flags}, }"
+%endif
 set -g detach-on-destroy no-detached
 run-shell -b "'trails' --hold >/dev/null 2>&1"
 set-hook -g "alert-bell[42]" "run-shell -b \"'trails' --wants >/dev/null 2>&1\""
