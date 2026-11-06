@@ -2396,7 +2396,7 @@ ws_step() {
 ws_switch() {
   check_ws_name "$1" || exit 1
   if tmux has-session -t "=$1" 2>/dev/null; then
-    [ "$(tmux display-message -pt "$1" '#{@trails_workspace}' 2>/dev/null)" = "$1" ] || {
+    [ "$(tmux display-message -pt "=$1:" '#{@trails_workspace}' 2>/dev/null)" = "$1" ] || {
       echo "trails: a tmux session named \"$1\" exists and isn't a trails workspace." >&2
       echo "        Rename it (tmux rename-session -t $1 NEW) or the workspace in $CONFIG." >&2
       exit 1
@@ -2608,7 +2608,7 @@ EOF
   # The workspace's session is the user's to look at, not to be surprised by: a session of
   # that name that trails did not make is refused rather than added to (D1 in the design).
   if tmux has-session -t "=$ws" 2>/dev/null &&
-    [ "$(tmux display-message -pt "$ws" '#{@trails_workspace}' 2>/dev/null)" != "$ws" ]; then
+    [ "$(tmux display-message -pt "=$ws:" '#{@trails_workspace}' 2>/dev/null)" != "$ws" ]; then
     echo "trails: a tmux session named \"$ws\" exists and isn't a trails workspace." >&2
     echo "        Rename it (tmux rename-session -t $ws NEW) or the workspace in $CONFIG." >&2
     exit 1
@@ -2875,7 +2875,7 @@ $(tmux display-message -pt "$ec_wid" "#{window_name}${US}#{@trails_dir}${US}#{@t
 EOF
   [ -n "$ec_win" ] || return 1
   if tmux has-session -t "=$ec_ws" 2>/dev/null; then
-    [ "$(tmux display-message -pt "$ec_ws" '#{@trails_workspace}' 2>/dev/null)" = "$ec_ws" ] || {
+    [ "$(tmux display-message -pt "=$ec_ws:" '#{@trails_workspace}' 2>/dev/null)" = "$ec_ws" ] || {
       echo "trails: a tmux session named \"$ec_ws\" exists and isn't a trails workspace." >&2
       echo "        Rename it (tmux rename-session -t $ec_ws NEW) or the workspace in $CONFIG." >&2
       return 1
@@ -3918,7 +3918,7 @@ tool_make() {
   ed=${EDITOR:-nvim}
   cm_name="${cm_label}·$(basename "${ed%% *}")"
   if tmux has-session -t "=$cm_ws" 2>/dev/null; then
-    [ "$(tmux display-message -pt "$cm_ws" '#{@trails_workspace}' 2>/dev/null)" = "$cm_ws" ] || {
+    [ "$(tmux display-message -pt "=$cm_ws:" '#{@trails_workspace}' 2>/dev/null)" = "$cm_ws" ] || {
       echo "trails: a tmux session named \"$cm_ws\" exists and isn't a trails workspace." >&2
       echo "        Rename it (tmux rename-session -t $cm_ws NEW) or the workspace in $CONFIG." >&2
       return 1
@@ -3930,9 +3930,9 @@ tool_make() {
   # Through the door: the editor alone may be what starts the server.
   w=$(tmux_door "$@" "$(editor_cmd)")
   [ -n "$w" ] || return 1
-  tmux set-option -t "$cm_ws" @trails_workspace "$cm_ws" \
-    \; set-option -t "$cm_ws" set-titles on \
-    \; set-option -t "$cm_ws" set-titles-string "$WS_TITLE" \
+  tmux set-option -t "=$cm_ws:" @trails_workspace "$cm_ws" \
+    \; set-option -t "=$cm_ws:" set-titles on \
+    \; set-option -t "=$cm_ws:" set-titles-string "$WS_TITLE" \
     \; set-option -w -t "$w" @trails_tool editor \
     \; set-option -w -t "$w" @trails_dir "$cm_dir" \
     \; set-option -w -t "$w" @trails_ws "$cm_ws" \
@@ -4790,7 +4790,7 @@ MAP=trails_map
 # marker and gets refused rather than reaped. display-message rather than show-options -t,
 # and no "=": display-message silently answers nothing for an =exact target.
 is_map() {
-  [ "$(tmux display-message -pt "$MAP" '#{@trails_map}' 2>/dev/null)" = 1 ]
+  [ "$(tmux display-message -pt "=$MAP:" '#{@trails_map}' 2>/dev/null)" = 1 ]
 }
 
 # Are we in a shell pane of the map itself — one you split off with C-b | to start
