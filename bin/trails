@@ -4705,8 +4705,8 @@ keys() {
 # Opt-in, not loaded with the rest: put this in tmux.conf to bring back, whenever tmux starts,
 # the trails it lost (a reboot, a crash). To drop one for good, ctrl-x on its lost row.
 # run-shell -b "$kq restore >/dev/null 2>&1"
-bind -N "trails: every trail, the picker" P display-popup -E -w 80% -h 80% -s bg=$tbg -S bg=$tbg,fg=brightblack "$kq $khold"
-bind -N "trails: the picker, on a click on [session]" -n MouseDown1StatusLeft display-popup -E -w 80% -h 80% -s bg=$tbg -S bg=$tbg,fg=brightblack "$kq $khold"
+bind -N "trails: every trail, the picker" P display-popup -E -w 60% -h 70% -s bg=$tbg -S bg=$tbg,fg=brightblack "$kq $khold"
+bind -N "trails: the picker, on a click on [session]" -n MouseDown1StatusLeft display-popup -E -w 60% -h 70% -s bg=$tbg -S bg=$tbg,fg=brightblack "$kq $khold"
 bind -N "trails: star this trail, or unstar it" S run-shell "TRAILS_CLIENT=#{client_name} $kq star"
 bind -N "trails: the starred trail that most wants you" F run-shell "TRAILS_CLIENT=#{client_name} $kq next"
 bind -N "trails: the editor beside the agent" E run-shell "TRAILS_CLIENT=#{client_name} $kq edit"

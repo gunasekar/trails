@@ -857,8 +857,8 @@ life  state  session  agent  yolo  dir  id  when  workspace  trail  title
 <summary><b>The tmux lines</b> <code>trails keys</code> prints</summary>
 
 ```text
-bind -N "trails: every trail, the picker" P display-popup -E -w 80% -h 80% -s bg=terminal -S bg=terminal,fg=brightblack "'trails' || { echo; echo press enter to close; read -r _; }"
-bind -N "trails: the picker, on a click on [session]" -n MouseDown1StatusLeft display-popup -E -w 80% -h 80% -s bg=terminal -S bg=terminal,fg=brightblack "'trails' || { echo; echo press enter to close; read -r _; }"
+bind -N "trails: every trail, the picker" P display-popup -E -w 60% -h 70% -s bg=terminal -S bg=terminal,fg=brightblack "'trails' || { echo; echo press enter to close; read -r _; }"
+bind -N "trails: the picker, on a click on [session]" -n MouseDown1StatusLeft display-popup -E -w 60% -h 70% -s bg=terminal -S bg=terminal,fg=brightblack "'trails' || { echo; echo press enter to close; read -r _; }"
 bind -N "trails: star this trail, or unstar it" S run-shell "TRAILS_CLIENT=#{client_name} 'trails' star"
 bind -N "trails: the starred trail that most wants you" F run-shell "TRAILS_CLIENT=#{client_name} 'trails' next"
 bind -N "trails: the editor beside the agent" E run-shell "TRAILS_CLIENT=#{client_name} 'trails' edit"

@@ -143,7 +143,7 @@ assert_eq "$(on_term | cut -d' ' -f1)" beta "in its workspace"
 "$TRAILS" keys | tmux source-file - || fail "tmux refused the keys"
 assert_eq "$(tmux list-keys -T prefix W 2>/dev/null)" "" "no prefix W: the picker has it all"
 assert_eq "$(tmux list-keys -T prefix A 2>/dev/null)" "" "no prefix A"
-assert_match "$(tmux list-keys -T root MouseDown1StatusLeft)" "display-popup .*-w .80%.*/trails. [|][|]" "the click, the picker"
+assert_match "$(tmux list-keys -T root MouseDown1StatusLeft)" "display-popup .*-w .60%.*/trails. [|][|]" "the click, the picker"
 assert_match "$(tmux list-keys -T prefix S)" "run-shell .* star" "prefix S, a star"
 assert_match "$(tmux list-keys -T prefix F)" "run-shell .* next" "prefix F, next"
 

@@ -132,6 +132,9 @@ it is empty. Hidden when the popup has under ten rows for it, ctrl-/ brings it
 back, as today. The popup is 80% × 80%, wide enough for every column and a
 preview worth reading.
 
+**As built:** 60% × 70%, the size `prefix P` always had: 80% × 80% covered
+too much of the screen behind it.
+
 ### What it costs
 
 One `list-windows -a` for the rows (the tree's join), one `classify` for the
