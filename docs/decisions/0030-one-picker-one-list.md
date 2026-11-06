@@ -1,0 +1,61 @@
+# 30. One picker, one list
+
+- Status: proposed
+- Date: 2026-11
+- Supersedes in part: [ADR 17](0017-one-picker-levels-not-screens.md), its levels
+
+## Context
+
+[ADR 17](0017-one-picker-levels-not-screens.md) made the picker one thing at
+four levels: workspaces, workspace, codebase, agent. Since then two more popups
+came: every running trail (`prefix A`) and the tree (`prefix W`, a click on
+`[session]`, [ADR 28](0028-a-tmux-native-server-that-tells-you-what-waits.md)),
+which is the only place to star a trail. The three overlap, and each lacks what
+another has: the picker shows one level at a time, `A` shows no lost trails and
+no way to start one, the tree no details and no preview.
+`docs/design/one-picker.md` draws them side by side.
+
+## Decision
+
+**One popup, the picker, with one list of everything**, opened by `prefix P`, a
+click on `[session]` and a bare `trails`.
+
+- **Grouped by workspace**, the one you're in first: a header per workspace
+  saying what it holds, then its trails, lost trails and editor and shell
+  windows in its window order, with the window number. Then the sessions of
+  yours, then `↩ resume old trails` across every workspace.
+- **A trail's row has what `prefix A` shows**: ★, state word, how long it has
+  waited, codebase, agent · yolo, task, and the live preview of its screen.
+- **Lost trails sit in their workspace**, beside their codebase's trails, and
+  Enter restores one.
+- **The map is a row of its own**, under `＋ new trail…`, while one is up, not a
+  session of yours.
+- **The keys act on the highlighted row**: Enter goes there, ctrl-s stars, ctrl-r
+  renames, ctrl-x ends, forgets or closes, ctrl-e opens the editor. Esc closes
+  the list, and goes back to it from new trail, the agents and resume old.
+- **`prefix W` and `prefix A` go**, with `trails tree`, `ctrl-a` and the
+  workspaces and workspace screens.
+- **Kept from ADR 17**: `＋ new trail…` and its codebase tree (D2, D5, D6),
+  `default` (D7), Enter on a workspace attaches (D1), ctrl-n makes one (D3).
+  An editor's terminal still sees one codebase ([ADR 14](0014-editor-views.md)).
+
+## Consequences
+
+- One key to remember, and everything is a filter away: a trail in another
+  workspace no longer means going up a level or opening another popup.
+- The list is longer than one workspace's screen. Typing filters it, the
+  current workspace is first, and `prefix F` still jumps to the starred trail
+  that most wants you.
+- Opening it classifies every trail, as `A` does, rather than one workspace's.
+- Rows are in window order, not by state: the list matches the status line,
+  and the headers and `prefix F` say what wants you.
+- Two keys (`W`, `A`) are free again.
+
+## Alternatives
+
+- **Flat, what wants you on top.** Best for triage, but a trail moves as its
+  state does, and the list no longer matches the status line. Rejected (Q1).
+- **Keep the tree for the click.** A smaller popup for a quick look, but a
+  second list with keys of its own, which is what this ends. Rejected (Q2).
+- **Lost trails together at the bottom.** Easier to sweep, but they belong to a
+  codebase, and restoring one is about that codebase. Rejected (Q3).
