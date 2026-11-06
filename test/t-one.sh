@@ -148,6 +148,12 @@ assert_eq "$(on_term | cut -d' ' -f1)" beta "in its workspace"
 assert_eq "$(tmux list-keys -T prefix W 2>/dev/null)" "" "no prefix W: the picker has it all"
 assert_eq "$(tmux list-keys -T prefix A 2>/dev/null)" "" "no prefix A"
 assert_match "$(tmux list-keys -T root MouseDown1StatusLeft)" "display-popup .*-w .60%.*/trails. [|][|]" "the click, the picker"
+# Sized by the terminal: 60% x 70% on a wide one, 130 columns on a medium one, nearly all of a
+# narrow or short one.
+pk=$(tmux list-keys -T prefix P)
+sizes=$(printf '%s\n' "$pk" | grep -o -- '-h "[0-9]*%" -s [^ ]* -w "*[0-9]*%*"*' | sed 's/ -s [^ ]*//' | tr '\n' '|')
+assert_eq "$sizes" '-h "70%" -w "60%"|-h "95%" -w "60%"|-h "70%" -w 130|-h "95%" -w 130|-h "70%" -w "97%"|-h "95%" -w "97%"|' "six sizes, by width then height"
+assert_match "$pk" 'client_width},217}.*client_width},134}' "the tiers, by the client's width"
 assert_match "$(tmux list-keys -T prefix S)" "run-shell .* star" "prefix S, a star"
 assert_match "$(tmux list-keys -T prefix F)" "run-shell .* next" "prefix F, next"
 
@@ -174,6 +180,23 @@ rm -f "$T/args"
 picker "FZF_PICK='!esc' FZF_ARGS='$T/args'"
 grep -q -- '--no-sort' "$T/args" || fail "the picker's own fzf never ran"
 if grep -q -- '^--preview\|ctrl-/' "$T/args"; then fail "a preview on the list: $(grep -- 'preview\|ctrl-/' "$T/args")"; fi
+
+# ── Fitted to the width ────────────────────────────────────────────────────────────────
+# A task longer than the room left is cut to one line with …, and under 90 columns the agent
+# column goes; with no width known, nothing is cut.
+type_in "$(tmux list-panes -t '=beta/three:' -F '#{pane_id}')" "title Split the invoice job into a queue and a worker, then retry each failed charge twice before paging"
+wait_for 5 sh -c "tmux display-message -pt '=beta/three:' '#{pane_title}' | grep -q paging" || fail "the long task never reached the pane: $(tmux display-message -pt '=beta/three:' '#{pane_title}')"
+wide() { rm -f "$T/dump"; picker "FZF_DUMP='$T/dump' TRAILS_COLS=$1"; sed 1d "$T/dump" | cut -f3 | perl -CSD -pe 's/\e\[[0-9;]*m//g'; }
+widest() { perl -CSD -ne 'chomp; $w = length if length > $w; END { print $w + 0 }'; }
+# A task is 45 characters at most already (TASK_FMT): at 120 columns it fits whole.
+task=$(wide '' | grep 'c·three' | sed 's/.* stub  //')
+assert_match "$task" "^Split the invoice" "no width, the task whole"
+rows=$(wide 120)
+[ "$(printf '%s\n' "$rows" | widest)" -le 117 ] || fail "rows past 117 columns at 120: $(printf '%s\n' "$rows" | widest)"
+assert_match "$(printf '%s\n' "$rows" | grep 'c·three')" " stub +$task$" "at 120, the agent and the task whole"
+rows=$(wide 70)
+[ "$(printf '%s\n' "$rows" | widest)" -le 67 ] || fail "rows past 67 columns at 70: $(printf '%s\n' "$rows" | widest)"
+case $(printf '%s\n' "$rows" | grep 'c·three') in *stub*) fail "at 70, the agent column stayed" ;; *"  Split the"*…) ;; *) fail "at 70, the task not cut: $rows" ;; esac
 
 # ── Esc closes it ───────────────────────────────────────────────────────────────
 rm -f "$T/dump"

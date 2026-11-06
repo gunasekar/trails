@@ -70,7 +70,7 @@ assert_no_file "$(trec default/payments)" "the record went"
 
 # trails keys prints bindings, and changes nothing.
 before=$(tmux list-keys | wc -l)
-assert_match "$("$TRAILS" keys)" "^bind -N \"[^\"]*\" P display-popup .* \"'$TRAILS' [|][|] .*press enter to close.*\"$" "the picker binding, by absolute path, waiting on a failure"
+assert_match "$("$TRAILS" keys)" "^bind -N \"[^\"]*\" P if -F .* display-popup .* \"'$TRAILS' [|][|] .*press enter to close.*\" } } }$" "the picker binding, by absolute path, waiting on a failure"
 # Every line is one tmux takes, on a server of its own.
 "$TRAILS" keys | grep -v '^#' >"$T/keys.conf"
 tmux -L keyscheck -f /dev/null new-session -d 'sleep 10'

@@ -134,7 +134,10 @@ back, as today. The popup is 80% × 80%, wide enough for every column and a
 preview worth reading.
 
 **As built:** 60% × 70%, the size `prefix P` always had: 80% × 80% covered
-too much of the screen behind it.
+too much of the screen behind it. Then by the terminal: 60% where that is 130
+columns or more, else 130, else nearly all of it; 70% high, or nearly all of a
+short terminal. The rows fit what they get: a long task is cut with `…`, and
+under 90 columns the agent column goes.
 
 ### What it costs
 

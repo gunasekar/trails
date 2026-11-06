@@ -20,6 +20,10 @@ no way to start one, the tree no details and no preview.
 **One popup, the picker, with one list of everything**, opened by `prefix P`, a
 click on `[session]` and a bare `trails`.
 
+- **Sized for its rows**: 60% × 70% of a large terminal, at least 130 columns
+  (what a trail's row reads well in) or nearly all of a smaller one, and the
+  rows fit the width they get: a long task cut with `…`, the agent column gone
+  under 90 columns.
 - **Grouped by workspace**, the one you're in first: a header per workspace
   saying what it holds, then its trails, lost trails and editor and shell
   windows in its window order, with the window number. A trail is named as its

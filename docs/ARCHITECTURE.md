@@ -637,7 +637,10 @@ are on its agent's window in the trail's own session. Rows carry a hidden sort k
 whose parts are joined by `\001`, below any character, so a workspace sorts before
 another whose name it begins; `sort` orders them, since awk has none everywhere,
 and the key goes before fzf sees them. Sessions that are neither a workspace, one
-grouped with a workspace's, a trail's nor the map's are *yours*. The map has no
+grouped with a workspace's, a trail's nor the map's are *yours*. Rows fit the
+width (`TRAILS_COLS`, the terminal's or popup's, read once by `stty` before the
+first build and kept for reloads): a task longer than the room left is cut to
+one line with `…` (`fit`), and under 90 columns the agent column goes. The map has no
 row (`prefix M` is its key), and the list has no preview: it is for starting a
 trail and going to one, and a trail's row says what it is doing.
 
@@ -859,7 +862,11 @@ the pane.
 1.18 it listed every running workspace, a session selector stock tmux never shows. A
 click on it opens the picker, as `prefix P` does: `MouseDown1StatusLeft`, the one
 binding outside the prefix table, which stock tmux leaves unbound (its right-click
-menu on the same spot stays). `prefix K` and `J` run `trails ws prev` / `next`
+menu on the same spot stays). Both open the popup at a size picked from the
+terminal's at the key press, since tmux expands no formats in `display-popup -w`
+and `-h`: nested `if -F` on `client_width` and `client_height` choose 60% wide
+from 217 columns (where 60% reaches the 130 a trail's row reads well in), 130
+columns from 134, else 97%; and 70% high from 29 rows, else 95%. `prefix K` and `J` run `trails ws prev` / `next`
 (`ws_step`): the workspaces by name, round the end, through `switch_to`, so a grouped
 terminal stays grouped.
 
