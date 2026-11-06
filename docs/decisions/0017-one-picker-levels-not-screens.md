@@ -1,6 +1,8 @@
 # 17. One picker: levels, not screens
 
-- Status: accepted
+- Status: accepted; its levels (workspaces, workspace, codebase) superseded by
+  [ADR 30](0030-one-picker-one-list.md), one list. `＋ new trail…`, its codebase tree,
+  `default` and ctrl-n for a workspace stand.
 - Date: 2026-10
 
 ## Context

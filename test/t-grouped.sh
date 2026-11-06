@@ -47,10 +47,11 @@ for_b() { tmux run-shell "env TMUX='$sock,1,0' TRAILS_CLIENT='$b' $*"; }
 rm -f "$T/menu"
 for_b "FZF_PICK='' FZF_DUMP='$T/menu' '$TRAILS'"
 wait_for 5 test -s "$T/menu" || fail "the picker never reached fzf"
-assert_eq "$(grep -v '^--- ' "$T/menu" | head -n 1 | cut -f1)" browse "the workspace's screen, from the group"
+assert_eq "$(grep -v '^--- ' "$T/menu" | head -n 1 | cut -f1,2 | tr '\t' ' ')" "browse ws" "a new trail in the workspace, from the group"
+assert_eq "$(grep -v '^--- ' "$T/menu" | sed -n 2p | cut -f2)" ws "and the workspace first"
 
 # Picking trail two in B: B goes to it on its own session, and A stays on trail one.
-for_b "FZF_PICK='#two' '$TRAILS'"
+for_b "FZF_PICK='·two ' '$TRAILS'"
 wait_for 5 sh -c "[ \"\$(tmux list-clients -F '#{client_name} #{session_name} #{window_id}' | awk -v c='$b' '\$1 == c { print \$2, \$3 }')\" = 'ws~2 $wid_two' ]" ||
   fail "B is not on two in its own session: $(client_at "$b" '#{session_name} #{window_id}')"
 assert_eq "$(client_at "$a" '#{session_name} #{window_id}')" "ws $wid_one" "A stayed on one"
@@ -62,14 +63,16 @@ assert_eq "$(client_at "$b" '#{session_name} #{window_id}')" "ws~2 $wid_two" "B 
 assert_eq "$(client_at "$a" '#{session_name} #{window_id}')" "ws $wid_one" "and A still on one"
 
 # A, ungrouped, picking two: switched within ws, as ever, and B is not moved.
-tmux run-shell "env TMUX='$sock,1,0' TRAILS_CLIENT='$a' FZF_PICK='#two' '$TRAILS'"
+tmux run-shell "env TMUX='$sock,1,0' TRAILS_CLIENT='$a' FZF_PICK='·two ' '$TRAILS'"
 wait_for 5 sh -c "[ \"\$(tmux list-clients -F '#{client_name} #{session_name} #{window_id}' | awk -v c='$a' '\$1 == c { print \$2, \$3 }')\" = 'ws $wid_two' ]" ||
   fail "A did not go to two in ws: $(client_at "$a" '#{session_name} #{window_id}')"
 tmux select-window -t "=ws~2:$wid_one"
 assert_eq "$(client_at "$a" '#{session_name} #{window_id}')" "ws $wid_two" "B moving leaves A on two"
 
-# The grouped session is never a workspace of its own: not on the workspaces screen.
+# The grouped session is never a workspace of its own, nor a session of yours: not in the picker.
 rm -f "$T/wmenu"
 DRIVER_DIR=$T FZF_PICK='' FZF_DUMP=$T/wmenu driver "$TRAILS"
 wait_for 5 test -s "$T/wmenu" || fail "the workspaces screen never reached fzf"
-assert_eq "$(grep -v '^--- ' "$T/wmenu" | cut -f2 | tr '\n' ' ')" "ws " "ws once, and no ws~2"
+assert_eq "$(grep '^workspace' "$T/wmenu" | cut -f2 | tr '\n' ' ')" "ws " "ws once"
+grep -q 'ws~2' "$T/wmenu" && fail "ws~2 listed: $(cut -f1,2 "$T/wmenu" | tr '\n' '|')"
+true

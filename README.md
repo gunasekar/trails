@@ -78,16 +78,17 @@ recommended for the diff, and `curl` keeps the picker's preview live.
 
    ```console
    ~/code/checkout $ trails
-   checkout (acme) ▸ Pick a trail: █   # enter: open · ctrl-e: editor · ctrl-/: preview · ctrl-x: end · ?: keys · esc: up
-     ＋ new trail…
-   ▌ ● needs you  claude · yolo  #3f9a  Add idempotency keys to payment retries
-     ● your turn  claude         #b07e  Fix the flaky cart-total test
-     ● working    codex          #c41a  Migrate orders to Postgres 17
-     ○ lost       claude         #9d2e  Spike: replay Stripe webhooks
+   trails ▸ █   # enter: go · ctrl-s: star · ctrl-r: rename · ctrl-x: end · ctrl-e: editor · ?: keys · esc: close
+   ▌ ＋ new trail…  in checkout (acme)
+     acme  3 trails · 1 needs you · 1 your turn · 1 lost
+       1 checkout-3f9a  needs you   4m  checkout  claude · yolo  Add idempotency keys to payment retries
+       2 checkout-b07e  your turn  12m  checkout  claude         Fix the flaky cart-total test
+       3 orders-c41a    working         orders    codex          Migrate orders to Postgres 17
+         checkout-9d2e  lost            checkout  claude         Spike: replay Stripe webhooks
      ↩ resume old trails  (3 ended)
    ```
 
-From then on it is keys: `prefix P` for this workspace's trails, `E` for the
+From then on it is keys: `prefix P` for every trail, `E` for the
 editor beside the agent, `G` for its diff. `prefix ?` lists them all, trails'
 as `trails: …`. The
 everyday loop, and every other way trails is used, are in
@@ -99,11 +100,9 @@ In tmux, after `prefix`, from `trails keys`:
 
 | Key | Does |
 |---|---|
-| `P` | this workspace's trails, in a popup: the picker |
-| `W` | everything: each workspace with its windows, your own sessions ([the tree](#the-tree-and-stars)) |
-| `S` | star the trail you are on, or unstar it ([stars](#the-tree-and-stars)) |
+| `P` | the [picker](#the-picker), in a popup: every workspace with its trails and windows |
+| `S` | star the trail you are on, or unstar it ([stars](#stars)) |
 | `F` | to the starred trail that most wants you; again, the next one |
-| `A` | every running trail, in every workspace |
 | `E` | the editor beside the agent; again, back where you were |
 | `` ` `` | a shell beside the agent; again, back |
 | `G` | the diff beside the agent, shown or put away ([the diff](#the-editor-a-shell-and-the-diff)) |
@@ -116,20 +115,21 @@ In the picker:
 
 | Key | Does |
 |---|---|
-| `enter` | open the row: attach, bring back a lost trail, resume a closed one, or start an agent |
-| `tab` | toggle YOLO (run everything unconfirmed) on an agent to start or a closed trail |
-| `ctrl-n` | name the trail you are about to start; on the workspaces, a new workspace |
-| `ctrl-r` | rename the running trail under the cursor; an empty name takes it away |
+| typing | filter the rows |
+| `enter` | go there: a trail, a window, a workspace, the map, a session; bring back a lost trail, resume a closed one, or start an agent |
+| `ctrl-s` | star the trail under the cursor, or unstar it |
+| `ctrl-r` | rename the trail under the cursor; an empty name takes it away |
+| `ctrl-x` | end a running trail, close an editor or shell window or the map, or forget a lost or closed one |
 | `ctrl-e` | the editor for the row's codebase |
 | `ctrl-/` | show or hide the preview: the trail's screen, kept live |
-| `ctrl-x` | end a running trail, close an editor or shell window, or forget a lost or closed one |
-| `ctrl-a` | every running trail, in every workspace |
+| `ctrl-n` | a new workspace; in the agents, name the trail you are about to start |
+| `tab` | in the agents and the old trails: toggle YOLO (run everything unconfirmed) |
 | `?` | the keys and what the states mean |
-| `esc` | up a level: a codebase to its workspace, a workspace to the workspaces, then out |
+| `esc` | close it; from the agents or the old trails, back to it |
 
 Every trails key is a capital letter, but `` ` `` for the shell, so tmux's own
 keys stay tmux's: `?` still lists every binding, trails' among them as
-`trails: …`, and `(` and `)` still cycle through every session. `P`, `W`, `S`, `A`,
+`trails: …`, and `(` and `)` still cycle through every session. `P`, `S`, `F`,
 `N`, `G`, `R`, `J` and `K` are unbound in tmux's defaults; `E` replaces spreading the panes out evenly (still
 `:select-layout -E`), and `M` clearing the marked pane (still `prefix m` on it). A
 line after the `trails keys` one that binds the same key wins.
@@ -174,35 +174,19 @@ working on, then the checklist's count before the clock:
 [acme] 1:checkout-3f9a  2:checkout-b07e*  3:billing·nvim   Fix the flaky cart-total test · ☑ 2/5 · 14:05
 ```
 
-A click on `[acme]` opens the tree, as `prefix W` does. Closing the last
+A click on `[acme]` opens the picker, as `prefix P` does. Closing the last
 window of a session moves the terminal to a workspace, or one of your own
 sessions, instead of out of tmux. Windows, panes and sessions you make yourself
 are plain tmux: trails never lists, renames or restores them.
 
-#### The tree and stars
+#### Stars
 
-`prefix W`, or a click on `[acme]`, opens everything worth going to on trails'
-server: each workspace with its windows, each trail's state, its star and how
-long it has been in its state, and any window of yours, then the sessions you
-made yourself. Enter goes there, in any workspace:
-
-```text
-  acme
-  ▸ checkout-3f9a            ● working
-    payments               ★ ● needs you     4m
-    notes                    yours
-  personal
-    blog                     ● your turn    12m
-── yours ──
-    scratch
-```
-
-`prefix S` stars the trail you are on, or unstars it (`ctrl-s` in the tree, or
+`prefix S` stars the trail you are on, or unstars it (`ctrl-s` in the picker, or
 `trails star [TRAIL]`): a trail you want to see through, whatever state it is in.
 The star is kept in the trail's record, so it survives tmux going down and
 `trails restore`. A starred trail:
 
-- has ★ beside its name in the tree, and before its number in the window list;
+- has ★ before its number in the picker and in the window list;
 - is where `prefix F` (`trails next`) takes you: the starred trail that most wants
   you, one whose bell you haven't seen first, then needs you before your turn,
   then the longest waiting; pressed again, the next one;
@@ -242,25 +226,48 @@ another trail's while it lives.
 
 ### The picker
 
-`trails` opens where you are: in a codebase, its trails and the agents to start;
-in a workspace's tmux session, the workspace's trails across its codebases; from
-`~`, the workspaces. Enter goes down a level and Esc up one. The cursor starts on
-the trail that most wants you.
+`trails`, `prefix P` or a click on `[acme]` opens one list of everything worth
+going to on trails' server: each workspace, the one you are in first, with its
+trails, its lost trails and its windows in the status line's order; the map,
+while one is up; the tmux sessions you made yourself; and the trails that ended.
+The cursor starts on where you are, and the highlighted trail's screen shows
+live under the list:
 
-Every trail is running (`●`) or not (`○`), and says what is going on:
+```text
+trails ▸ █                    # enter: go · ctrl-s: star · ctrl-r: rename · ctrl-x: end · …
+▌ ＋ new trail…  in checkout (acme)
+  ▦ map  4 trails · payments needs you
+  acme  2 trails · 1 needs you · 1 lost
+    1 checkout-3f9a  working          checkout  claude          Fix the flaky cart test
+  ★ 2 payments       needs you   4m   checkout  claude · yolo   Which retry budget?
+      checkout-b07e  lost             checkout  claude          Split the totals job
+    3 notes          yours
+  personal  1 trail · 1 your turn
+    1 blog           your turn  12m   blog      codex           Draft the release post
+  ── yours ──
+    scratch
+  ↩ resume old trails  (7 ended)
+```
+
+A trail's row has its window number and ★ when starred, its state, how long it
+has waited on you, its codebase, its agent and what it is working on:
 
 | State | Means | Enter |
 |---|---|---|
-| `●` needs you | the agent is asking you something | attach |
-| `●` your turn | it finished its turn | attach |
-| `●` working | it is busy | attach |
-| `●` unknown | nothing says: [set up its hooks](#hooks-for-each-agent) | attach |
-| `○` lost | tmux died under it: a reboot, a crash, `kill-server` | bring it back on its conversation |
-| `○` closed | it ended in the last 10 days | resume it, in the mode it last ran in |
+| needs you | the agent is asking you something | go to it |
+| your turn | it finished its turn | go to it |
+| working | it is busy | go to it |
+| unknown | nothing says: [set up its hooks](#hooks-for-each-agent) | go to it |
+| lost | tmux died under it: a reboot, a crash, `kill-server` | bring it back on its conversation |
+| closed | it ended in the last 10 days (in the old trails) | resume it, in the mode it last ran in |
 
-**＋ new trail…** lists the agents to start, with Tab for YOLO and ctrl-n to name
-the trail. **↩ resume old trails** lists the trails that ended here, from trails'
-own history of the newest 100.
+Enter on a workspace goes to it, on the trail that most wants you; on one with
+nothing running, it starts a trail there. **＋ new trail…** picks a codebase of
+the workspace you are in, the cursor on the one you are in, then the agent to
+start, with Tab for YOLO and ctrl-n to name the trail. **↩ resume old trails**
+lists every workspace's trails that ended, from trails' own history of the newest
+100. In an editor's terminal the picker is that codebase's trails alone
+([from an editor](#from-an-editor)).
 
 `trails ls` prints the same rows, and `trails ls -a` every directory's; piped, it
 is tab-separated for scripts ([the fields](#trails-ls)).
@@ -536,7 +543,7 @@ Editor's, not trails'
 | `idle_after` | your turn sounds only after a turn this many seconds long; `0` for every turn |
 | `show` | `unfocused`: not while a focused terminal shows that trail's window; `always` |
 | `sound` | `system` (on macOS, Blow), a sound's name (`Tink`, `Pop`, … from `/System/Library/Sounds` or `~/Library/Sounds`), a file's path, or `silent` |
-| `only` | `all`, or `starred`: only the [starred](#the-tree-and-stars) trails; the rest still ring their bell |
+| `only` | `all`, or `starred`: only the [starred](#stars) trails; the rest still ring their bell |
 
 `"notify": false` turns it off. Each key left out keeps its default. `unfocused`
 needs tmux to know which terminal has focus, `set -g focus-events on`; without
@@ -635,9 +642,10 @@ from its path under your home folder as Claude names a project
 ~/code/checkout $ trails new payments
 ```
 
-Its session is `acme/payments`, its window `checkout·payments`, the picker shows
-it as `#payments`, and the agent gets the name too where its config says how
-(Claude runs with `--name payments`). An unnamed trail is `#` and its ID, `#3f9a`.
+Its session is `acme/payments`, its window and its row in the picker
+`checkout·payments`, and the agent gets the name too where its config says how
+(Claude runs with `--name payments`). An unnamed trail is its codebase and its ID,
+`checkout-3f9a`.
 A name comes back with the trail when it is resumed or restored.
 
 A trail can be named, or renamed, while it runs: when the work has moved on from
@@ -721,11 +729,11 @@ without a Trails-specific reporting hook or extension.
 
 | Command | Does |
 |---|---|
-| `trails` | the picker for where you are |
-| `trails ws [NAME]` | pick a workspace, or go to `NAME` |
+| `trails` | the picker: every workspace, the one you are in first |
+| `trails ws [NAME]` | the picker, or go to workspace `NAME` |
 | `trails ws list` / `of [DIR]` / `add NAME [DIR]` / `next`, `prev` | the workspaces; the one `DIR` belongs to; add `DIR` to `NAME`; the next or previous running one |
 | `trails new NAME [AGENT]` | start a trail named `NAME`, `-y` for YOLO |
-| `trails star [TRAIL]` / `next` / `tree` | star the trail you are on, or `TRAIL`; to the starred trail that most wants you; the tree, in tmux |
+| `trails star [TRAIL]` / `next` | star the trail you are on, or `TRAIL`; to the starred trail that most wants you |
 | `trails rename [TRAIL] NAME` | name the trail you are on, or `TRAIL` (its ID); `''` takes its name away |
 | `trails edit` / `shell` `[DIR]` | the editor or a shell beside the agent |
 | `trails diff [DIR]` | the codebase's changes, side by side; from `prefix G`, the diff beside the agent |
@@ -849,9 +857,8 @@ life  state  session  agent  yolo  dir  id  when  workspace  trail  title
 <summary><b>The tmux lines</b> <code>trails keys</code> prints</summary>
 
 ```text
-bind -N "trails: this workspace's trails, the picker" P display-popup -E -w 60% -h 70% -s bg=terminal -S bg=terminal,fg=brightblack "'trails' || { echo; echo press enter to close; read -r _; }"
-bind -N "trails: everything, every workspace's windows" W display-popup -E -w 70% -h 70% -s bg=terminal -S bg=terminal,fg=brightblack "'trails' tree || { echo; echo press enter to close; read -r _; }"
-bind -N "trails: everything, on a click on [session]" -n MouseDown1StatusLeft display-popup -E -w 70% -h 70% -s bg=terminal -S bg=terminal,fg=brightblack "'trails' tree || { echo; echo press enter to close; read -r _; }"
+bind -N "trails: every trail, the picker" P display-popup -E -w 80% -h 80% -s bg=terminal -S bg=terminal,fg=brightblack "'trails' || { echo; echo press enter to close; read -r _; }"
+bind -N "trails: the picker, on a click on [session]" -n MouseDown1StatusLeft display-popup -E -w 80% -h 80% -s bg=terminal -S bg=terminal,fg=brightblack "'trails' || { echo; echo press enter to close; read -r _; }"
 bind -N "trails: star this trail, or unstar it" S run-shell "TRAILS_CLIENT=#{client_name} 'trails' star"
 bind -N "trails: the starred trail that most wants you" F run-shell "TRAILS_CLIENT=#{client_name} 'trails' next"
 bind -N "trails: the editor beside the agent" E run-shell "TRAILS_CLIENT=#{client_name} 'trails' edit"
@@ -860,7 +867,6 @@ bind -N "trails: this codebase's checklist" N display-popup -E -w 60% -h 50% -s 
 bind -N "trails: the previous workspace" K run-shell "TRAILS_CLIENT=#{client_name} 'trails' ws prev"
 bind -N "trails: the next workspace" J run-shell "TRAILS_CLIENT=#{client_name} 'trails' ws next"
 bind -N "trails: the map" M run-shell "TRAILS_CLIENT=#{client_name} 'trails' map here"
-bind -N "trails: every running trail" A display-popup -E -w 70% -h 70% -s bg=terminal -S bg=terminal,fg=brightblack "env TRAILS_PICKER=all 'trails' || { echo; echo press enter to close; read -r _; }"
 bind -N "trails: the diff beside the agent, shown or put away" G run-shell "TRAILS_CLIENT=#{client_name} 'trails' diff"
 bind -N "trails: rename this trail" R command-prompt -p "rename trail:" "run-shell \"TRAILS_CLIENT=#{client_name} 'trails' rename '%%'\""
 set -g status-left-length 40

@@ -65,10 +65,10 @@ assert_match "$(cd "$T" && "$TRAILS" restore 2>&1)" "^restored default/proj-2$" 
 wait_for 5 screen_has default/proj-2 'agent id=conv-19' || fail "proj-2 never came back on its conversation"
 assert_eq "$(tmux display-message -pt default/proj-2 '#{@trails_trail}')" "$old_tid" "its ID kept"
 wait_for 5 sh -c "tmux list-windows -t default -F '#{window_name}' | grep -qx proj-2" || fail "no proj-2 window: $(tmux list-windows -t default -F '#{window_name}' | tr '\n' ' ')"
-# Both badges: #2 for the old one, #<ID> for the new.
+# Both by their window's name: proj-2 for the old one, proj-<ID> for the new.
 rm -f "$T/menu"
 FZF_PICK='' FZF_DUMP=$T/menu trails_bg
 wait_for 5 test -s "$T/menu" || fail "the picker never reached fzf"
 rows=$(sed 's/\x1b\[[0-9;]*m//g' "$T/menu" | grep '^attach' | cut -f3 | tr '\n' '|')
-assert_match "$rows" "#2" "the 1.9 trail's badge"
-assert_match "$rows" "#${new#default/proj-}" "the new trail's badge"
+assert_match "$rows" " proj-2 " "the 1.9 trail's name"
+assert_match "$rows" " ${new#default/} " "the new trail's name"

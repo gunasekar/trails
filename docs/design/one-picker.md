@@ -1,7 +1,9 @@
 # One picker: design
 
-Status: proposed · 2026-11-06. [ADR 30](../decisions/0030-one-picker-one-list.md)
-records the decisions that outlive this document.
+Status: implemented · 2026-11-07, in one change rather than the three phases
+below. [ADR 30](../decisions/0030-one-picker-one-list.md) records the decisions
+that outlive this document. Where the build differs from the proposal, the
+section says so under **As built**.
 
 trails opens three popups that overlap: the picker (`prefix P`), every running
 trail (`prefix A`) and the tree (`prefix W`, or a click on `[session]`). Each
@@ -57,6 +59,12 @@ trails ▸ █                         enter: go · ctrl-s: star · ctrl-r: rena
    trail's window, a codebase's directory) it goes straight to the agents, as a
    codebase's screen does today; otherwise to that workspace's codebase tree and
    `browse…` (ADR 17's D5, D6, unchanged).
+
+   **As built:** always the workspace's codebase tree, the cursor on the codebase
+   you're in, so Enter twice still starts there. Straight to the agents, a trail
+   in another codebase of the workspace had no way in from a trail's window. A
+   folder the tree doesn't list (one no workspace claims) still goes straight to
+   its agents.
 2. **`▦ map`**, only while a map is up: its own row, not one of yours. It says
    how many trails it holds and the one that most wants you. Enter goes to it,
    ctrl-x closes it (the trails stay, the map only borrowed them).
@@ -88,11 +96,11 @@ here*, not as which state.
 
 | key | on | does |
 |---|---|---|
-| typing | anywhere | filters the rows, every column searchable; a workspace header stays while one of its rows matches |
+| typing | anywhere | filters the rows, every column searchable, in the list's order (as built: a header shows only when its own text matches; fzf has no way to keep it for its rows) |
 | enter | any row | goes there: the trail, window, workspace, map or session; restores a lost trail |
 | ctrl-s | a trail | stars or unstars it (as `prefix S`) |
 | ctrl-r | a trail | renames it (as `prefix R`), in a prompt inside the popup |
-| ctrl-x | a trail · a lost one · a window · the map | ends the trail (asks first) · forgets it · closes the window · closes the map |
+| ctrl-x | a trail · a lost one · an editor or shell window · the map | ends the trail · forgets it · closes the window · closes the map (as built: no question first, as ctrl-x was before; a window of yours is left alone) |
 | ctrl-e | a trail | its codebase in the editor (as today) |
 | ctrl-/ | anywhere | shows or hides the preview |
 | ctrl-n | anywhere | makes a workspace (D3) |
@@ -143,7 +151,7 @@ one `list-windows`, as Tab and ctrl-x do today.
 
 ## Path
 
-1. **The list.** `picker_rows` builds the rows above from one `list-windows -a`,
+1. **The list.** `one_rows` builds the rows above from one `list-windows -a`,
    the classify cache, the lost records and the history count; `P`, the click
    and a bare `trails` open it; the tree's ctrl-s moves over. The test fzf
    reads it the way it reads the screens now. `t-tree`, `t-all`, `t-picker`,

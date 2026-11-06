@@ -1,6 +1,6 @@
 #!/bin/sh
 # ADR 28's first part: trails' server as tmux shows it. The status line's left is tmux's own
-# [session], a click on it opens the workspaces; closing a session's last window moves the
+# [session], a click on it opens the picker; closing a session's last window moves the
 # terminal to a workspace rather than out of tmux, while a trail that ends still lets go of the
 # client inside its workspace window; and a trail's state carries when it last changed.
 . "$REPO/test/lib.sh"
@@ -24,7 +24,7 @@ case $(tmux show -gv status-left) in
   '[#{?@trails_map,▦ map,#{session_name}}] '*) ;;
   *) fail "status-left is not tmux's [session]: $(tmux show -gv status-left)" ;;
 esac
-assert_match "$(tmux list-keys -T root MouseDown1StatusLeft)" "display-popup .* tree " "a click on it opens the tree"
+assert_match "$(tmux list-keys -T root MouseDown1StatusLeft)" "display-popup .*/trails. [|][|]" "a click on it opens the picker"
 assert_eq "$(tmux show -gv detach-on-destroy)" no-detached "the server moves a terminal on, not out"
 
 # ── A trail's session lets go of its nested client ─────────────────────────────

@@ -114,14 +114,13 @@ wait_for 5 geom_is "$apane" "0 0 $((W - EW - 1)) $H" || fail "the agent pane: le
 wait_for 5 sh -c "tmux list-clients -F '#{session_name}' | grep -qx default/payments" || fail "the new pane is not a client of the session"
 assert_eq "$(tmux display-message -pt "$apane" '#{@ag} #{@dir}')" "stub proj" "stamped"
 
-# The picker: panes beside an agent are the trail's, so the codebase's screen has no
-# tool window row. ctrl-e on "＋ new trail…" in another codebase, where nothing runs, makes
-# that codebase's editor alone and goes there; its screen lists the editor as a tool window,
-# under "＋ new trail…" with the trails, and the workspace screen under the codebase column.
+# The picker: panes beside an agent are the trail's, so there is no tool window row for them.
+# ctrl-e on "＋ new trail…" in another codebase, where nothing runs, makes that codebase's
+# editor alone and goes there; the picker then lists the editor as a window of its workspace.
 rm -f "$T/menu"
 FZF_PICK='' FZF_DUMP=$T/menu trails_bg
 wait_for 5 test -s "$T/menu" || fail "no picker"
-assert_eq "$(sed 's/\x1b\[[0-9;]*m//g' "$T/menu" | grep -v '^--- ' | cut -f1 | tr '\n' ' ')" "agents attach " "the way to a new trail, then the trail"
+assert_eq "$(sed 's/\x1b\[[0-9;]*m//g' "$T/menu" | grep -v '^--- ' | cut -f1 | grep -vx 'session\|-\|workspace' | tr '\n' ' ')" "agents attach window " "the way to a new trail, then the trail and the shell of the test"
 mkdir -p "$T/other"
 DRIVER_DIR=$T/other FZF_KEY=ctrl-e FZF_PICK='^agents' driver "$TRAILS"
 wait_for 5 sh -c "tmux list-windows -t default -F '#{window_name}' | grep -qx 'other·ed'" || fail "ctrl-e made no editor"
@@ -134,12 +133,12 @@ rm -f "$T/omenu"
 DRIVER_DIR=$T/other FZF_PICK='' FZF_DUMP=$T/omenu driver "$TRAILS"
 wait_for 5 test -s "$T/omenu" || fail "no picker in other"
 orows=$(sed 's/\x1b\[[0-9;]*m//g' "$T/omenu" | grep -v '^--- ')
-assert_eq "$(printf '%s\n' "$orows" | cut -f1 | tr '\n' ' ')" "agents tool " "the editor under the way to a new trail"
-assert_match "$(printf '%s\n' "$orows" | grep "tool	$owid" | cut -f3)" '^editor +ed$' "the editor's row"
+assert_eq "$(printf '%s\n' "$orows" | cut -f1 | grep -vx 'session\|-\|workspace' | tr '\n' ' ')" "agents attach window tool " "the editor, a window of its workspace"
+assert_match "$(printf '%s\n' "$orows" | grep "tool	$owid" | cut -f3)" '[0-9] other·ed +editor$' "the editor's row"
 rm -f "$T/wmenu"
 type_in "$mine" "FZF_DUMP=$T/wmenu $TRAILS"
-wait_for 5 test -s "$T/wmenu" || fail "no workspace screen"
-assert_match "$(sed 's/\x1b\[[0-9;]*m//g' "$T/wmenu" | grep "tool	$owid" | cut -f3)" '^editor +other +ed' "the editor's row, under the codebase column"
+wait_for 5 test -s "$T/wmenu" || fail "no picker from the workspace"
+assert_match "$(sed 's/\x1b\[[0-9;]*m//g' "$T/wmenu" | grep "tool	$owid" | cut -f3)" '[0-9] other·ed +editor$' "the editor's row, from a shell in the workspace"
 
 # An editor's terminal (NVIM set) sees trails only: no tool window rows.
 rm -f "$T/emenu"

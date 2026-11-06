@@ -19,12 +19,14 @@ menu() {
 mkdir "$TMPDIR/trails.oldone" "$TMPDIR/trails.recent"
 touch -t 202001010000 "$TMPDIR/trails.oldone"
 
-# Nothing running: "＋ new trail…" alone.
+# Nothing running: "＋ new trail…", for this codebase, and no trail; the workspace (default)
+# and the test's own terminals as sessions of yours are the rest.
 rows=$(menu)
 [ -e "$TMPDIR/trails.oldone" ] && fail "a day-old picker folder was left"
 [ -d "$TMPDIR/trails.recent" ] || fail "a younger picker folder was cleared"
-assert_eq "$(printf '%s\n' "$rows" | cut -f1 | tr '\n' ' ')" "agents " "only the way to a new trail"
-assert_eq "$(printf '%s\n' "$rows" | head -n 1 | cut -f3)" '＋ new trail…' "the drawn row"
+assert_eq "$(printf '%s\n' "$rows" | cut -f1 | grep -vx 'session\|-\|workspace' | tr '\n' ' ')" "agents " "only the way to a new trail"
+assert_eq "$(printf '%s\n' "$rows" | head -n 1 | cut -f3)" '＋ new trail…  in proj (default)' "the drawn row"
+assert_eq "$(printf '%s\n' "$rows" | head -n 1 | cut -f2)" "$PROJ" "for this codebase"
 
 # It leads to one "new trail" row per agent, the default agent first, and Esc there comes back.
 rm -f "$T/agents"
@@ -32,7 +34,7 @@ printf '%s\n' '^agents' '!esc' >"$T/pa"
 FZF_PICKS=$T/pa FZF_DUMP=$T/agents trails_bg
 wait_for 5 sh -c "grep -q '^--- 3' '$T/agents'" || fail "esc on the agents never came back: $(tr '\n' '|' <"$T/agents")"
 assert_eq "$(sed 's/\x1b\[[0-9;]*m//g' "$T/agents" | awk '/^--- /{n=$2;next} n==2' | cut -f1,2 | tr '\t\n' '  ')" "new stub new other " "the agents"
-assert_eq "$(awk '/^--- /{n=$2;next} n==3' "$T/agents" | cut -f1 | head -n 1)" agents "back on the codebase's screen"
+assert_eq "$(awk '/^--- /{n=$2;next} n==3' "$T/agents" | cut -f1 | head -n 1)" agents "back on the picker"
 
 # Through both screens, "＋ new trail…" then "stub · new trail".
 NEW='^agents	|stub · new trail'
@@ -48,10 +50,10 @@ assert_eq "$s1" "default/proj-${tid1#t}" "the session named by the trail's ID"
 assert_eq "$(tmux list-windows -t default -F '#{window_name}')" "proj-${tid1#t}" "the window"
 wid=$(tmux display-message -pt "$s1" '#{window_id}')
 
-# It is now an attach row, under "＋ new trail…", targeting its window.
+# It is now an attach row, under its workspace's header, targeting its window.
 rows=$(menu)
-assert_eq "$(printf '%s\n' "$rows" | sed -n 2p | cut -f1,2)" "attach	$wid" "attach row under the new one"
-assert_match "$(printf '%s\n' "$rows" | sed -n 2p | cut -f3)" '● (your turn|working) +stub' "drawn with its state"
+assert_eq "$(printf '%s\n' "$rows" | sed -n 2,3p | cut -f1,2 | tr '\t\n' '  ')" "workspace default attach $wid " "attach row under its workspace"
+assert_match "$(printf '%s\n' "$rows" | sed -n 3p | cut -f3)" "proj-${tid1#t} +(your turn|working) .* proj +stub" "drawn with its state"
 
 # A second unnamed trail here has an ID of its own, and wears it as its badge.
 FZF_PICK="$NEW" trails_bg
@@ -63,15 +65,17 @@ id2=${s2#default/proj-}
 wait_for 5 sh -c "[ \"\$(tmux list-windows -t default -F '#{window_name}' | sort | tr '\n' ' ')\" = '$(printf '%s\n' "proj-${tid1#t}" "proj-$id2" | sort | tr '\n' ' ')' ]" || fail "no sibling window: $(tmux list-windows -t default -F '#{window_name}' | tr '\n' ' ')"
 rows=$(menu)
 assert_match "$(printf '%s\n' "$rows" | grep -c '^attach')" '^2$' "two attach rows"
-assert_match "$(printf '%s\n' "$rows" | grep '^attach' | cut -f3 | tr '\n' '|')" "#$id2" "the #ID badge"
+assert_match "$(printf '%s\n' "$rows" | grep '^attach' | cut -f3 | tr '\n' '|')" "proj-$id2" "named by its ID"
 
 # Enter on an attach row lands in the workspace with that window selected.
-FZF_PICK="#$id2" trails_bg
+FZF_PICK="proj-$id2" trails_bg
 wait_for 5 sh -c "tmux list-clients -F '#{session_name} #{window_name}' | grep -q 'default proj-$id2'" ||
   fail "picking a running trail did not attach to it"
 
 # ctrl-n, a name, Enter on an agent's row: the trail takes the name.
-FZF_KEYS=ctrl-n FZF_QUERY=billing FZF_PICK="$NEW" trails_bg
+# The keys per fzf: none on the picker (where ctrl-n names a workspace), ctrl-n on the agents.
+printf '\nctrl-n\n' >"$T/keys"
+FZF_KEYS=$T/keys FZF_QUERY=billing FZF_PICK="$NEW" trails_bg
 wait_for 5 has_session default/billing || fail "no session default/billing"
 wait_for 5 screen_has default/billing 'name=billing' || fail "the name never reached the agent"
 

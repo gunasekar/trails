@@ -112,12 +112,12 @@ assert_eq "$(jq -c '.workspaces.s.codebases' "$T/dots/config.json")" '["~/w1","~
 # A path with a space is in the tree, and a workspace with none counts none.
 jq '.workspaces.e = []' "$T/dots/config.json" >"$T/c.tmp" && cat "$T/c.tmp" >"$T/dots/config.json"
 rm -f "$T/d1"
-printf '%s\n' 'new trail…' '' >"$T/p1"
-(cd "$T" && FZF_PICKS=$T/p1 FZF_DUMP=$T/d1 TRAILS_PICKER=workspace TRAILS_WS=s "$TRAILS" >/dev/null 2>&1)
+printf '%s\n' '^workspace	s	' '' >"$T/p1"
+(cd "$T" && FZF_PICKS=$T/p1 FZF_DUMP=$T/d1 "$TRAILS" >/dev/null 2>&1)
 assert_match "$(cat "$T/d1")" "$T/sp ace	" "the codebase with a space, in the tree"
 rm -f "$T/d2"
-(cd "$T" && FZF_PICK='' FZF_DUMP=$T/d2 TRAILS_PICKER=workspace TRAILS_WS=e "$TRAILS" >/dev/null 2>&1)
-assert_match "$(cat "$T/d2")" "\\(0 codebases\\)" "an empty workspace counts none"
+(cd "$T" && FZF_PICK='' FZF_DUMP=$T/d2 "$TRAILS" ws e >/dev/null 2>&1)
+assert_eq "$(grep -v '^--- ' "$T/d2" | cut -f1 | sed 's/:.*//' | tr '\n' ' ')" "browse " "an empty workspace's tree: browse… alone"
 
 # ── Checklist ──────────────────────────────────────────────────────────────────────────
 mkdir -p "$T/R&D"
@@ -172,4 +172,4 @@ assert_eq "$("$TRAILS" keys | sed -n 's/^bind -N "[^"]*" \([^ ]*\) .*/\1/p' | gr
 assert_eq "$("$TRAILS" keys | sed -n 's/^bind -N "[^"]*" -n \([^ ]*\) .*/\1/p' | tr '\n' ' ')" 'MouseDown1StatusLeft ' "the click, and no other key outside the prefix"
 # Every one with a note, so tmux's own list of keys (prefix ?, list-keys -N) shows it.
 assert_eq "$("$TRAILS" keys | grep '^bind ' | grep -cv '^bind -N "trails: [^"]*" ')" 0 "every binding noted"
-assert_eq "$("$TRAILS" keys | grep -c '^bind -N "trails: ')" 14 "all thirteen, and the click"
+assert_eq "$("$TRAILS" keys | grep -c '^bind -N "trails: ')" 12 "all eleven, and the click"

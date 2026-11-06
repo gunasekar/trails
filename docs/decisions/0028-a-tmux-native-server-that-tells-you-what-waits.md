@@ -2,7 +2,8 @@
 
 - Status: accepted, built: the status line's left, `detach-on-destroy` and
   `@trails_state_at` in 1.19; the bells in 1.20; notifications as a sound, the
-  tree (the popup) and stars in 1.21. `E` and `M` deferred
+  tree (the popup) and stars in 1.21, the tree then folded into the picker
+  ([ADR 30](0030-one-picker-one-list.md)). `E` and `M` deferred
 - Date: 2026-11
 
 ## Context
@@ -44,7 +45,8 @@ These were tried on a demo server (`showcase-*` on airbochs) before deciding.
 
 ### The popup
 
-One key (`prefix W`) or a click on `[session]` opens a tree: each workspace with its windows, each trail's state and how long it has
+Superseded by [ADR 30](0030-one-picker-one-list.md): the picker is now this list, and
+`prefix W` is gone. As first decided: one key (`prefix W`) or a click on `[session]` opens a tree: each workspace with its windows, each trail's state and how long it has
 waited, then the sessions you made yourself under "yours". Enter goes there, in any
 session. Your own sessions are offered, never managed.
 

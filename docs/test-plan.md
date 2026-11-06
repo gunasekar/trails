@@ -50,18 +50,18 @@ covered yet.
 | | named: `trails new`, ctrl-n | A `t-launch`, `t-picker` |
 | | YOLO: Tab, `"mode": "yolo"` | A `t-launch` · M5 |
 | | from an editor's terminal | A `t-inside`, `t-tools` · M8 |
-| | a second trail in a codebase (`#<ID>`) | A `t-picker` |
+| | a second trail in a codebase (`<codebase>-<ID>`) | A `t-picker` |
 | | renamed as it runs: `trails rename`, prefix R, ctrl-r | A `t-rename` |
-| Finding | codebase, workspace, workspaces screens | A `t-screens`, `t-picker` |
+| Finding | the one list: every workspace, where you are first, window order, lost trails beside their codebase, the map's row, the sessions of yours, stars | A `t-one`, `t-screens`, `t-picker` |
 | | `trails ws NAME` | A `t-screens` |
 | | `trails ls`, `-a`, `DIR`, piped | A `t-ls` |
-| | Esc up, ctrl-c out | A `t-screens`, `t-picker` |
+| | Esc closes, back from the agents and old trails, ctrl-c out | A `t-screens`, `t-picker`, `t-all`, `t-one` |
 | Watching | states, from hooks | A `t-classify`, `t-hooks`, `t-ls` |
 | | preview: layout, follow, live refresh, wrap | M9 |
 | | the current trail's task in the status line | A `t-rename` |
 | | `trails map` | A `t-map` |
 | | notifications as a sound: needs you, your turn after idle_after; on, show (focused or not), sound by name, silent, only starred, off | A `t-sound` |
-| | every running trail: prefix A, ctrl-a, Esc back, ctrl-x from it | A `t-all` |
+| | every workspace from anywhere, ctrl-x on any trail, every workspace's old trails | A `t-all` |
 | | `?`: the keys, `trails help keys` | A `t-edges` (the text) · checked by hand with real fzf |
 | Beside the agent | edit, shell, toggles, kept window, ctrl-e | A `t-tools` |
 | | the diff: untracked files, a popup from prefix G, a gui command | A `t-diff` |
@@ -90,7 +90,7 @@ Each on the real machine, in Ghostty, with `trails keys` pasted into tmux.conf.
 
 | # | Do | Expect |
 |---|---|---|
-| M1 | From another machine: `ssh host -t trails`, pick a workspace, `prefix W` to another, detach, reconnect | The workspaces list; attached on the trail that most wants you; switched without reconnecting; the one you were in marked on return |
+| M1 | From another machine: `ssh host -t trails`, pick a workspace, `prefix P` to another, detach, reconnect | Every workspace listed; attached on the trail that most wants you; switched without reconnecting; the cursor on where you were on return |
 | M2 | Ask claude something that needs a permission; let another finish its turn | `● needs you` and `● your turn` in the picker, the cursor on the one that needs you |
 | M3 | In a trail: `prefix E`, again, `` prefix ` ``, quit the agent | Editor right 60%, agent left; back to the agent; shell under the editor (a 40% column on the right with no editor); editor and shell kept as the codebase's window |
 | M4 | `tmux kill-server`, then `trails`, then `trails restore` | Trails shown `○ lost`; each back on its conversation, in its workspace |
@@ -107,7 +107,7 @@ On airbochs, with trails 1.5.0, then 1.5.1 for M7. All ten pass.
 
 | # | Result |
 |---|---|
-| M1 | `ssh airbochs -t trails` from probochs: the workspaces, attached on the trail that most wants you, `prefix W` to another without reconnecting, the last one marked on return |
+| M1 | `ssh airbochs -t trails` from probochs: the workspaces, attached on the trail that most wants you, `prefix P` to another without reconnecting, the cursor on where you were on return |
 | M2 | Claude asking a question read as needs you, red, with the cursor on it, and in the menu bar; your turn once answered |
 | M3 | Editor left, back to the agent, shell under the editor; on `/exit`, the window kept as `imprint·nvim` with both panes |
 | M4 | On a tmux server of its own (`TMUX_TMPDIR`, `XDG_STATE_HOME`): lost after `kill-server`, restored on the same conversation, which still knew the word it was given |

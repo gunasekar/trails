@@ -56,7 +56,7 @@ win=$(tmux list-windows -t default -F '#{window_id} #{window_name}' | awk '$2 ==
 tmux kill-window -t "$win"
 assert_eq "$(cd "$PROJ" && "$TRAILS" ls | awk -F'\t' '$3 == "default/fast" { print $1 }')" running "still running"
 assert_eq "$(cd "$T" && "$TRAILS" restore 2>&1)" "trails: nothing to restore" "nothing lost"
-FZF_PICK='#fast' trails_bg
+FZF_PICK='·fast ' trails_bg
 wait_for 5 sh -c "tmux list-windows -t default -F '#{@trails_window}' | grep -qx default/fast" || fail "the trail's window was not rebuilt"
 win=$(tmux list-windows -t default -F '#{window_id} #{@trails_window}' | awk '$2 == "default/fast" { print $1 }')
 assert_eq "$(tmux display-message -pt "$win" '#{window_name}')" "proj·fast" "named like the trail"

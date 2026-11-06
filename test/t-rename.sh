@@ -69,7 +69,7 @@ assert_eq "$(tmux display-message -pt "$wid" '#{@trails_name}')" aws-setup "unch
 "$TRAILS" rename t0000 x 2>/dev/null && fail "renamed a trail that isn't there"
 
 # The picker's ctrl-r: the query is the row's new name, and the picker comes back.
-FZF_KEYS=ctrl-r FZF_QUERY=retries FZF_PICK='#aws-setup' trails_bg
+FZF_KEYS=ctrl-r FZF_QUERY=retries FZF_PICK='·aws-setup ' trails_bg
 wait_for 5 sh -c "[ \"\$(tmux display-message -pt '$wid' '#{@trails_name}')\" = retries ]" ||
   fail "ctrl-r did not rename: $(tmux display-message -pt "$wid" '#{@trails_name}')"
 # The trail's window is renamed after the name is set, in a tmux call of its own: waited for too.

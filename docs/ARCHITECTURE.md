@@ -601,9 +601,8 @@ Claude's transcripts and opencode's database for this, and listed conversations
 started outside trails too. Those are the agent's own resume's to find now
 ([ADR 19](decisions/0019-no-agents-files-read.md)).
 
-The codebase screen and `trails ls` show this directory's; a workspace's screen
-shows those whose directory its workspace claims; `trails ls -a` shows every
-directory's.
+The codebase screen and `trails ls` show this directory's; the one list's old
+trails, and `trails ls -a`, every directory's.
 
 ## The picker
 
@@ -613,22 +612,41 @@ The newer fzf options the lists use are asked of fzf itself (`fzf_ok`, cached pe
 run): without `--info-command` the keys go in a header, without `--listen` the
 preview is a snapshot, without `wrap-word` it wraps plainly.
 
-One picker at four levels, workspaces, workspace, codebase and agent
-([ADR 17](decisions/0017-one-picker-levels-not-screens.md)), each a screen chosen
-by `TRAILS_PICKER` (which the reload subprocesses inherit) and, for a
-workspace's, `TRAILS_WS`. A bare `trails` picks the level it opens on from where
-it runs: an editor's terminal always gets its codebase's;
-inside tmux a client whose session is a workspace gets that workspace's, which a
-popup over it inherits; `~` and `/` get the workspaces; anything else is a
-codebase.
+One list, opened by a bare `trails`, `prefix P` and a click on `[session]`
+([ADR 30](decisions/0030-one-picker-one-list.md), which replaced ADR 17's levels),
+and the screens it leads to, each chosen by `TRAILS_PICKER` (which the reload
+subprocesses inherit). An editor's terminal gets its codebase's screen instead
+([ADR 14](decisions/0014-editor-views.md)).
 
 | Screen | `TRAILS_PICKER` | Rows |
 |---|---|---|
-| this codebase | *(empty)* | `＋ new trail…` (the agents screen), running and lost trails here, editor and shell windows, `↩ resume old trails` |
-| its ended trails | `old` | closed, from that last row; Esc goes back |
-| a workspace | `workspace` | `＋ new trail…` (the codebase tree, then the agents screen), its running and lost trails and windows across its codebases with a codebase column, `↩ resume old trails` |
-| its ended trails | `workspace-old` | |
-| a codebase's agents | `agents` | a `new` row per agent, for the codebase `＋ new trail…` was picked on or for; Esc goes back to the workspace it was reached from (`TRAILS_BACK`), else the codebase |
+| the one list | `one` | `＋ new trail…`, the map while one is up, each workspace (the one you are in first) with its trails, lost trails and windows, the sessions of yours, `↩ resume old trails` (`one_menu`) |
+| every ended trail | `one-old` | closed, every workspace's, with a `workspace/codebase` column; Esc goes back |
+| this codebase | *(empty)* | an editor's terminal's: `＋ new trail…` (the agents screen), running and lost trails here, `↩ resume old trails` |
+| its ended trails | `old` | closed, this directory's; Esc goes back |
+| a codebase's agents | `agents` | a `new` row per agent, for the codebase picked; Esc goes back to the picker (`picker_back`) |
+
+**The one list** (`one_rows`) is one `list-windows -a`, the dispatch's cache of
+every trail classified (`sessions | classify`), the lost records and the map's
+panes (whose clients say which trails it shows), handed to one awk as lines tagged
+by kind. A workspace's rows are its windows in index order, the status line's: a
+trail (its workspace window's `@trails_window` names the trail's session, the
+join), an editor or shell window, or a window of yours. A lost trail follows the
+last window of its codebase, else ends its workspace; a running trail with no
+window there yet follows the windows. A trail's state, star and `@trails_state_at`
+are on its agent's window in the trail's own session. Rows carry a hidden sort key
+whose parts are joined by `\001`, below any character, so a workspace sorts before
+another whose name it begins; `sort` orders them, since awk has none everywhere,
+and the key goes before fzf sees them. Sessions that are neither a workspace, one
+grouped with a workspace's, a trail's nor the map's are *yours*.
+
+`one_here` reads, once, where the picker was opened: the workspace (`ONE_WS`, the
+client's, read from a group's leader for a grouped session), the codebase
+(`ONE_DIR`, the trail's or editor window's, or the directory outside tmux) and the
+row to put the cursor on (`ONE_AT`). `＋ new trail…` goes to the workspace's
+codebase tree, the cursor on `ONE_DIR`; a directory the tree doesn't list goes
+straight to its agents, where `ask_workspace` asks where it belongs. fzf keeps the
+rows' order as you type (`--no-sort`).
 
 `?` on every screen runs `trails --keys` (fzf's `execute`): `trails help keys`
 (`keys_help`, also the middle of `trails help`) in a popup over the picker's pane, or
@@ -636,21 +654,17 @@ in `less` in place when the picker is itself in a popup, since tmux shows one po
 time and refuses a second silently. `q` comes back to the list as it was. In tmux,
 `prefix ?` lists trails' keys among tmux's own, by their notes (below).
 
-Esc goes up a level on every screen (D4 in `docs/design/picker-consolidation.md`):
-the screens name it in `--expect`, so fzf reports it as a key, and the dispatch
-execs the screen above — a codebase's to its workspace's, a workspace's to the
-workspaces. The workspaces screen has no Esc key, so there it aborts. An abort
-(ctrl-c) quits from anywhere, and an editor's terminal quits on Esc too.
-| the workspaces | `ws` | one row each with what runs in it, the last attached marked and under the cursor |
-| every trail | `all` | every running trail, in every workspace, its codebase column `workspace/codebase`; no new or old rows. `prefix A` opens it; ctrl-a on the screens above reaches it, and Esc goes back to that screen (`TRAILS_FROM`), else closes |
+Esc closes the one list and the editor's codebase screen; the screens they lead
+to name it in `--expect`, so fzf reports it as a key, and the dispatch execs the
+picker again (`picker_back`). An abort (ctrl-c) quits from anywhere.
 
 `print_menu` builds TSV rows of `verb`, `target`, `what's drawn`. fzf draws only
 the third field. Trails are gathered first as raw rows (`state verb target dir
 codebase agent yolo badge when title`) and drawn together in `STATES` order so the
 columns line up; editor and shell windows follow with their kind where the state
-goes. Tab and
-ctrl-x pass the target to a subcommand of the script (`--toggle-yolo`, `--kill`)
-and reload the menu. They're subcommands rather than inline shell because fzf
+goes. Tab,
+ctrl-x and ctrl-s pass the target to a subcommand of the script (`--toggle-yolo`,
+`--kill`, `star`) and reload the menu. They're subcommands rather than inline shell because fzf
 runs its bindings through `$SHELL`, where zsh expands a leading `=` and silently
 ate the kill. The preview is `--peek`, the row's screen through `capture-pane`, trimmed of
 the blank rows under its last line and shown under the list, scrolled to the
@@ -666,9 +680,9 @@ with `curl`, ending when the picker kills it or its directory goes. Without
 terminal.
 
 The running block is classified once per picker run and cached in a temp file,
-because every Tab and ctrl-x reloads the menu. Recent rows are cached the same
-way; on the workspace picker the cache holds every trail classified, for the
-counts.
+because every Tab, ctrl-x and ctrl-s reloads the menu. Recent rows are cached the
+same way. On the one list the cache holds every trail classified, and ctrl-x
+writes it again in that shape.
 
 Each picker run has a temp folder of its own, `$TMPDIR/trails.XXXXXX`, removed when it
 exits, ctrl-c included. A picker killed outright (SIGKILL, a crash) runs no trap, so
@@ -677,22 +691,25 @@ day old.
 
 | Verb | Target | Enter does |
 |---|---|---|
-| `new` / `yolo` | agent, or `agent:dir` on a workspace's screen | launch a fresh agent, with the YOLO flag for `yolo` |
+| `new` / `yolo` | agent | launch a fresh agent, with the YOLO flag for `yolo` |
 | `attach` | window id | `attach_to`: the workspace on the trail's window, or its session |
 | `restore` | trail ID | `restore_one` in the record's directory, then attach |
 | `resume` / `resume-yolo` | `agent:id:dir` | launch with the resume flag and that ID in that directory, recorded like any launch; `resume-yolo` when it last ran YOLO (unless Tab flipped it back) or Tab armed it |
 | `tool` | window id | an editor or shell window: switch or attach to it |
-| `browse` | | `pick_codebase`: the workspace's codebase tree (`codebase_tree`), walking the file system from a `browse:DIR` row (`walk_dir`), then the agents screen |
-| `agents` | | a codebase's "＋ new trail…": the agents screen for this directory |
-| `workspace` | name | `ws_switch`: switch or attach to its session on the trail that most wants you, or its screen |
+| `window` | window id | a window of yours in a workspace: switch or attach to it |
+| `session` | name | a session of yours: switch or attach to it |
+| `map` | `trails_map` | the map: switch or attach to it; ctrl-x closes it |
+| `browse` | workspace | `pick_codebase`: the workspace's codebase tree (`codebase_tree`), walking the file system from a `browse:DIR` row (`walk_dir`), then the agents screen |
+| `agents` | directory, or `-` | "＋ new trail…" for a directory: the agents screen there |
+| `workspace` | name | `ws_switch`: switch or attach to its session on the trail that most wants you; with nothing running, `new_in_ws`, its codebase tree |
 | `more` | | the ended-conversations screen |
 
 A codebase or agents screen in a directory no workspace claims first asks which
 workspace its trail goes in (`ask_workspace`): `default` first, adding nothing,
 then the workspace browsed from (`TRAILS_BACK`), then the rest, each adding the
 directory to it as a codebase.
-ctrl-n on the workspace picker names a new workspace and takes its first codebase
-from the directories under `~`.
+ctrl-n on the one list names a new workspace, takes its first codebase from the
+directories under `~`, and goes on to its agents.
 
 `launch` creates the trail's session detached, holding the agent's window with
 `status off`, stamps the window, makes the trail's window in the workspace (with the
@@ -796,8 +813,8 @@ run in the codebase instead, with no popup.
 
 ## Keys
 
-trails binds nothing. `trails keys` prints lines for a tmux.conf: the picker and
-the tree in a `display-popup`, which leaves no window behind and from
+trails binds nothing. `trails keys` prints lines for a tmux.conf: the picker in a
+`display-popup`, which leaves no window behind and from
 which `switch-client` works (the popup check behind D4 of the design is
 `test/t-popup.sh`), and the editor and the shell. The popups are styled onto the
 terminal's own background (`-s`, `-S`, tmux 3.3): tmux 3.8's default
@@ -839,7 +856,7 @@ the pane.
 `trails keys` also sets `status-left` to tmux's own `[session]`, `[▦ map]` on the map
 ([ADR 28](decisions/0028-a-tmux-native-server-that-tells-you-what-waits.md)): up to
 1.18 it listed every running workspace, a session selector stock tmux never shows. A
-click on it opens the tree, as `prefix W` does: `MouseDown1StatusLeft`, the one
+click on it opens the picker, as `prefix P` does: `MouseDown1StatusLeft`, the one
 binding outside the prefix table, which stock tmux leaves unbound (its right-click
 menu on the same spot stays). `prefix K` and `J` run `trails ws prev` / `next`
 (`ws_step`): the workspaces by name, round the end, through `switch_to`, so a grouped
@@ -865,19 +882,7 @@ and `@trails_bell_style` its colour alone, to put before the window's name: a th
 colours the name itself (`#[fg=…]`) keeps tmux's own `window-status-bell-style` from
 showing. tmux's stock format shows the bell flag as `!` already.
 
-**The tree** (`trails tree`, `prefix W`, ADR 28) is one `list-windows -a` shaped by
-awk (`tree_rows`). A trail's state, its star and when its state last changed are on
-its agent's window in the trail's own session (`@trails_state` read through the
-agent pane, the window's active one); its workspace window names that session in
-`@trails_window`, which joins the two. Rows go out TAB-separated, a hidden sort key
-first, then the session and window to go to and the trail's ID, then what is drawn:
-each workspace's windows in their order, a starred trail's with ★, then sessions with neither mark, offered and never managed. awk has no
-portable sort, so the key's parts are joined by `\001`, below any character, and
-`sort` orders them: a workspace sorts before another whose name it begins. Enter
-selects the window, then `switch_to` the session, which keeps a grouped terminal
-grouped. A trail with no workspace window (a map pane's only) is not listed.
-
-**A star** (`trails star [TRAIL]`, `prefix S`, ctrl-s in the tree) is
+**A star** (`trails star [TRAIL]`, `prefix S`, ctrl-s in the picker) is
 `@trails_starred` on the agent's window and `starred=1` in the record. `rec_write`
 carries a record's `starred=` over when it rewrites it, and `launch` sets the window
 option from the record, so a restore keeps a star; a trail without a record (no
@@ -1057,15 +1062,15 @@ vhs assets/demo/map.tape
 ## Tests
 
 `test/run.sh` runs the integration tests in `test/t-*.sh`, one per area: launch,
-ls, classify, picker, screens (the workspace screens), tools (the editor and the
+ls, classify, picker, screens (the screens around the one list), tools (the editor and the
 shell), inside (inside
 tmux: switch-client, a nested editor client, the refused collision), restore,
 autorestore, map, workspace and wsmap (the config), wsbar (the status line's
 `[session]` and `prefix K`/`J`), native (the click on it, `detach-on-destroy`,
 `@trails_state_at`), bells (the bell on a trail's window, the count after `[session]`),
-tree (the tree, its order, Enter, stars and a restore keeping them), server (the socket), keys-scope (the keys on trails' server
+one (the one list: its order, where you are, lost trails, the map, Enter, stars and a restore keeping them), server (the socket), keys-scope (the keys on trails' server
 only), service (the service starting the server), boot,
-grouped (a second terminal on a workspace), all (every trail), edges, hooks
+grouped (a second terminal on a workspace), all (every workspace, ctrl-x anywhere, every workspace's old trails), edges, hooks
 (`trails state` and `--id`, the history, the plugin against the docs), sound
 (the OS's notifications, through stand-ins), checklist,
 diff, diffpane (the diff beside the agent), rename (the status line's task and

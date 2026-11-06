@@ -36,7 +36,7 @@ wait_for 5 sh -c "[ \"\$(tmux list-clients -t default/review | wc -l | tr -d ' '
 
 # The picker from a shell pane: picking a running trail switches the client to its window.
 wait_shell mine || fail "the shell never came back"
-type_in mine "FZF_PICK='#payments' $TRAILS"
+type_in mine "FZF_PICK='·payments ' $TRAILS"
 wait_for 5 at 'default proj·payments' || fail "the picker did not switch to the trail, the client is on: $(where)"
 assert_eq "$(tmux list-sessions -F '#{session_name}' | sort | tr '\n' ' ')" "default default/payments default/review driver-1 mine " "still no extra sessions"
 

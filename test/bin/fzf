@@ -43,6 +43,11 @@ for a in "$@"; do
       xcmd=${a#--bind=ctrl-x:execute-silent(}
       xcmd=${xcmd%%)+*}
       ;;
+    # ctrl-s, the one list's star, the same way.
+    --bind=ctrl-s:execute-silent\(*)
+      scmd=${a#--bind=ctrl-s:execute-silent(}
+      scmd=${scmd%%)+*}
+      ;;
     # ctrl-n and ctrl-r mark the query as a name, by the file their execute-silent touches.
     --bind=ctrl-[nr]:execute-silent\(*)
       bk=${a#--bind=}
@@ -102,11 +107,15 @@ pick=$(printf '%s\n' "$rows" | while IFS= read -r row; do
   fi
 done)
 [ -n "$pick" ] || exit 130
-# $FZF_KEYS naming ctrl-x: the bound command runs on the picked row, and fzf is left as Esc
-# would leave it. Without a ctrl-x binding on this screen, nothing runs.
+# $FZF_KEYS naming ctrl-x (or ctrl-s): the bound command runs on the picked row, and fzf is
+# left as Esc would leave it. Without a ctrl-x binding on this screen, nothing runs.
 case ",$keys," in
   *,ctrl-x,*)
     [ -z "${xcmd:-}" ] || sh -c "$(printf '%s' "$xcmd" | sed "s|{2}|'$(printf '%s' "$pick" | cut -f2)'|")"
+    exit 130
+    ;;
+  *,ctrl-s,*)
+    [ -z "${scmd:-}" ] || sh -c "$(printf '%s' "$scmd" | sed "s|{2}|'$(printf '%s' "$pick" | cut -f2)'|")"
     exit 130
     ;;
   *) ;;

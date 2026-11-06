@@ -1,25 +1,25 @@
 # Scenarios
 
-Every way trails is used, as of the one-picker model
-([ADR 17](decisions/0017-one-picker-levels-not-screens.md)). The first eight
+Every way trails is used, as of the one list
+([ADR 30](decisions/0030-one-picker-one-list.md)). The first eight
 are the everyday loop, drawn from the 1.0 design's journeys
 ([trails-1.0.md](design/trails-1.0.md#journeys)); the rest is everything else,
 grouped by what you are doing. The [README](../README.md) has the detail of
 each command and key.
 
-Keys are the ones `trails keys` prints: `prefix P` the picker, `prefix W` the
-workspaces, `prefix E` the editor, `` prefix ` `` a shell, `prefix G` the diff,
+Keys are the ones `trails keys` prints: `prefix P` the picker, `prefix S` a
+star, `prefix F` the starred trail that wants you, `prefix E` the editor, `` prefix ` `` a shell, `prefix G` the diff,
 `prefix N` the checklist, `prefix M` the map; `prefix ?` lists them all.
 
 ## The everyday loop
 
 | # | Scenario | How |
 |---|---|---|
-| 1 | Arrive at the machine: a fresh terminal, or an ssh login | `trails` from `~`, or `ssh host -t trails`: the workspaces; Enter attaches, on the trail that most wants you |
+| 1 | Arrive at the machine: a fresh terminal, or an ssh login | `trails`, or `ssh host -t trails`: every workspace and its trails; Enter on a workspace attaches, on the trail that most wants you, Enter on a trail on that trail |
 | 2 | Get to the trail that needs you | Selected on arrival; or `prefix P`, where the cursor starts on it |
 | 3 | Start a trail in this codebase | `trails` in the repo, or `prefix P`: **＋ new trail…**, then an agent |
 | 4 | Start a trail in another codebase of the workspace | `prefix P`: **＋ new trail…**, the codebase, then an agent |
-| 5 | Move between trails and workspaces | `prefix P` for this workspace's trails, `prefix W` for the workspaces, or tmux's own window keys |
+| 5 | Move between trails and workspaces | `prefix P` (or a click on `[session]`) for every trail of every workspace, `prefix K` and `J` for the workspaces, or tmux's own window keys |
 | 6 | Read or change the code beside the agent | `prefix E` for the editor, `` prefix ` `` for a shell |
 | 7 | Come back after a break: lid closed, Wi-Fi dropped, a reboot | As in 1. After a reboot or a tmux crash, `trails restore` first |
 | 8 | Finish, or pick old work back up | Quit the agent, or ctrl-x on its row; **↩ resume old trails** for what ended |
@@ -54,24 +54,25 @@ workspaces, `prefix E` the editor, `` prefix ` `` a shell, `prefix G` the diff,
    it the default, when Tab is how you start one prompting.
 7. From an editor's terminal (VS Code, Cursor, Zed, Neovim): the editor sees
    that one trail.
-8. A second in the same codebase: a sibling with an ID of its own, marked `#3f9a`.
+8. A second in the same codebase: a sibling with an ID of its own, `checkout-3f9a`.
 
 ### Finding and moving
 
-1. `trails` in a repo: that codebase's trails, the one that most wants you
-   first.
-2. `prefix P` in a workspace: its trails across its codebases.
-3. `trails` from `~`, a fresh ssh login, or `prefix W`: the workspaces.
-4. `trails ws NAME`: straight to a workspace.
+1. `trails`, `prefix P` or a click on `[session]`: every workspace, the one you
+   are in first, with its trails, lost trails and windows in window order, the
+   map, the sessions of yours; the cursor on where you are. Typing filters it.
+2. `prefix F`: the starred trail that most wants you; again, the next.
+3. `trails ws NAME`: straight to a workspace.
+4. In an editor's terminal: that codebase's trails alone.
 5. `trails ls`, `ls -a`, `ls DIR`: a table of trails, tab-separated when piped.
 6. tmux's own keys: next and previous window, `prefix s`, `choose-tree`.
-7. Esc goes up a level, from a codebase to its workspace to the workspaces, and
-   ctrl-c quits.
+7. Esc closes the picker, and comes back to it from the agents and the old
+   trails; ctrl-c quits.
 
 ### Watching
 
-1. Each trail says where it is: ● needs you, ● your turn, ● working, ○ lost,
-   ○ closed.
+1. Each trail says where it is: needs you, your turn, working, lost, closed;
+   ★ for a starred one (`prefix S`, ctrl-s in the picker).
 2. ctrl-/ previews a trail's screen without opening it.
 3. `trails map [N]`: several agents side by side in one window, the N that
    most want you; `map new` picks them again.
@@ -116,7 +117,7 @@ it works.
 
 ### When things die
 
-1. tmux dies (a crash, `kill-server`): the trails show as ○ lost.
+1. tmux dies (a crash, `kill-server`): the trails show as lost.
 2. `trails restore` brings each back on its own conversation, into its
    workspace.
 3. A reboot: the same.

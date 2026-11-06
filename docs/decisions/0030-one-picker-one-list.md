@@ -1,6 +1,6 @@
 # 30. One picker, one list
 
-- Status: proposed
+- Status: accepted, built in 1.21
 - Date: 2026-11
 - Supersedes in part: [ADR 17](0017-one-picker-levels-not-screens.md), its levels
 
@@ -22,17 +22,23 @@ click on `[session]` and a bare `trails`.
 
 - **Grouped by workspace**, the one you're in first: a header per workspace
   saying what it holds, then its trails, lost trails and editor and shell
-  windows in its window order, with the window number. Then the sessions of
-  yours, then `↩ resume old trails` across every workspace.
+  windows in its window order, with the window number. A trail is named as its
+  window is (`checkout-3f9a`, `checkout·payments`), not by the old `#` badge.
+  Then the sessions of yours, then `↩ resume old trails` across every workspace.
 - **A trail's row has what `prefix A` shows**: ★, state word, how long it has
   waited, codebase, agent · yolo, task, and the live preview of its screen.
 - **Lost trails sit in their workspace**, beside their codebase's trails, and
   Enter restores one.
 - **The map is a row of its own**, under `＋ new trail…`, while one is up, not a
   session of yours.
+- **`＋ new trail…` is the workspace you're in**: its codebase tree, the cursor on
+  the codebase you're in, then the agents. A folder the tree doesn't list goes
+  straight to its agents. On a trail's window the codebase is known, but a trail
+  in another codebase of the workspace has to be one Enter away too.
 - **The keys act on the highlighted row**: Enter goes there, ctrl-s stars, ctrl-r
-  renames, ctrl-x ends, forgets or closes, ctrl-e opens the editor. Esc closes
-  the list, and goes back to it from new trail, the agents and resume old.
+  renames, ctrl-x ends, forgets or closes, ctrl-e opens the editor, ctrl-n makes
+  a workspace. Esc closes the list, and goes back to it from the agents and the
+  old trails. Typing filters, in the list's own order (`--no-sort`).
 - **`prefix W` and `prefix A` go**, with `trails tree`, `ctrl-a` and the
   workspaces and workspace screens.
 - **Kept from ADR 17**: `＋ new trail…` and its codebase tree (D2, D5, D6),
