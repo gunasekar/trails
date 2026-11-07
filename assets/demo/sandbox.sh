@@ -42,6 +42,9 @@ demo=$(mktemp -d /tmp/trails-demo.XXXXXX)
 export XDG_CONFIG_HOME="$demo/config" XDG_STATE_HOME="$demo/state" XDG_CACHE_HOME="$demo/cache" \
   TMUX_TMPDIR="$demo/tmux" PATH="$demo/bin:$here/../../bin:$PATH"
 unset TMUX TMUX_PANE XDG_DATA_HOME
+# No trails service: HOME is the machine's, so trails would find its LaunchAgent and ask that
+# service to start the sandbox's tmux server, then wait 15 seconds for one that never comes.
+export TRAILS_SERVICE=
 # Recorded from inside another claude (or anything else that sets them), these would tell the
 # demo's claude it is a child of that one. It should start as the top-level session it shows.
 for v in $(env | grep -o -E '^CLAUDE[A-Z_]*='); do unset "${v%=}"; done

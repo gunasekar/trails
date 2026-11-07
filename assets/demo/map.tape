@@ -31,10 +31,15 @@ Set TypingSpeed 5ms
 Type "export DEMO_EXTRA='storefront notify api' DEMO_PERSONAL='blog' && source assets/demo/sandbox.sh && clear"
 Enter
 Sleep 2s
-# A trail in each project, through "＋ new trail…" and claude, detached as soon as it starts.
+# A trail in each project, through "＋ new trail…" (typed: the cursor starts on a trail that wants you), its codebase (the cursor already on it) and
+# claude, detached as soon as it starts.
 Type "cd ~/code/checkout && trails"
 Enter
 Sleep 2.5s
+Type "new trail"
+Sleep 500ms
+Enter
+Sleep 1.5s
 Enter
 Sleep 1.5s
 Enter
@@ -45,6 +50,10 @@ Sleep 1s
 Type "cd ~/code/storefront && trails"
 Enter
 Sleep 2.5s
+Type "new trail"
+Sleep 500ms
+Enter
+Sleep 1.5s
 Enter
 Sleep 1.5s
 Enter
@@ -55,6 +64,10 @@ Sleep 1s
 Type "cd ~/code/notify && trails"
 Enter
 Sleep 2.5s
+Type "new trail"
+Sleep 500ms
+Enter
+Sleep 1.5s
 Enter
 Sleep 1.5s
 Enter
@@ -65,6 +78,10 @@ Sleep 1s
 Type "cd ~/code/api && trails"
 Enter
 Sleep 2.5s
+Type "new trail"
+Sleep 500ms
+Enter
+Sleep 1.5s
 Enter
 Sleep 1.5s
 Enter
@@ -75,6 +92,10 @@ Sleep 1s
 Type "cd ~/src/blog && trails"
 Enter
 Sleep 2.5s
+Type "new trail"
+Sleep 500ms
+Enter
+Sleep 1.5s
 Enter
 Sleep 1.5s
 Enter
