@@ -54,7 +54,7 @@ recommended for the diff, and `curl` keeps the editor picker's preview live.
    status line, so a plain `tmux` of yours stays as you configured it:
 
    ```tmux
-   run-shell "trails keys | tmux source-file -"
+   run-shell "trails tmux-config | tmux source-file -"
    ```
 
 2. **Give your agent its hooks**, so trails knows what it is doing. For Claude
@@ -192,6 +192,12 @@ The star is kept in the trail's record, so it survives tmux going down and
   then the longest waiting; pressed again, the next one;
 - can be the only kind that notifies: `"notify": { "only": "starred" }`
   ([notifications](#notifications)).
+
+`trails tmux-config` prints the same bindings, hooks and status as `trails keys`,
+plus neutral theme slots `@window_label_prefix`, `@window_label_style` and
+`@window_label_suffix` for the star and bell. Load it after the theme. Themes
+that expand those slots can show the indicators without Trails-specific formats.
+The existing `trails keys` command remains available for compatibility.
 
 **A bell for what wants you.** A trail blocked on a question, or done with a turn,
 rings tmux's bell in its window: tmux marks the window (stock tmux shows `!` after
@@ -743,7 +749,8 @@ without a Trails-specific reporting hook or extension.
 | `trails boot` | start tmux and the lost trails, for `brew services start trails` |
 | `trails server [NAME]` | the tmux socket trails is on, or move its trails to `NAME` once the old server is stopped |
 | `trails map [N \| new]` | trails side by side in one window |
-| `trails keys` | the tmux.conf lines for the keys and the status line |
+| `trails tmux-config` | tmux bindings, status, hooks and optional theme indicators |
+| `trails keys` | the original tmux bindings and status configuration |
 | `trails state WORD [--id ID] [--agent PROGRAM]` | for an agent's hooks: `working`, `waiting` or `idle` |
 | `trails config` | the config in `$EDITOR`, the built-in agents written first |
 | `trails help [keys]` | the commands and keys |

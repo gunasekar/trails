@@ -4705,6 +4705,7 @@ popup_bg() {
 }
 
 keys() {
+  kcommand=${1:-keys}
   tbg=$(popup_bg)
   # trails' path quoted for the shell that runs it, then its backslashes doubled for tmux's
   # own double quotes: a path with a space or a ' still runs.
@@ -4756,7 +4757,7 @@ keys() {
   fi
   cat <<EOF
 # trails: one line in tmux.conf loads all of these, and follows every upgrade:
-#   run-shell "$kq keys | tmux source-file -"
+#   run-shell "$kq $kcommand | tmux source-file -"
 # or paste what you want of them instead.
 # Opt-in, not loaded with the rest: put this in tmux.conf to bring back, whenever tmux starts,
 # the trails it lost (a reboot, a crash). To drop one for good, ctrl-x on its lost row.
@@ -5682,6 +5683,7 @@ usage: trails [command]
                     to one, space ticks it done or back, enter with nothing typed copies
                     it and closes; ctrl-e opens the file in $EDITOR, then the list again
                     (the config's "data" says where); esc closes
+  tmux-config       print tmux configuration, including theme indicator slots
   keys              print tmux.conf lines that bind the picker, a star and the starred
                     trail that wants you, the editor, the shell, the checklist, the
                     previous and next workspace, the map, the diff and rename, and put
@@ -5830,11 +5832,19 @@ case $1 in
   # From another server's tmux.conf (the run-shell line, which every server reads): nothing
   # but a comment, so a tmux of your own keeps its keys and status line. Run from a shell,
   # outside any tmux, it prints them all, to read or paste.
-  keys)
+  keys | tmux-config)
     if [ -n "$FOREIGN_TMUX" ]; then
       echo "# trails: keys are for the trails server ($TRAILS_SERVER), not this one ($FOREIGN_TMUX)"
     else
-      keys
+      keys "$1"
+      if [ "$1" = tmux-config ]; then
+        # Neutral theme slots: themes may expand these without knowing Trails.
+        cat <<'EOF'
+set -g @window_label_prefix '#{E:@trails_star}'
+set -g @window_label_style '#{E:@trails_bell_style}'
+set -g @window_label_suffix '#{E:@trails_bell}'
+EOF
+      fi
     fi
     exit 0
     ;;
