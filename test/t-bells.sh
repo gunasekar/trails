@@ -30,7 +30,7 @@ driver_attached || fail "three's driver never attached"
 for d in 2 3; do tmux kill-session -t "driver-$d" 2>/dev/null; done
 wait_for 5 sh -c "[ \"\$(tmux display-message -p -t '=beta:' '#{session_attached}')\" = 0 ]" || fail "beta still shown"
 
-"$TRAILS" keys | tmux source-file - || fail "tmux refused the keys"
+"$TRAILS" tmux-config | tmux source-file - || fail "tmux refused the keys"
 win() { tmux list-windows -t "=$1:" -F '#{window_id} #{@trails_window}' | awk -v t="$2" '$2 == t { print $1 }'; }
 tmux switch-client -c "$term" -t "=alpha:"
 tmux select-window -t "$(win alpha alpha/one)"
@@ -87,5 +87,5 @@ assert_eq "$(tmux show -gv @trails_bell_style)" '#{?window_bell_flag,#[fg=yellow
 assert_eq "$(tmux show -gv @trails_star)" '#{?@trails_starred,#[fg=yellow]★ ,}' "and the star"
 # A theme's window format is its own: the keys leave it be.
 tmux set -g window-status-format '#I|#W'
-"$TRAILS" keys | tmux source-file - || fail "tmux refused the keys again"
+"$TRAILS" tmux-config | tmux source-file - || fail "tmux refused the keys again"
 assert_eq "$(tmux show -gv window-status-format)" '#I|#W' "a theme's format kept"

@@ -6,7 +6,7 @@
 #
 # Off camera: two real Claude Code trails in the acme workspace (one handed a task, so its
 # row and its diff have something to show) and one in personal. Runs in sandbox.sh's sandbox, on the
-# demo's own tmux config (the `trails keys` lines, C-b prefix).
+# demo's own tmux config (the `trails tmux-config` lines, C-b prefix).
 Output assets/trails.gif
 Require claude
 Require tmux

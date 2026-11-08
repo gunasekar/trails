@@ -13,7 +13,7 @@
 #            and refused if any of them, or its claude history, already exists
 #   codex    a stand-in (agent), only ever listed, never started
 #   tmux     the real one, through a wrapper that gives the demo server its own config: the
-#            `trails keys` bindings for the repo's trails and a plain status line, so the
+#            `trails tmux-config` bindings for the repo's trails and a plain status line, so the
 #            recording machine's tmux.conf (its prefix, its bindings) is not in the shot
 real_claude=$(command -v claude) || {
   echo "trails demo: needs claude on PATH, logged in" >&2
@@ -89,7 +89,7 @@ chmod +x "$demo/bin/tmux"
   echo 'set -g set-titles-string "#{?@agent,#{@agent} · #{?#{==:#{pane_title},#{host}},#{b:pane_current_path},#{s|^[^ ]+ ||:pane_title}},#S:#W}"'
   # The keys, each also naming itself at the right of the status line for a few seconds, so
   # the recording shows what was pressed: `bind E CMD` becomes `bind E { set the badge ; CMD }`.
-  "$here/../../bin/trails" keys | awk '
+  "$here/../../bin/trails" tmux-config | awk '
     BEGIN {
       what["P"] = "trails"; what["S"] = "star"; what["F"] = "next starred"; what["E"] = "editor"
       what["`"] = "shell"; what["N"] = "checklist"; what["K"] = "previous workspace"

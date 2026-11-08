@@ -44,7 +44,7 @@ assert_eq "$(grep -cv '^--- ' "$T/d1")" 5 "all five trails offered"
 assert_eq "$(tmux list-panes -t '=trails_map:' | wc -l | tr -d ' ')" 4 "four panes, no more"
 
 # On the map, the status line says so, as tmux's own [session] does for any other.
-"$TRAILS" keys | grep '^set -g status-left' | tmux source-file - || fail "tmux refused the status lines"
+"$TRAILS" tmux-config | grep '^set -g status-left' | tmux source-file - || fail "tmux refused the status lines"
 sleep 1
 bar=$(tmux capture-pane -ep -t driver-1 | tail -n 1 | sed 's/\x1b\[[0-9;]*m//g')
 assert_match "$bar" "^\\[▦ map\\] " "[▦ map]"

@@ -3,6 +3,10 @@
 . "$REPO/test/lib.sh"
 t_setup
 
+if "$TRAILS" keys >/dev/null 2>&1; then
+  fail "the removed keys command should not succeed"
+fi
+
 cat >"$T/tmux.conf" <<CONF
 set -g window-status-format '#{E:@window_label_prefix}#[fg=white]#{E:@window_label_style}#I:#W#{E:@window_label_suffix}'
 run-shell "$TRAILS tmux-config | tmux source-file -"

@@ -69,6 +69,6 @@ wait_for 5 sh -c "grep -q '^--- 3' '$T/d3'" || fail "esc never came back: $(plai
 assert_match "$(plain "$T/d3" | sed -n '/^--- 3$/,$p' | sed -n 2p)" "new trail" "back on the one list"
 
 # No prefix A, no ctrl-a.
-"$TRAILS" keys | grep -q '^bind -N "[^"]*" A ' && fail "prefix A still bound"
+"$TRAILS" tmux-config | grep -q '^bind -N "[^"]*" A ' && fail "prefix A still bound"
 case $("$TRAILS" help keys) in *ctrl-a*) fail "ctrl-a still in the keys" ;; *) ;; esac
 exit 0

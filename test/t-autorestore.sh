@@ -1,5 +1,5 @@
 #!/bin/sh
-# The opt-in line `trails keys` offers: a tmux that starts with it in its config brings back
+# The opt-in line `trails tmux-config` offers: a tmux that starts with it in its config brings back
 # the trails it lost, with nothing typed.
 . "$REPO/test/lib.sh"
 t_setup
@@ -11,9 +11,9 @@ tmux kill-server
 sleep 0.3
 assert_file "$(trec default/payments)" "the record survives"
 
-# The line, as `trails keys` prints it, uncommented into a tmux.conf.
-line=$("$TRAILS" keys | sed -n 's/^# \(run-shell -b .* restore .*\)$/\1/p')
-assert_match "$line" "restore" "trails keys offers the line"
+# The line, as `trails tmux-config` prints it, uncommented into a tmux.conf.
+line=$("$TRAILS" tmux-config | sed -n 's/^# \(run-shell -b .* restore .*\)$/\1/p')
+assert_match "$line" "restore" "trails tmux-config offers the line"
 printf '%s\n' "$line" >"$T/auto.conf"
 tmux -f "$T/auto.conf" new-session -d -s mine 'sleep 60'
 # The trail's options come after its session, in their own tmux call: wait for them, not it.

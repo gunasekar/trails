@@ -1,6 +1,6 @@
 #!/bin/sh
 # The map: a session of its own whose panes are nested clients of trails' sessions,
-# most-wants-you first; ending a trail beside a shell; and trails keys.
+# most-wants-you first; ending a trail beside a shell; and trails tmux-config.
 . "$REPO/test/lib.sh"
 t_setup
 
@@ -68,24 +68,24 @@ wait_for 5 sh -c "[ \"\$(tmux display-message -pt '$pw' '#{window_name} #{@trail
 assert_eq "$(tmux list-windows -t default -F '#{window_name}' | sort | tr '\n' ' ')" "other·ledger proj·shell " "the windows"
 assert_no_file "$(trec default/payments)" "the record went"
 
-# trails keys prints bindings, and changes nothing.
+# trails tmux-config prints bindings, and changes nothing.
 before=$(tmux list-keys | wc -l)
-assert_match "$("$TRAILS" keys)" "^bind -N \"[^\"]*\" P if -F .* display-popup .* \"'$TRAILS' [|][|] .*press enter to close.*\" } } }$" "the picker binding, by absolute path, waiting on a failure"
+assert_match "$("$TRAILS" tmux-config)" "^bind -N \"[^\"]*\" P if -F .* display-popup .* \"'$TRAILS' [|][|] .*press enter to close.*\" } } }$" "the picker binding, by absolute path, waiting on a failure"
 # Every line is one tmux takes, on a server of its own.
-"$TRAILS" keys | grep -v '^#' >"$T/keys.conf"
+"$TRAILS" tmux-config | grep -v '^#' >"$T/keys.conf"
 tmux -L keyscheck -f /dev/null new-session -d 'sleep 10'
 assert_eq "$(tmux -L keyscheck source-file "$T/keys.conf" 2>&1)" "" "tmux takes every line"
 tmux -L keyscheck kill-server 2>/dev/null
 # The one line it offers, as tmux.conf: trails' server started on it has the keys and the bar
 # (keysone is trails' socket here; another server takes none of them, see t-keys-scope).
-printf '%s\n' "run-shell \"'$TRAILS' keys | tmux source-file -\"" >"$T/one.conf"
+printf '%s\n' "run-shell \"'$TRAILS' tmux-config | tmux source-file -\"" >"$T/one.conf"
 TRAILS_SOCKET=keysone tmux -L keysone -f "$T/one.conf" new-session -d 'sleep 10'
 wait_for 5 sh -c "tmux -L keysone list-keys -T prefix N >/dev/null 2>&1" || fail "the one line loaded no keys"
 assert_match "$(tmux -L keysone show -gv status-left)" "session_name" "and the status line"
 tmux -L keysone kill-server 2>/dev/null
-assert_match "$("$TRAILS" keys)" "^bind -N \"[^\"]*\" E run-shell \"TRAILS_CLIENT=#{client_name} '$TRAILS' edit\"$" "the editor binding names the pressing client"
+assert_match "$("$TRAILS" tmux-config)" "^bind -N \"[^\"]*\" E run-shell \"TRAILS_CLIENT=#{client_name} '$TRAILS' edit\"$" "the editor binding names the pressing client"
 case $(tmux -V) in
-  "tmux 3."[0-7]*) assert_match "$("$TRAILS" keys)" 'bind -N "[^"]*" P .* -s bg=default ' "default is the terminal's before 3.8" ;;
-  *) assert_match "$("$TRAILS" keys)" 'bind -N "[^"]*" P .* -s bg=terminal ' "terminal is the terminal's from 3.8" ;;
+  "tmux 3."[0-7]*) assert_match "$("$TRAILS" tmux-config)" 'bind -N "[^"]*" P .* -s bg=default ' "default is the terminal's before 3.8" ;;
+  *) assert_match "$("$TRAILS" tmux-config)" 'bind -N "[^"]*" P .* -s bg=terminal ' "terminal is the terminal's from 3.8" ;;
 esac
 assert_eq "$(tmux list-keys | wc -l)" "$before" "nothing bound"

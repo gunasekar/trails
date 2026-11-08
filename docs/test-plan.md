@@ -43,7 +43,7 @@ covered yet.
 | | broken, empty, wrong-typed config | A `t-edges` |
 | | `trails ws add`, workspaces in the config | A `t-workspace` |
 | | no workspaces: `default` | A `t-picker`, `t-launch` |
-| | `trails keys` lines accepted by tmux | A `t-checklist` (prefix N, status-right) · M6 |
+| | `trails tmux-config` lines accepted by tmux | A `t-checklist` (prefix N, status-right) · M6 |
 | Starting | new trail in a repo, a workspace | A `t-picker`, `t-screens` |
 | | browse… to an unlisted folder | A `t-screens` |
 | | folder no workspace claims: the question | A `t-screens` |
@@ -86,7 +86,7 @@ covered yet.
 
 ## Manual checks
 
-Each on the real machine, in Ghostty, with `trails keys` pasted into tmux.conf.
+Each on the real machine, in Ghostty, with `trails tmux-config` pasted into tmux.conf.
 
 | # | Do | Expect |
 |---|---|---|
@@ -95,7 +95,7 @@ Each on the real machine, in Ghostty, with `trails keys` pasted into tmux.conf.
 | M3 | In a trail: `prefix E`, again, `` prefix ` ``, quit the agent | Editor right 60%, agent left; back to the agent; shell under the editor (a 40% column on the right with no editor); editor and shell kept as the codebase's window |
 | M4 | `tmux kill-server`, then `trails`, then `trails restore` | Trails shown `lost` in the picker; each back on its conversation, in its workspace |
 | M5 | End a claude trail, then **↩ resume old trails**, Tab on it, Enter | Listed as closed; Tab flips YOLO; resumes on its conversation |
-| M6 | `brew install` or `bin/trails` on PATH; `trails keys` into tmux.conf, reload | Every line accepted, every key works |
+| M6 | `brew install` or `bin/trails` on PATH; `trails tmux-config` into tmux.conf, reload | Every line accepted, every key works |
 | M7 | *(retired in 1.6, with the menu-bar plugin)* | |
 | M8 | VS Code / Zed terminal (local and Remote-SSH): `trails`, pick a trail | The codebase's trails only; attached to that one trail; no workspace |
 | M9 | In an editor's terminal, `trails` on a busy trail, on a wide one, on a narrow one; ctrl-/. Then `prefix P` in a wide terminal, a 120-column one and an 80-column one | Preview under the list to the bottom, latest output, updating every second; wide one wrapped, narrow one at its width; ctrl-/ hides and shows. The popup 60% of the wide one, 130 columns or nearly all of the others; no preview; a long task cut with …, no agent column at 80 |
@@ -112,7 +112,7 @@ On airbochs, with trails 1.5.0, then 1.5.1 for M7. All ten pass.
 | M3 | Editor left, back to the agent, shell under the editor; on `/exit`, the window kept as `imprint·nvim` with both panes |
 | M4 | On a tmux server of its own (`TMUX_TMPDIR`, `XDG_STATE_HOME`): lost after `kill-server`, restored on the same conversation, which still knew the word it was given |
 | M5 | The ended conversation listed as closed; Tab took YOLO off; resumed on it, `claude --resume` without the YOLO flag |
-| M6 | `brew upgrade` to 1.5.0, `trails keys` into tmux.conf: every line taken, every key working |
+| M6 | `brew upgrade` to 1.5.0, `trails tmux-config` into tmux.conf: every line taken, every key working |
 | M7 | Listing and End fine, End on `default/it's` included. Resume failed: the tab said the trail was gone. Fixed in 1.5.1 (below), then Resume worked |
 | M8 | VS Code over Remote-SSH from probochs: attached to the trail's own session, `personal/trails`, not the workspace |
 | M9 | Under the list, filled, refreshing; a wide trail wrapped; nothing for a row that is no trail; ctrl-/ hides and shows |
@@ -159,7 +159,7 @@ Data loss first.
 | a deleted current directory | a trail made pointing nowhere | refused |
 | a refusal in a popup | gone with the popup | the picker's waits for Enter, the note's shows on tmux's line |
 | a workspace whose name begins a trail's window (`lattiq`, a trail of `~/workspace/lattiq` itself, `lattiq-1a2b`) | "a tmux session named lattiq exists and isn't a trails workspace": a bare `-t lattiq` found the window first, by prefix | the workspace's session named exactly, `=lattiq:` (`t-prefix`) |
-| `trails keys` from a path with a space or `'` | broken bindings | quoted |
+| `trails tmux-config` from a path with a space or `'` | broken bindings | quoted |
 | an older fzf | the lists failed on its unknown options | each newer option asked of fzf; hints in a header, a snapshot preview |
 | an agent entry that isn't an object, a second by one name | broke every agent; two rows starting the first | skipped and said so |
 | no agent installed | `unknown agent ''` | says so |

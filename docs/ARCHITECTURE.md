@@ -56,7 +56,7 @@ Out of scope:
   never reads. It keeps a history of the trails it ran (their records, see
   [History](#history)), not of what was said in them.
 - **Configuring tmux.** trails sets `@trails_*` user options on what it makes and
-  nothing else, binds no keys, and never edits `tmux.conf`. `trails keys` prints
+  nothing else, binds no keys, and never edits `tmux.conf`. `trails tmux-config` prints
   suggestions.
 - **Saved layouts.** No `open` list, no layout file: a restore rebuilds what was
   running from the records, and tmuxinator or sesh work beside trails for the rest.
@@ -201,7 +201,7 @@ client it has just started: the nested client in a trail's window, or a map pane
 Under a fast `default-shell` that client was up first, and got switched to the
 workspace in place of the terminal that asked. With two terminals on one
 workspace the guess can also be the other terminal, so the client is found in
-order: `TRAILS_CLIENT`, which the `run-shell` bindings from `trails keys` pass
+order: `TRAILS_CLIENT`, which the `run-shell` bindings from `trails tmux-config` pass
 as `#{client_name}` (run-shell expands formats, display-popup does not); from a
 shell in a pane, the client showing `TMUX_PANE`, the most recently active when
 several do; else tmux's guess, which inside a popup is the client that opened
@@ -826,7 +826,7 @@ run in the codebase instead, with no popup.
 
 ## Keys
 
-trails binds nothing. `trails keys` prints lines for a tmux.conf: the picker in a
+trails binds nothing. `trails tmux-config` prints lines for a tmux.conf: the picker in a
 `display-popup`, which leaves no window behind and from
 which `switch-client` works (the popup check behind D4 of the design is
 `test/t-popup.sh`), and the editor and the shell. The popups are styled onto the
@@ -850,7 +850,7 @@ pane (which `prefix m` on it still does). Each is bound with a note (`bind -N
 have one, so without it trails' keys were missing from tmux's own list. With it,
 trails needs no help key of its own (1.11 had `H`); the picker's `?` has the rest.
 
-`run-shell "trails keys | tmux source-file -"` in tmux.conf loads them all each time
+`run-shell "trails tmux-config | tmux source-file -"` in tmux.conf loads them all each time
 tmux reads it, so they follow an upgrade; the lines it prints that say so are tmux
 comments, which the sourcing skips. Every tmux server reads that tmux.conf, trails'
 and any other, so `keys` asks which one is running it: a `run-shell` job has its
@@ -866,7 +866,7 @@ races a launch only through `launch_lock` and restore's back-already check, as a
 two launches do. Its output goes nowhere, since a run-shell's output is shown over
 the pane.
 
-`trails keys` also sets `status-left` to tmux's own `[session]`, `[▦ map]` on the map
+`trails tmux-config` also sets `status-left` to tmux's own `[session]`, `[▦ map]` on the map
 ([ADR 28](decisions/0028-a-tmux-native-server-that-tells-you-what-waits.md)): up to
 1.18 it listed every running workspace, a session selector stock tmux never shows. A
 click on it opens the picker, as `prefix P` does: `MouseDown1StatusLeft`, the one
@@ -906,7 +906,7 @@ option from the record, so a restore keeps a star; a trail without a record (no
 conversation yet) keeps it on its window only. The star is set on the trail's
 workspace window too (and by `ensure_window` when it makes one), where the window list's
 `@trails_star` reads it. A theme puts `#{E:@trails_star}` at the start of its window formats; tmux's
-stock ones get the star in front from `trails keys`, under `%if` while they expand the same as the stock
+stock ones get the star in front from `trails tmux-config`, under `%if` while they expand the same as the stock
 text (`%if` expands both sides, so a format's raw text can't be compared to a literal). `notify_run` reads `@trails_starred` through the agent pane for
 `"only": "starred"`. `trails next` (`prefix F`, `next_trail`) is a join of the agent's
 windows (the star, the state) and the workspace windows (the bell) by `@trails_window`: starred trails needing you or done with a turn, ordered by an unseen bell, then
@@ -997,7 +997,7 @@ The bindings' commands run with `SHELL=/bin/sh`: fzf runs them through `$SHELL`,
 and a login shell's zsh reads a path's `=` and `~` its own way.
 
 The status line's count is `checklist_count` on tmux's `status-interval`: a
-`#()` job in the `status-right` that `trails keys` sets, given the window's
+`#()` job in the `status-right` that `trails tmux-config` sets, given the window's
 `@trails_dir` (else the pane's directory), printing `☑ open/total · ` or nothing: each item at the right brings its own separator,
 so one that shows nothing leaves none behind.
 Adding or ticking an item refreshes it at once (`refresh-client -S`).
@@ -1037,7 +1037,7 @@ it.
 (`is_map`) and the terminal elsewhere, it switches there; otherwise it opens
 `trails map new` in a popup on that terminal, since a run-shell job has none of its
 own. The pick is `--multi=4`, the first four rows, the ones that most want you,
-ticked on load. `trails keys`' `status-left` is tmux's own `[session]`, and
+ticked on load. `trails tmux-config`' `status-left` is tmux's own `[session]`, and
 `[▦ map]` on the session marked `@trails_map`.
 
 ## The README demos
@@ -1057,7 +1057,7 @@ Each tape first sources `assets/demo/sandbox.sh`, which gives trails its own con
 server, and small Go projects at `~/code/checkout` and those in `DEMO_EXTRA`, with
 the repos in `DEMO_PERSONAL` under `~/src` (each refused if it exists, all removed
 afterwards). The demo's tmux runs through a wrapper that loads the demo's own
-config, a plain status line with `trails keys` after it, so the recording machine's
+config, a plain status line with `trails tmux-config` after it, so the recording machine's
 tmux.conf is not in the shot and the keys are the ones being released. Each of
 those bindings is wrapped to name itself for a few seconds in a yellow badge at the
 right of the status line (`prefix E · editor`), since a GIF cannot show a key

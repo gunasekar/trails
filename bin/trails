@@ -284,7 +284,7 @@ server_name() {
 # default, or with no server= line (and none already on another socket).
 server_legacy_default() {
   [ -d "$STATE_DIR" ] || return 1
-  any= other=
+  any='' other=''
   for f in "$STATE_DIR"/*/*; do
     [ -f "$f" ] || continue
     case $f in *.tmp.*) continue ;; esac
@@ -993,7 +993,7 @@ fi
 # by the time trails switches, that can be a nested client it has just started (a trail's
 # window, a map pane), which then gets switched instead of you; with two terminals on one
 # workspace it can be the other terminal. So, in order: TRAILS_CLIENT, which the run-shell
-# bindings `trails keys` prints pass as #{client_name}, the client that pressed the key;
+# bindings `trails tmux-config` prints pass as #{client_name}, the client that pressed the key;
 # from a shell in a pane, the client showing that pane (TMUX_PANE), the most recently
 # active when several do; else tmux's guess, which from inside a popup is the client that
 # opened it, display-popup expanding no formats to say so.
@@ -1020,7 +1020,7 @@ client_outer() {
 # of it. Kept, it would go into the environment of any server trails starts from here, and
 # every run-shell binding and popup there would read it as the pane it was run in.
 [ -n "${TMUX:-}" ] || unset TMUX_PANE
-# And a key's run-shell job (TRAILS_CLIENT, which trails keys' bindings pass) runs in no
+# And a key's run-shell job (TRAILS_CLIENT, which `trails tmux-config` bindings pass) runs in no
 # pane: a TMUX_PANE it has came with the server's environment, from wherever the server
 # was started, and taken for a pane it would show a popup's content in the job's output,
 # which nobody sees.
@@ -2434,11 +2434,11 @@ ask_workspace() {
 # `trails ws next` / `prev`: the terminal to the workspace after, or before, the one it is on,
 # in the order the status line lists them (by name, as tmux's #{S/n:} sorts), round the end.
 # Running workspaces only: one with nothing running has no session to go to. Bound to
-# prefix K and J by `trails keys` (ADR 24), beside tmux's own ( and ), which cycle through every
+# prefix K and J by `trails tmux-config` (ADR 24), beside tmux's own ( and ), which cycle through every
 # session, each trail's own among them.
 ws_step() {
   [ -n "$TMUX" ] || {
-    echo "trails: ws $1 moves a terminal that is in tmux — run it from one, or bind it (trails keys)" >&2
+    echo "trails: ws $1 moves a terminal that is in tmux — run it from one, or bind it (trails tmux-config)" >&2
     exit 1
   }
   wst_all=$(tmux list-sessions -F "#{session_name}$TAB#{@trails_workspace}" 2>/dev/null |
@@ -2796,7 +2796,7 @@ EOF
   # editor's panel, a map pane — each of which has its own frame, and the session's status line
   # inside that frame read as a second tmux. A session option on a session trails made for
   # itself, not on anything of yours (principle 3 of the design). detach-on-destroy on, the
-  # same way: the server's is no-detached (trails keys, ADR 28), which would move the nested
+  # same way: the server's is no-detached (trails tmux-config, ADR 28), which would move the nested
   # client of a trail that ends to some other session inside the window it was shown in.
   #
   # The agent runs under $WRAP (see "Surviving tmux"), which forgets the record when the
@@ -4061,7 +4061,7 @@ tools() {
 # from 1.7's first builds), or one from before "data" was set.
 #
 #   trails note TEXT    add TEXT as an item
-#   trails checklist    the checklist (prefix N, from `trails keys`): a line to type a new
+#   trails checklist    the checklist (prefix N, from `trails tmux-config`): a line to type a new
 #                       item on, and the items under it, open ones first. Enter adds what
 #                       was typed, or with nothing typed copies the item under the cursor;
 #                       space ticks it done, or back (checklist_ui)
@@ -4238,7 +4238,7 @@ checklist_open() {
   # shellcheck disable=SC2086 # $EDITOR may carry its own arguments
   [ "${2:-}" = back ] || exec $co_ed "$co_file"
   # From the list's ctrl-e: the list again once the editor quits, in prefix N's popup when it was
-  # in one (sized as `trails keys` binds it).
+  # in one (sized as `trails tmux-config` binds it).
   # shellcheck disable=SC2086
   $co_ed "$co_file"
   if in_popup; then
@@ -4525,7 +4525,7 @@ checklist_cmd() {
 
 # ─── The diff ────────────────────────────────────────────────────────────────
 # `trails diff [DIR]`: a codebase's changes, side by side, to read what an agent did. prefix G
-# (trails keys) on a trail's window shows or puts away the diff beside the agent (see "The diff
+# (trails tmux-config) on a trail's window shows or puts away the diff beside the agent (see "The diff
 # beside the agent"); anywhere else, or without Hunk, it shows them in a popup over the
 # workspace, since side by side wants the width; from a shell it is the terminal itself.
 #
@@ -4646,7 +4646,7 @@ diff_cmd() {
 }
 
 # ─── Keys ────────────────────────────────────────────────────────────────────
-# trails binds nothing (principle 2 of the design). `trails keys` prints lines for a
+# trails binds nothing (principle 2 of the design). `trails tmux-config` prints lines for a
 # tmux.conf, to paste or ignore, or to load whole with the one run-shell line it opens with:
 # the picker in a popup, which leaves no window behind (prefix P, and a click on [session]),
 # a star and the starred trail that wants you, the editor and the shell, the checklist in a
@@ -4704,8 +4704,7 @@ popup_bg() {
   printf '%s' "$tbg"
 }
 
-keys() {
-  kcommand=${1:-keys}
+tmux_config() {
   tbg=$(popup_bg)
   # trails' path quoted for the shell that runs it, then its backslashes doubled for tmux's
   # own double quotes: a path with a space or a ' still runs.
@@ -4757,7 +4756,7 @@ keys() {
   fi
   cat <<EOF
 # trails: one line in tmux.conf loads all of these, and follows every upgrade:
-#   run-shell "$kq $kcommand | tmux source-file -"
+#   run-shell "$kq tmux-config | tmux source-file -"
 # or paste what you want of them instead.
 # Opt-in, not loaded with the rest: put this in tmux.conf to bring back, whenever tmux starts,
 # the trails it lost (a reboot, a crash). To drop one for good, ctrl-x on its lost row.
@@ -5567,7 +5566,7 @@ refuse_bad_cwd() {
   exit 1
 }
 
-# The keys: the picker's, the tmux ones `trails keys` binds, and what the states mean. Part of
+# The keys: the picker's, the tmux ones `trails tmux-config` binds, and what the states mean. Part of
 # `trails help`, and on their own as `trails help keys`, which `?` in the picker shows.
 # The popup that shows them fits them: a row each, the border's two and less's prompt; the
 # widest line, the border's two and a column spare. Never larger than terminal $1 (a client
@@ -5587,7 +5586,7 @@ keys_popup_size() {
 
 keys_help() {
   cat <<'EOF'
-In tmux, from trails keys (prefix, then; tmux's own ? lists them too):
+In tmux, from trails tmux-config (prefix, then; tmux's own ? lists them too):
   P                 the picker, in a popup: every workspace with its trails and windows,
                     the one you are in first; a click on [session] opens it too
   S                 star the trail you are on, or unstar it
@@ -5659,7 +5658,7 @@ usage: trails [command]
                     want you ticked, or take the N that most want you; `new` rebuilds
                     instead of re-attaching
   restore           bring back every trail that died with tmux (the lost ones), each
-                    into its workspace; trails keys offers a line to run it whenever
+                    into its workspace; trails tmux-config offers a line to run it whenever
                     tmux starts
   boot              start tmux and the trails it lost, for a service manager: brew
                     services start trails runs it at login, outside any terminal
@@ -5672,7 +5671,7 @@ usage: trails [command]
   ws of [DIR]       the workspace DIR (here) belongs to
   ws add NAME [DIR] put DIR (here) in workspace NAME, creating it if new
   ws next | prev    the terminal to the next or previous running workspace, as the
-                    status line lists them (prefix K and J, from trails keys)
+                    status line lists them (prefix K and J, from trails tmux-config)
   edit | shell      the editor ($EDITOR) or a shell beside the agent, on the right,
                     as panes of the trail's window in the workspace (the editor alone
                     in a window of its own when nothing runs there): made once, then
@@ -5684,10 +5683,6 @@ usage: trails [command]
                     it and closes; ctrl-e opens the file in $EDITOR, then the list again
                     (the config's "data" says where); esc closes
   tmux-config       print tmux configuration, including theme indicator slots
-  keys              print tmux.conf lines that bind the picker, a star and the starred
-                    trail that wants you, the editor, the shell, the checklist, the
-                    previous and next workspace, the map, the diff and rename, and put
-                    [session] and the checklist's count in the status line
   diff [DIR]        this codebase's changes, untracked files too, side by side; from
                     prefix G on a trail's window, the diff beside the agent, shown or put
                     away, and elsewhere a popup; the config's "diff" says what shows that
@@ -5832,19 +5827,17 @@ case $1 in
   # From another server's tmux.conf (the run-shell line, which every server reads): nothing
   # but a comment, so a tmux of your own keeps its keys and status line. Run from a shell,
   # outside any tmux, it prints them all, to read or paste.
-  keys | tmux-config)
+  tmux-config)
     if [ -n "$FOREIGN_TMUX" ]; then
       echo "# trails: keys are for the trails server ($TRAILS_SERVER), not this one ($FOREIGN_TMUX)"
     else
-      keys "$1"
-      if [ "$1" = tmux-config ]; then
-        # Neutral theme slots: themes may expand these without knowing Trails.
-        cat <<'EOF'
+      tmux_config
+      # Neutral theme slots: themes may expand these without knowing Trails.
+      cat <<'EOF'
 set -g @window_label_prefix '#{E:@trails_star}'
 set -g @window_label_style '#{E:@trails_bell_style}'
 set -g @window_label_suffix '#{E:@trails_bell}'
 EOF
-      fi
     fi
     exit 0
     ;;
@@ -5877,10 +5870,10 @@ EOF
   # From the wrapper of a restore whose resume the agent refused after BOOT (see "Surviving
   # tmux"), run by the server: --refused TID SESSION. Once its session has gone, the trail
   # starts fresh in its place, as itself, if it is still lost.
-  # From trails keys, as the server reads it: detach-on-destroy on for every trail's session
+  # From trails tmux-config, as the server reads it: detach-on-destroy on for every trail's session
   # that was made before launch set it, so the server's no-detached never moves the nested
   # client of one that ends (see launch).
-  # From tmux's hooks (trails keys): how many trails want you, by the bells on their windows
+  # From tmux's hooks (trails tmux-config): how many trails want you, by the bells on their windows
   # (ADR 28), per workspace as @trails_wants_here and in all as @trails_wants_all, for the
   # status line's count. Only a trail's window in a workspace counts; one tmux, one count.
   #
@@ -6001,7 +5994,7 @@ EOF
       kb=$(popup_bg)
       # shellcheck disable=SC2046 # -w W -h H, four words on purpose
       exec tmux -L "$TRAILS_SERVER" display-popup -c "$CLIENT" -E $(keys_popup_size "$CLIENT") -s "bg=$kb" -S "bg=$kb,fg=brightblack" \
-        -T " trails keys " "$(shq "$SELF") help keys | less -R"
+        -T " trails tmux-config " "$(shq "$SELF") help keys | less -R"
     fi
     keys_help | less -R
     exit 0

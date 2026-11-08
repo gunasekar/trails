@@ -144,7 +144,7 @@ wait_for 5 sh -c "[ \"\$(tmux list-clients -F '#{client_name} #{window_id}' | aw
 assert_eq "$(on_term | cut -d' ' -f1)" beta "in its workspace"
 
 # ── The keys ────────────────────────────────────────────────────────────────────
-"$TRAILS" keys | tmux source-file - || fail "tmux refused the keys"
+"$TRAILS" tmux-config | tmux source-file - || fail "tmux refused the keys"
 assert_eq "$(tmux list-keys -T prefix W 2>/dev/null)" "" "no prefix W: the picker has it all"
 assert_eq "$(tmux list-keys -T prefix A 2>/dev/null)" "" "no prefix A"
 assert_match "$(tmux list-keys -T root MouseDown1StatusLeft)" "display-popup .*-w .60%.*/trails. [|][|]" "the click, the picker"

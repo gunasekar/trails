@@ -7,7 +7,7 @@
 # Off camera: a trail in each of four acme projects and in personal's blog, each started and
 # detached, and demo_task hands each one its task just before the camera rolls, answering
 # claude's trust question for a new folder only if it asks. Five real tasks, so a recording
-# costs a little of your plan. Runs in sandbox.sh's sandbox, on the demo's own tmux config (`trails keys`, C-b prefix).
+# costs a little of your plan. Runs in sandbox.sh's sandbox, on the demo's own tmux config (`trails tmux-config`, C-b prefix).
 
 Output assets/map.gif
 

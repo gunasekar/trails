@@ -1,5 +1,5 @@
 #!/bin/sh
-# The status line's left, as `trails keys` sets it: tmux's own [session], the workspace a
+# The status line's left, as `trails tmux-config` sets it: tmux's own [session], the workspace a
 # terminal is on and nothing else (ADR 28); and prefix K and J (`trails ws prev` / `next`) moving
 # a terminal through the workspaces, round the end.
 . "$REPO/test/lib.sh"
@@ -28,7 +28,7 @@ tmux switch-client -c "$term" -t =alpha
 wait_for 5 sh -c "[ \"\$(tmux list-clients -F '#{client_name} #{session_name}' | awk -v c='$term' '\$1 == c { print \$2 }')\" = alpha ]" || fail "not on alpha"
 
 # The status line, as the terminal draws it: [alpha], and neither beta nor alpha/one.
-"$TRAILS" keys | grep '^set -g status-left' >"$T/bar.conf"
+"$TRAILS" tmux-config | grep '^set -g status-left' >"$T/bar.conf"
 tmux source-file "$T/bar.conf" || fail "tmux refused the status lines"
 sleep 1
 bar=$(tmux capture-pane -ep -t driver-1 | tail -n 1 | sed 's/\x1b\[[0-9;]*m//g')

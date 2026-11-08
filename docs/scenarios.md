@@ -7,7 +7,7 @@ are the everyday loop, drawn from the 1.0 design's journeys
 grouped by what you are doing. The [README](../README.md) has the detail of
 each command and key.
 
-Keys are the ones `trails keys` prints: `prefix P` the picker, `prefix S` a
+Keys are the ones `trails tmux-config` prints: `prefix P` the picker, `prefix S` a
 star, `prefix F` the starred trail that wants you, `prefix E` the editor, `` prefix ` `` a shell, `prefix G` the diff,
 `prefix N` the checklist, `prefix M` the map; `prefix ?` lists them all.
 
@@ -37,7 +37,7 @@ star, `prefix F` the starred trail that wants you, `prefix E` the editor, `` pre
    workspaces in the config: `/*` entries for workspace directories, plain
    paths for codebases of their own, and an optional `root` for `browse…`.
 4. No workspaces at all: everything runs in `default`.
-5. `trails keys` prints the tmux.conf lines for the keys above, and the status
+5. `trails tmux-config` prints the tmux.conf lines for the keys above, and the status
    line's.
 
 ### Starting a trail

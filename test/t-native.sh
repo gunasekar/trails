@@ -19,7 +19,7 @@ wait_for 5 screen_has alpha/one 'agent id=' || fail "one never started"
 driver_attached || fail "the terminal never attached"
 
 # ── The keys ────────────────────────────────────────────────────────────────────
-"$TRAILS" keys | tmux source-file - || fail "tmux refused the keys"
+"$TRAILS" tmux-config | tmux source-file - || fail "tmux refused the keys"
 case $(tmux show -gv status-left) in
   '[#{?@trails_map,▦ map,#{session_name}}] '*) ;;
   *) fail "status-left is not tmux's [session]: $(tmux show -gv status-left)" ;;

@@ -18,9 +18,9 @@ has_cell() { [ -n "$(cell_of)" ]; }
 wait_for 5 has_cell || fail "no trail's window"
 cell=$(cell_of)
 
-# The right of the status line as trails keys sets it, up to the checklist's count (a job, which
+# The right of the status line as trails tmux-config sets it, up to the checklist's count (a job, which
 # display-message would not wait for), drawn for the trail's window.
-"$TRAILS" keys | tmux source-file - || fail "trails keys did not load"
+"$TRAILS" tmux-config | tmux source-file - || fail "trails tmux-config did not load"
 task_fmt=$(tmux show -gv status-right | sed 's/#(.*//')
 [ -n "$task_fmt" ] || fail "no task in status-right"
 bar() { tmux display-message -pt "$cell" "$task_fmt"; }

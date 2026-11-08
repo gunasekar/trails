@@ -38,7 +38,7 @@ wait_for 5 sh -c "tmux list-clients -t 'ws~2' | grep -q ." || fail "no terminal 
 b=$(tmux list-clients -t 'ws~2' -F '#{client_name}')
 tmux select-window -t "=ws~2:$wid_one"
 
-# Run trails for terminal B, as the key bindings `trails keys` prints do: from run-shell,
+# Run trails for terminal B, as the key bindings `trails tmux-config` prints do: from run-shell,
 # with the terminal that pressed the key in TRAILS_CLIENT.
 sock=$(tmux display-message -p '#{socket_path}')
 for_b() { tmux run-shell "env TMUX='$sock,1,0' TRAILS_CLIENT='$b' $*"; }

@@ -96,7 +96,7 @@ everyday loop, and every other way trails is used, are in
 
 ## Keys
 
-In tmux, after `prefix`, from `trails keys`:
+In tmux, after `prefix`, from `trails tmux-config`:
 
 | Key | Does |
 |---|---|
@@ -132,7 +132,7 @@ keys stay tmux's: `?` still lists every binding, trails' among them as
 `trails: …`, and `(` and `)` still cycle through every session. `P`, `S`, `F`,
 `N`, `G`, `R`, `J` and `K` are unbound in tmux's defaults; `E` replaces spreading the panes out evenly (still
 `:select-layout -E`), and `M` clearing the marked pane (still `prefix m` on it). A
-line after the `trails keys` one that binds the same key wins.
+line after the `trails tmux-config` one that binds the same key wins.
 
 ## Using it
 
@@ -193,11 +193,10 @@ The star is kept in the trail's record, so it survives tmux going down and
 - can be the only kind that notifies: `"notify": { "only": "starred" }`
   ([notifications](#notifications)).
 
-`trails tmux-config` prints the same bindings, hooks and status as `trails keys`,
-plus neutral theme slots `@window_label_prefix`, `@window_label_style` and
-`@window_label_suffix` for the star and bell. Load it after the theme. Themes
+`trails tmux-config` prints bindings, hooks, status and neutral theme slots
+`@window_label_prefix`, `@window_label_style` and `@window_label_suffix` for the
+star and bell. Load it after the theme. Themes
 that expand those slots can show the indicators without Trails-specific formats.
-The existing `trails keys` command remains available for compatibility.
 
 **A bell for what wants you.** A trail blocked on a question, or done with a turn,
 rings tmux's bell in its window: tmux marks the window (stock tmux shows `!` after
@@ -219,7 +218,7 @@ from showing), for example
 A starred trail's ★ is `#{E:@trails_star}`, for the start of a theme's window
 formats, before the window's number. It leaves the colour yellow, so set yours
 after it: `#{E:@trails_star}#[fg=#686868]#I:#W`. tmux's stock formats get it from
-`trails keys`; a theme's are left as they are.
+`trails tmux-config`; a theme's are left as they are.
 
 The task is the title the agent gives its terminal, Claude's summary of the
 conversation, read as it changes and cut at 40 characters; a named trail has its
@@ -665,7 +664,7 @@ restore brings it back under the name. The agent keeps the name it was started w
 After a reboot, a crash or a `kill-server`, the trails show up as *lost*, not
 gone. Enter on one brings it back on its conversation, and `trails restore`
 brings back them all, each into its workspace. To have tmux do that whenever it
-starts, add the line `trails keys` offers for it:
+starts, add the line `trails tmux-config` offers for it:
 
 ```tmux
 run-shell -b "trails restore >/dev/null 2>&1"
@@ -750,7 +749,6 @@ without a Trails-specific reporting hook or extension.
 | `trails server [NAME]` | the tmux socket trails is on, or move its trails to `NAME` once the old server is stopped |
 | `trails map [N \| new]` | trails side by side in one window |
 | `trails tmux-config` | tmux bindings, status, hooks and optional theme indicators |
-| `trails keys` | the original tmux bindings and status configuration |
 | `trails state WORD [--id ID] [--agent PROGRAM]` | for an agent's hooks: `working`, `waiting` or `idle` |
 | `trails config` | the config in `$EDITOR`, the built-in agents written first |
 | `trails help [keys]` | the commands and keys |
@@ -862,7 +860,7 @@ life  state  session  agent  yolo  dir  id  when  workspace  trail  title
 </details>
 
 <details>
-<summary><b>The tmux lines</b> <code>trails keys</code> prints</summary>
+<summary><b>The tmux lines</b> <code>trails tmux-config</code> prints</summary>
 
 ```text
 bind -N "trails: every trail, the picker" P if -F "#{e|>=:#{client_width},217}" { if -F "#{e|>=:#{client_height},29}" { display-popup -E -w 60% -h 70% -s bg=terminal -S bg=terminal,fg=brightblack "'trails' || { echo; echo press enter to close; read -r _; }" } { display-popup -E -w 60% -h 95% -s bg=terminal -S bg=terminal,fg=brightblack "'trails' || { echo; echo press enter to close; read -r _; }" } } { if -F "#{e|>=:#{client_width},134}" { if -F "#{e|>=:#{client_height},29}" { display-popup -E -w 130 -h 70% -s bg=terminal -S bg=terminal,fg=brightblack "'trails' || { echo; echo press enter to close; read -r _; }" } { display-popup -E -w 130 -h 95% -s bg=terminal -S bg=terminal,fg=brightblack "'trails' || { echo; echo press enter to close; read -r _; }" } } { if -F "#{e|>=:#{client_height},29}" { display-popup -E -w 97% -h 70% -s bg=terminal -S bg=terminal,fg=brightblack "'trails' || { echo; echo press enter to close; read -r _; }" } { display-popup -E -w 97% -h 95% -s bg=terminal -S bg=terminal,fg=brightblack "'trails' || { echo; echo press enter to close; read -r _; }" } } }
@@ -896,12 +894,15 @@ set-hook -g "alert-bell[42]" "run-shell -b \"'trails' --wants >/dev/null 2>&1\""
 set-hook -g "session-window-changed[42]" "run-shell -b \"'trails' --wants >/dev/null 2>&1\""
 set-hook -g "client-session-changed[42]" "run-shell -b \"'trails' --wants >/dev/null 2>&1\""
 set-hook -g "window-unlinked[42]" "run-shell -b \"'trails' --wants >/dev/null 2>&1\""
+set -g @window_label_prefix '#{E:@trails_star}'
+set -g @window_label_style '#{E:@trails_bell_style}'
+set -g @window_label_suffix '#{E:@trails_bell}'
 ```
 
 It prints trails' full path where these show `trails`, the full `status-left`
 and `status-right` formats where they show `…`, and `bg=default` for
 `bg=terminal` before tmux 3.8. Both status lines replace yours: set yours after
-the `trails keys` line to keep them. Or paste only the lines you want, and paste again when they change.
+the `trails tmux-config` line to keep them. Or paste only the lines you want, and paste again when they change.
 
 **A workspace in two terminals.** Terminals on one tmux session share its current
 window. For a second terminal that moves on its own, give it a session grouped
