@@ -4440,6 +4440,9 @@ diff_cmd() {
 }
 
 hunk_show() {
+  # OpenTUI's Kitty graphics probe can render as text in a tmux popup. Disable it
+  # only for this popup; other panes keep their own graphics and passthrough settings.
+  if [ "${2:-}" = popup ]; then OPENTUI_GRAPHICS=false; export OPENTUI_GRAPHICS; fi
   cd "$1" || exit 1
   if ! command -v hunk >/dev/null 2>&1; then
     echo 'trails: hunk is required for the live diff'
@@ -5652,7 +5655,7 @@ EOF
     ;;
   diff)
     if [ "${2:-}" = --hunk ]; then
-      hunk_show "${3:-}"
+      hunk_show "${3:-}" popup
     else
       diff_cmd "${2:-}"
     fi

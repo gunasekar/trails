@@ -755,7 +755,10 @@ from a shell, the same command runs in that terminal. The popup runs
 `hunk diff --watch`, with Git's `diff.context` set to 99999 for that process so
 changed files are shown whole. Hunk's own configuration controls its appearance.
 Hunk and a Git worktree are required; Trails' old `diff` configuration is no longer
-used. Quitting Hunk closes the popup; there is no diff pane to lay out or remember. Legacy marked diff panes are recognized until
+used. The popup sets `OPENTUI_GRAPHICS=false` for Hunk to suppress its Kitty
+graphics probe, which tmux can otherwise render as text; it does not change
+passthrough or graphics settings for other panes. Quitting Hunk closes the popup;
+there is no diff pane to lay out or remember. Legacy marked diff panes are recognized until
 closed, and are removed when their trail ends.
 
 ## Keys
