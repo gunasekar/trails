@@ -1237,18 +1237,22 @@ sessions() {
 # `trails state` set as @trails_state on its pane, or unknown. One list-windows for the pass:
 # a script polling `trails ls -a` runs this every few seconds.
 classify() {
-  rows=$(cat)
-  [ -n "$rows" ] || return 0
+  # Join in one awk rather than starting an awk and a shell pipeline for each trail.
   said=$(tmux list-windows -a -F "#{window_id}$TAB#{@trails_state}" 2>/dev/null)
-  printf '%s\n' "$rows" | while IFS="$TAB" read -r wid key ws label dir cb badge task; do
-    state=$(printf '%s\n' "$said" | awk -F"$TAB" -v n="$wid" '$1 == n { print $2; exit }')
-    case $state in
-      waiting) state=blocked ;;
-      working | idle) ;;
-      *) state=unknown ;;
-    esac
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$state" "$wid" "$key" "$ws" "$label" "$dir" "$cb" "$badge" "$task"
-  done
+  TRAILS_SAID=$said awk -F"$TAB" -v OFS="$TAB" '
+    BEGIN {
+      n = split(ENVIRON["TRAILS_SAID"], lines, "\n")
+      for (i = 1; i <= n; i++) {
+        split(lines[i], f, "\t")
+        if (!(f[1] in state)) state[f[1]] = f[2]
+      }
+    }
+    {
+      s = state[$1]
+      if (s == "waiting") s = "blocked"
+      else if (s != "working" && s != "idle") s = "unknown"
+      print s, $0
+    }'
 }
 
 # ─── Notifications ───────────────────────────────────────────────────────────
@@ -2044,7 +2048,15 @@ OHEOF
   fi
   [ -n "$ONE_WS" ] || [ -z "$ONE_DIR" ] || ONE_WS=$(workspace_of "$ONE_DIR" 2>/dev/null)
   [ -n "$ONE_WS" ] && [ "$ONE_WS" != - ] || ONE_WS=default
-  [ -z "$ONE_DIR" ] || ! codebase_tree "$ONE_WS" | cut -f1 | grep -qxF "$ONE_DIR" || ONE_TREE=1
+  if [ -n "$ONE_DIR" ]; then
+    # Most current codebases are configured directly. Avoid collecting all activity just
+    # to establish membership; the full tree also includes active nested directories.
+    if ws_codebases "$ONE_WS" | ONE_LOOKUP_DIR=$ONE_DIR awk -F'|' '$2 == ENVIRON["ONE_LOOKUP_DIR"] && $1 != "wsdir" { found = 1 } END { exit !found }'; then
+      ONE_TREE=1
+    elif codebase_tree "$ONE_WS" | cut -f1 | grep -qxF "$ONE_DIR"; then
+      ONE_TREE=1
+    fi
+  fi
   export ONE_WS ONE_DIR ONE_AT ONE_TREE
 }
 
@@ -3270,7 +3282,7 @@ rec_migrate() {
   done
   rmdir "$STATE_DIR/.migrating" 2>/dev/null
 }
-rec_get() { sed -n "s/^$2=//p" "$(rec_path "$1")" 2>/dev/null | head -n 1; }
+rec_get() { awk -v key="$2=" 'index($0, key) == 1 { print substr($0, length(key) + 1); exit }' "$(rec_path "$1")" 2>/dev/null || :; }
 rec_forget() { [ -n "$1" ] && rm -f "$(rec_path "$1")"; }
 
 # ─── History ─────────────────────────────────────────────────────────────────
@@ -3441,7 +3453,7 @@ EOF
 # Only a record of this tmux server: on another (`tmux -L other`, a test's), every trail of
 # the first would look dead, and restoring them there would run each conversation twice.
 #
-# ALIVE is the one list-windows for a whole rec_dead pass; a lone question asks itself.
+# A lone question asks tmux itself; rec_dead batches its own snapshot and record reads.
 rec_is_dead() {
   [ -f "$(rec_path "$1")" ] || return 1
   rid_srv=$(rec_get "$1" server)
@@ -3462,11 +3474,36 @@ tmux_server() {
 
 # Every record whose trail is not running: what died with tmux. Keys only.
 rec_dead() {
-  ALIVE=$(tmux list-windows -a -F "#{@trails_trail}${US}#{@trails_session}${US}#{@trails_id}" 2>/dev/null)
-  rec_keys | while read -r key; do
-    rec_is_dead "$key" && printf '%s\n' "$key"
-  done
-  ALIVE=
+  [ -d "$STATE_DIR" ] || return 0
+  # Read each record once and join it to the one tmux snapshot. This path runs when
+  # the picker opens, even when every record is alive.
+  rd_alive=$(tmux list-windows -a -F "#{@trails_trail}${US}#{@trails_session}${US}#{@trails_id}" 2>/dev/null)
+  find "$STATE_DIR" -mindepth 2 -maxdepth 2 -type f \( -name 't????' -o -name 't????????' \) 2>/dev/null |
+    RD_ALIVE=$rd_alive RD_SERVER=$TRAILS_SERVER awk -v us="$US" '
+      BEGIN {
+        n = split(ENVIRON["RD_ALIVE"], lines, "\n")
+        for (i = 1; i <= n; i++) {
+          split(lines[i], f, us)
+          if (f[1] != "") live[f[1]] = 1
+          if (f[1] == "") legacy[lines[i]] = 1
+        }
+      }
+      {
+        path = $0; key = path; sub(/^.*\//, "", key)
+        if (key !~ /^t[0-9a-f][0-9a-f][0-9a-f][0-9a-f]$/ &&
+            key !~ /^t[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]$/) next
+        if (key in seen) next
+        seen[key] = 1; delete v; delete got
+        while ((getline line < path) > 0) {
+          p = index(line, "="); if (!p) continue
+          name = substr(line, 1, p - 1)
+          if (!(name in got)) { v[name] = substr(line, p + 1); got[name] = 1 }
+        }
+        close(path)
+        server = v["server"] == "" ? "trails" : v["server"]
+        if (server == ENVIRON["RD_SERVER"] && !(key in live) &&
+            !((us v["session"] us v["id"]) in legacy)) print key
+      }'
 }
 
 # Bring one dead trail back, detached, from its record; prints the key it came back under.
@@ -3722,7 +3759,11 @@ RECENT_MAX=${TRAILS_RECENT_MAX:-5}
 
 # Every conversation ID a record holds, space-separated and padded for a match.
 held_ids() {
-  printf ' %s ' "$(rec_keys | while read -r key; do rec_get "$key" id; done | tr '\n' ' ')"
+  [ -d "$STATE_DIR" ] || { printf '  '; return; }
+  # Read all records in one process instead of finding and opening each one again.
+  find "$STATE_DIR" -mindepth 2 -maxdepth 2 -type f \( -name 't????' -o -name 't????????' \) -exec awk '
+    FNR == 1 { valid = FILENAME ~ /\/t([0-9a-f][0-9a-f][0-9a-f][0-9a-f]|[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f])$/; seen = 0 }
+    valid && !seen && /^id=/ { printf "%s ", substr($0, 4); seen = 1 }' {} + 2>/dev/null | awk 'BEGIN { printf " " } { printf "%s", $0 } END { printf " " }'
 }
 
 # TRAILS_RECENT_MAX=0 turns it off, for a caller that only wants what is running.
@@ -5911,8 +5952,7 @@ trap 'exit 143' TERM
 find "${TMPDIR:-/tmp}" -maxdepth 1 -user "$(id -u)" \( -type d -name 'trails.??????' -o -type s -name 'trails-probe-*.sock' \) \
   -mtime +0 -exec rm -rf {} + 2>/dev/null
 
-# Classify the running trails once, up front — the only place that pays classify's settle
-# sleep on the picker's happy path. Empty (not absent) with no tmux to look in.
+# Classify the running trails once, up front. Empty (not absent) with no tmux to look in.
 : >"$TRAILS_MENU_CACHE"
 if [ -n "$USE_TMUX" ]; then
   case ${TRAILS_PICKER:-} in
