@@ -1,18 +1,20 @@
 # trails from one terminal: the picker's one list of every workspace's trails, the same list in
-# a popup over a trail, the diff beside the agent, then the editor in its place and a shell
-# under it, the workspaces moved between with a key, and the map: every trail side by side.
+# a popup over a trail, the live diff popup, the editor beside the agent and a floating
+# pane, the workspaces moved between with a key, and the map: every trail side by side.
 #
 #   vhs assets/demo/trails.tape      (from the repo root; writes assets/trails.gif)
 #
 # Off camera: two real Claude Code trails in the acme workspace (one handed a task, so its
 # row and its diff have something to show) and one in personal. Runs in sandbox.sh's sandbox, on the
-# demo's own tmux config (the `trails tmux-config` lines, C-b prefix).
+# demo's own tmux config (the `trails tmux-config` lines, C-b prefix); requires tmux 3.8+
+# for the floating-pane shortcut.
 Output assets/trails.gif
 Require claude
 Require tmux
 Require fzf
 Require jq
 Require nvim
+Require hunk
 Set Shell bash
 Set FontSize 14
 Set Width 1600
@@ -75,7 +77,7 @@ Type "demo_task acme/storefront ''; demo_task personal/blog ''; demo_task acme/c
 Enter
 Wait+Line@90s /^~ \$\s*$/
 # Twenty seconds more off camera: the agent in checkout reads before it writes, and the diff
-# beside it should have something to show when the camera gets there.
+# popup should have something to show when the camera gets there.
 Sleep 20s
 Set TypingSpeed 55ms
 Show
@@ -96,17 +98,21 @@ Type "P"
 Sleep 3.5s
 Escape
 Sleep 1.5s
-# The agent's changes beside it, live, in Hunk: prefix G.
+# The agent's changes in the live Hunk popup: prefix G.
 Ctrl+B
 Type "G"
 Sleep 5s
-# The editor takes the diff's place, then a shell along the bottom: one key each.
+# Quit the popup, then open the editor beside the agent and a floating shell.
+Type "q"
+Sleep 1s
 Ctrl+B
 Type "E"
 Sleep 4s
 Ctrl+B
 Type "`"
 Sleep 3.5s
+Ctrl+D
+Sleep 1s
 # To the next workspace and back, with prefix J and K.
 Ctrl+B
 Type "J"

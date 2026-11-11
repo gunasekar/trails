@@ -50,7 +50,7 @@ export TRAILS_SERVICE=
 for v in $(env | grep -o -E '^CLAUDE[A-Z_]*='); do unset "${v%=}"; done
 demo_history="$XDG_STATE_HOME/trails/history"
 mkdir -p "$project/payments" "$TMUX_TMPDIR" "$demo/bin" "$XDG_CONFIG_HOME/trails" "$demo_history"
-# Hunk, the diff beside the agent, reads the recording machine's own config (its theme, no menu
+# Hunk, the live diff popup, reads the recording machine's own config (its theme, no menu
 # bar) where it has one: the demo's XDG_CONFIG_HOME would otherwise hide it.
 if [ -f "$HOME/.config/hunk/config.toml" ]; then
   mkdir -p "$XDG_CONFIG_HOME/hunk" && cp "$HOME/.config/hunk/config.toml" "$XDG_CONFIG_HOME/hunk/"
@@ -72,7 +72,7 @@ chmod +x "$demo/bin/tmux"
   echo 'set -g default-shell /bin/sh'
   echo "set -g default-command '$SHELL'"
   echo 'set -g focus-events on'  # or Claude Code's welcome screen asks for it
-  # Every pane labelled once a window splits (trails names them: the agent, hunk, the editor),
+  # Every pane labelled once a window splits (trails names the agent and editor),
   # as a tmux.conf that shows borders would; a window of one pane has nothing to tell apart.
   echo 'set -g pane-border-status off'
   echo 'set -g pane-border-lines heavy'

@@ -6,6 +6,12 @@
   (`window_layout`)
 - Date: 2026-10
 
+
+**Current behavior:** This decision records the earlier layout. Trails now manages
+the agent and editor panes; `` prefix ` `` creates a native tmux floating pane
+on tmux 3.8+, and `prefix G` opens live Hunk in a popup. Existing marked shell and
+diff panes are still recognized. See [Architecture](../ARCHITECTURE.md#the-editor-and-floating-panes).
+
 ## Context
 
 ADR 13 made a trail a window in its workspace session, and ADR 14 linked that

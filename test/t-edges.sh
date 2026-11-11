@@ -164,12 +164,16 @@ assert_match "$keys" "^In tmux, from trails tmux-config" "and the tmux ones"
 assert_eq "$("$TRAILS" help | grep -c '^In tmux, from trails tmux-config')" 1 "trails help has them, once"
 # No key of trails' own for them: tmux's ? lists trails' keys with its own (ADR 24).
 assert_eq "$("$TRAILS" tmux-config | grep -c -e ' --keys"$' -e '^bind -N "[^"]*" H ')" 0 "no prefix H"
-# Every key trails binds is a capital letter, but ` for the shell (ADR 24): tmux's own lower-case
-# keys and symbols stay tmux's.
-assert_eq "$("$TRAILS" tmux-config | sed -n 's/^bind -N "[^"]*" \([^ ]*\) .*/\1/p' | grep -v -e '^[A-Z]$' -e '^-n$' | tr '\n' ' ')" '` ' "capitals only, and the backtick"
+# The backtick exists only when native floating panes are available.
+if tmux list-commands | grep -q '^new-pane '; then
+  extra_keys='` ' binding_count=12
+else
+  extra_keys='' binding_count=11
+fi
+assert_eq "$("$TRAILS" tmux-config | sed -n 's/^bind -N "[^"]*" \([^ ]*\) .*/\1/p' | grep -v -e '^[A-Z]$' -e '^-n$' | tr '\n' ' ')" "$extra_keys" "capitals and the optional backtick"
 # Outside the prefix table, one binding only: a click on the status line's [session] (ADR 28),
 # which stock tmux leaves unbound.
 assert_eq "$("$TRAILS" tmux-config | sed -n 's/^bind -N "[^"]*" -n \([^ ]*\) .*/\1/p' | tr '\n' ' ')" 'MouseDown1StatusLeft ' "the click, and no other key outside the prefix"
 # Every one with a note, so tmux's own list of keys (prefix ?, list-keys -N) shows it.
 assert_eq "$("$TRAILS" tmux-config | grep '^bind ' | grep -cv '^bind -N "trails: [^"]*" ')" 0 "every binding noted"
-assert_eq "$("$TRAILS" tmux-config | grep -c '^bind -N "trails: ')" 12 "all eleven, and the click"
+assert_eq "$("$TRAILS" tmux-config | grep -c '^bind -N "trails: ')" "$binding_count" "all available bindings and the click"

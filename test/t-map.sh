@@ -52,10 +52,10 @@ wait_for 5 sh -c "[ \"\$(tmux list-panes -t trails_map | wc -l | tr -d ' ')\" = 
 assert_eq "$(tmux list-panes -t trails_map -F '#{pane_top}' | sort -u | wc -l | tr -d ' ')" 1 "side by side when the config says so"
 
 # Ending a trail (ctrl-x, `--kill`): the agent's window, its session and its record go, and
-# the trail's window, with a shell beside the agent, is kept as the codebase's shell window.
-driver "$TRAILS" shell "$PROJ"
+# the trail's window, with an editor beside the agent, is kept as the codebase's editor window.
+EDITOR='ed' driver "$TRAILS" edit "$PROJ"
 pwin() { tmux list-windows -t default -F '#{window_id} #{@trails_window}' | awk '$2 == "default/payments" { print $1 }'; }
-wait_for 5 sh -c "[ \"\$(tmux list-panes -t \"\$(tmux list-windows -t default -F '#{window_id} #{@trails_window}' | awk '\$2 == \"default/payments\" { print \$1 }')\" | wc -l | tr -d ' ')\" = 2 ]" || fail "no shell beside payments"
+wait_for 5 sh -c "[ \"\$(tmux list-panes -t \"\$(tmux list-windows -t default -F '#{window_id} #{@trails_window}' | awk '\$2 == \"default/payments\" { print \$1 }')\" | wc -l | tr -d ' ')\" = 2 ]" || fail "no editor beside payments"
 pw=$(pwin)
 # With no locale at all, as a launchd job runs: a tmux client in the C locale rewrites the
 # separator between two fields as `_`, and restore would find no trail running to skip.
@@ -64,8 +64,8 @@ assert_match "$(cd "$PROJ" && env -u LANG -u LC_ALL -u LC_CTYPE "$TRAILS" ls -a 
 awid=$(tmux list-windows -a -F '#{window_id} #{@trails_session}' | awk '$2 == "default/payments" { print $1 }')
 (cd "$PROJ" && "$TRAILS" --kill "$awid")
 wait_for 3 no_session default/payments || fail "the session survived"
-wait_for 5 sh -c "[ \"\$(tmux display-message -pt '$pw' '#{window_name} #{@trails_tool} #{window_panes}')\" = 'proj·shell shell 1' ]" || fail "the trail's window was not released: $(tmux display-message -pt "$pw" '#{window_name} #{@trails_window} #{@trails_tool} #{window_panes}')"
-assert_eq "$(tmux list-windows -t default -F '#{window_name}' | sort | tr '\n' ' ')" "other·ledger proj·shell " "the windows"
+wait_for 5 sh -c "[ \"\$(tmux display-message -pt '$pw' '#{window_name} #{@trails_tool} #{window_panes}')\" = 'proj·ed editor 1' ]" || fail "the trail's window was not released: $(tmux display-message -pt "$pw" '#{window_name} #{@trails_window} #{@trails_tool} #{window_panes}')"
+assert_eq "$(tmux list-windows -t default -F '#{window_name}' | sort | tr '\n' ' ')" "other·ledger proj·ed " "the windows"
 assert_no_file "$(trec default/payments)" "the record went"
 
 # trails tmux-config prints bindings, and changes nothing.

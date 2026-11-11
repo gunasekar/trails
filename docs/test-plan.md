@@ -30,7 +30,7 @@ covered yet.
 | 3 | New trail in this codebase | A `t-picker` |
 | 4 | New trail in another codebase | A `t-screens` |
 | 5 | Move between trails and workspaces | A `t-screens`, `t-inside`, `t-grouped` |
-| 6 | Editor and shell beside the agent | A `t-tools` · M3 |
+| 6 | Editor beside the agent, floating pane, live diff popup | A `t-tools`, `t-floating`, `t-diffpane` · M3 |
 | 7 | Come back after a break, restore after tmux dies | A `t-restore`, `t-autorestore`, `t-upgrade` · M4 |
 | 8 | Finish, or resume old work | A `t-launch`, `t-picker` (ctrl-x) · M5 (resume) |
 
@@ -63,13 +63,14 @@ covered yet.
 | | notifications as a sound: needs you, your turn after idle_after; on, show (focused or not), sound by name, silent, only starred, off | A `t-sound` |
 | | every workspace from anywhere, ctrl-x on any trail, every workspace's old trails | A `t-all` |
 | | `?`: the keys, `trails help keys` | A `t-edges` (the text) · checked by hand with real fzf |
-| Beside the agent | edit, shell, toggles, kept window, ctrl-e | A `t-tools` |
-| | the diff: untracked files, a popup from prefix G, a gui command | A `t-diff` |
-| | the diff beside the agent: never by itself, prefix G at any width, remembered across resizes, the editor's turn and G during it, a shell under it, q, a Hunk that can't start, passthrough off, the labels, the agent's exit | A `t-diffpane` |
+| Beside the agent | editor creation and reuse, kept when the agent exits | A `t-tools` · M3 |
+| | native floating pane from the backtick binding (tmux 3.8+) | A `t-floating` · M3 |
+| | Hunk in the terminal and refusal outside a Git repository | A `t-diff` |
+| | live Hunk popup with and without the editor, closes on quit, adds no split | A `t-diffpane` · M3 |
 | Checklist | prefix N: add, Esc, Enter copies, ctrl-e; tick; count; `note`; path, old `notes` key and file | A `t-checklist` · M10 |
 | Ending | ctrl-x | A `t-picker`, `t-tools`, `t-map` |
 | | resume old trails, from the history; ctrl-x forgets one; a resume that dies keeps it | A `t-hooks` · M5 |
-| | a conversation that never had a turn stays out of the history | A `t-tools` |
+| | a conversation that never had a turn stays out of the history | — |
 | When things die | lost, `trails restore` (and forgetting what it can't bring back), reboot | A `t-restore` · M4 |
 | | restore when tmux starts, the opt-in line | A `t-autorestore` |
 | Remote | ssh in, one connection for every workspace | M1 |
@@ -92,7 +93,7 @@ Each on the real machine, in Ghostty, with `trails tmux-config` pasted into tmux
 |---|---|---|
 | M1 | From another machine: `ssh host -t trails`, pick a trail, `prefix P` to a trail in another workspace, detach, reconnect | Every workspace listed; attached on that trail; switched without reconnecting; the cursor on where you were on return |
 | M2 | Ask claude something that needs a permission; let another finish its turn | `needs you` and `your turn` in the picker, the cursor on the one that needs you |
-| M3 | In a trail: `prefix E`, again, `` prefix ` ``, quit the agent | Editor right 60%, agent left; back to the agent; shell under the editor (a 40% column on the right with no editor); editor and shell kept as the codebase's window |
+| M3 | In a Git trail on tmux 3.8+: `prefix E`, again, `` prefix ` ``, exit the shell; `prefix G`, then `q`; quit the agent | Editor right 60%, agent left; back to the agent; a floating pane opens and closes; live Hunk appears in a popup without changing the layout; the editor remains when the agent exits |
 | M4 | `tmux kill-server`, then `trails`, then `trails restore` | Trails shown `lost` in the picker; each back on its conversation, in its workspace |
 | M5 | End a claude trail, then **↩ resume old trails**, Tab on it, Enter | Listed as closed; Tab flips YOLO; resumes on its conversation |
 | M6 | `brew install` or `bin/trails` on PATH; `trails tmux-config` into tmux.conf, reload | Every line accepted, every key works |

@@ -8,7 +8,7 @@ grouped by what you are doing. The [README](../README.md) has the detail of
 each command and key.
 
 Keys are the ones `trails tmux-config` prints: `prefix P` the picker, `prefix S` a
-star, `prefix F` the starred trail that wants you, `prefix E` the editor, `` prefix ` `` a shell, `prefix G` the diff,
+star, `prefix F` the starred trail that wants you, `prefix E` the editor, `` prefix ` `` a floating pane (tmux 3.8+), `prefix G` the live diff popup,
 `prefix N` the checklist, `prefix M` the map; `prefix ?` lists them all.
 
 ## The everyday loop
@@ -20,7 +20,7 @@ star, `prefix F` the starred trail that wants you, `prefix E` the editor, `` pre
 | 3 | Start a trail in this codebase | `trails` in the repo, or `prefix P`: **＋ new trail…**, then an agent |
 | 4 | Start a trail in another codebase of the workspace | `prefix P`: **＋ new trail…**, the codebase, then an agent |
 | 5 | Move between trails and workspaces | `prefix P` (or a click on `[session]`) for every trail of every workspace, `prefix K` and `J` for the workspaces, or tmux's own window keys |
-| 6 | Read or change the code beside the agent | `prefix E` for the editor, `` prefix ` `` for a shell |
+| 6 | Read or change the code beside the agent | `prefix E` for the editor, `` prefix ` `` for a floating pane |
 | 7 | Come back after a break: lid closed, Wi-Fi dropped, a reboot | As in 1. After a reboot or a tmux crash, `trails restore` first |
 | 8 | Finish, or pick old work back up | Quit the agent, or ctrl-x on its row; **↩ resume old trails** for what ended |
 
@@ -29,7 +29,8 @@ star, `prefix F` the starred trail that wants you, `prefix E` the editor, `` pre
 ### Setting up
 
 1. Install with Homebrew, or put `bin/trails` on `PATH`, with tmux 3.3 or later,
-   fzf, jq and an agent CLI.
+   fzf, jq and an agent CLI. Hunk is needed for the diff; tmux 3.8+ is needed
+   for the native floating-pane shortcut.
 2. `trails config` writes the built-in agents to
    `~/.config/trails/config.json`, to edit: the agents, `default_agent`, `mode`
    (`default` or `yolo`), `map` and `data`.
@@ -84,14 +85,13 @@ star, `prefix F` the starred trail that wants you, `prefix E` the editor, `` pre
 
 1. `prefix E` / `trails edit`: the editor on the right 60%, the agent on the
    left. Again goes back.
-2. `` prefix ` `` / `trails shell`: a shell in a column on the right, half the
-   window, or under the editor when it is open.
-3. `prefix G`: the diff beside the agent, Hunk, live, whole files, side by side;
-   it gives way to the editor and comes back after. `G` again, or `q`, puts it
-   away. `trails diff` (and `prefix G` without Hunk) is a popup of the changes,
-   untracked files too.
-4. Where nothing runs, the editor in a window of its own (`checkout·nvim`).
-5. When the agent ends, the editor and shell stay, as the codebase's window.
+2. `` prefix ` ``: a native tmux floating pane on tmux 3.8+, the same as
+   `prefix *`. Run a shell or another command; exit the shell to close it.
+3. `prefix G`: Hunk watches the codebase in a large popup, including while the
+   editor is open. `q` closes it. Hunk and a Git repository are required;
+   `trails diff [DIR]` runs Hunk in the current terminal.
+4. Where nothing runs, the editor gets a window of its own (`checkout·nvim`).
+5. When the agent ends, the editor stays as the codebase's window.
 6. ctrl-e in the picker: the editor for the row's codebase.
 
 ### Checklist
@@ -135,7 +135,7 @@ it works.
 2. Zed over ssh and VS Code Remote-SSH attach to the same trails.
 3. A workspace in two terminals: `tmux new-session -t ws -s 'ws~2'`, each
    terminal on a trail of its own.
-4. The editor and shell keys act for the terminal that pressed them, however
+4. The editor and floating-pane keys act for the terminal that pressed them, however
    many are on the workspace.
 
 ### Agents

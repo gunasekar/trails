@@ -91,7 +91,7 @@ assert_file "$HIST/$old" "the conversation it left, in the history"
 assert_eq "$(cd "$PROJ" && "$TRAILS" ls | awk -F'\t' '$2 == "closed" { print $7 }')" "$old" "listed as closed, to resume"
 
 # The agent ends: its trail goes into the history too, with what it was working on. A turn
-# first: a conversation that never had one stays out (see t-tools).
+# first: a conversation that never had one stays out.
 type_in default/payments "hook working"
 type_in default/payments "title Fix the retry budget"
 wait_for 5 sh -c "'$TRAILS' ls -a >/dev/null; grep -qx 'task=Fix the retry budget' \"\$(trec default/payments)\"" ||

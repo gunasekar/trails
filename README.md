@@ -11,7 +11,10 @@ configure) runs in a tmux session of its own, a *trail*, grouped by workspace.
 `trails` shows what is running and what is waiting on you, opens the one you
 pick, and brings them back after tmux or the machine goes down.
 
-![From one terminal: one list of every workspace's trails, a trail picked from it, the same list in a popup over it, the diff beside the agent, then the editor in its place and a shell under it, the workspaces a key apart, and the map](assets/trails.gif)
+![Earlier Trails tour: the picker, a trail, the old side-by-side diff and shell layout, workspaces, and the map](assets/trails.gif)
+
+The recording shows an earlier layout; the diff now opens in a popup and the shell
+shortcut opens a native tmux floating pane.
 
 ## Its opinions
 
@@ -21,7 +24,7 @@ pick, and brings them back after tmux or the machine goes down.
 - **Work grouped the way you think of it.** A workspace is a company, a client,
   or "personal": unrelated repos together, and one ssh connection reaches them all.
 - **The agent writes, you stay hands-on.** The editor, a shell and the diff of
-  what the agent changed are each a key away, beside the agent, in its own window:
+  what the agent changed are each a key away in the trail window:
   read the code, run it, and review every change before it lands, without leaving
   the trail.
 - **An agent is known by its config and its hooks, never its files.** Every agent
@@ -41,8 +44,8 @@ brew install gunasekar/tap/trails
 
 Or put [`bin/trails`](bin/trails), one POSIX `sh` script, anywhere on your
 `PATH`. It needs tmux 3.3 or later, fzf and jq, and at least one agent CLI.
-[delta](https://github.com/dandavison/delta) (`brew install git-delta`) is
-recommended for the diff, and `curl` keeps the editor picker's preview live.
+[Hunk](https://hunk.dev) is required for the live diff, and `curl` keeps the
+editor picker's preview live. Native floating panes require tmux 3.8 or later.
 
 ## Quickstart
 
@@ -104,8 +107,8 @@ In tmux, after `prefix`, from `trails tmux-config`:
 | `S` | star the trail you are on, or unstar it ([stars](#stars)) |
 | `F` | to the starred trail that most wants you; again, the next one |
 | `E` | the editor beside the agent; again, back where you were |
-| `` ` `` | a shell beside the agent; again, back |
-| `G` | the diff beside the agent, shown or put away ([the diff](#the-editor-a-shell-and-the-diff)) |
+| `` ` `` | a new floating pane (tmux 3.8), the same as `prefix *` |
+| `G` | the live Hunk diff in a popup ([the diff](#the-editor-a-shell-and-the-diff)) |
 | `N` | the codebase's [checklist](#checklist) |
 | `M` | the [map](#the-map): up to four trails side by side |
 | `K` `J` | the previous and next workspace |
@@ -119,7 +122,7 @@ In the picker:
 | `enter` | go there: a trail, a window, a session; on a workspace, a new trail there; bring back a lost trail, resume a closed one, or start an agent |
 | `ctrl-s` | star the trail under the cursor, or unstar it |
 | `ctrl-r` | rename the trail under the cursor; an empty name takes it away |
-| `ctrl-x` | end a running trail, close an editor or shell window, or forget a lost or closed one |
+| `ctrl-x` | end a running trail, close a tool window, or forget a lost or closed one |
 | `ctrl-e` | the editor for the row's codebase |
 | `ctrl-/` | in an editor's picker and the old trails: show or hide the preview, the trail's screen kept live |
 | `ctrl-n` | a new workspace; in the agents, name the trail you are about to start |
@@ -127,7 +130,7 @@ In the picker:
 | `?` | the keys and what the states mean |
 | `esc` | close it; from the agents or the old trails, back to it |
 
-Every trails key is a capital letter, but `` ` `` for the shell, so tmux's own
+Every trails key is a capital letter, but `` ` `` for a floating pane, so tmux's own
 keys stay tmux's: `?` still lists every binding, trails' among them as
 `trails: …`, and `(` and `)` still cycle through every session. `P`, `S`, `F`,
 `N`, `G`, `R`, `J` and `K` are unbound in tmux's defaults; `E` replaces spreading the panes out evenly (still
@@ -159,7 +162,7 @@ each trail is a small session of its own holding the agent alone:
 
 ```text
 acme                    ← workspace: a window per trail
-├─ checkout-3f9a        ← shows acme/checkout-3f9a; the editor and a shell beside it
+├─ checkout-3f9a        ← shows acme/checkout-3f9a; the editor beside it
 ├─ checkout-b07e        ← shows acme/checkout-b07e
 └─ billing·nvim         ← the editor alone, nothing running in billing
 acme/checkout-3f9a      ← a trail: claude in ~/code/checkout, its ID t3f9a
@@ -556,48 +559,22 @@ it, the sound always plays.
 
 ### The editor, a shell and the diff
 
-`prefix E` opens your editor (`$EDITOR`, nvim if unset) and `` prefix ` `` a
-shell, beside the agent, as panes of the trail's window in the codebase. Pressed
-again, each takes you back where you were. They go where they go whichever you
-open first:
+`prefix E` opens your editor (`$EDITOR`, nvim if unset) beside the agent, in the
+codebase. Press it again to return to the previous pane. The agent takes 40% of
+the window and the editor 60%. When the trail ends, the editor stays in a
+window of its own. `trails edit` does the same from a shell.
 
-| Open | Layout |
-|---|---|
-| the agent | the whole window, or beside the diff on a wide one (below) |
-| agent and shell | the agent on the left, the shell on the right, half each |
-| agent and editor | the agent on the left 40%, the editor on the right 60% |
-| agent and diff | the agent on the left 40%, the diff on the right 60% |
-| with a shell too | the agent on the left, full height; the shell under the editor or the diff, a quarter high |
+`` prefix ` `` creates a native tmux floating pane, just like `prefix *` on tmux
+3.8. Run a shell or any other command there; `exit` or Ctrl-D at the shell prompt
+closes it. Each invocation creates a new pane. On older tmux versions that lack
+`new-pane`, use your usual tmux split keys instead.
 
-The trail's own session holds the agent alone, so an editor attached to it sees
-neither pane. Where nothing runs, the editor gets a window of its own,
-`checkout·nvim`. When a trail ends, its editor and shell stay, as that window.
-`trails edit` and `trails shell` do the same from a shell.
-
-**The diff beside the agent.** With [Hunk](https://hunk.dev) installed and the
-codebase a git repository, `prefix G` on a trail's window shows the agent's changes
-live beside it: Hunk on the codebase, every changed file whole, side by side,
-reloading as the agent edits, and read-only. Like the editor and the shell it is
-there when you ask, never by itself. The right side holds one thing at a time: the
-editor takes it from the diff, and when the editor closes the diff comes back; a
-shell goes under either. `prefix G` again, or `q` in Hunk, puts it away, and the
-window remembers which. How it looks is your Hunk config's
-(`~/.config/hunk/config.toml`). [ADR 25](docs/decisions/0025-the-diff-beside-the-agent.md)
-has the reasons.
-
-Elsewhere, or without Hunk, `prefix G` (`trails diff`) shows the codebase's changes side by side, in a popup:
-the working tree against `HEAD`, staged or not, and the files the agent made that
-git doesn't track yet. Nothing is staged to show them; `q` closes it. It uses
-delta when it is installed, else `less`, and the config's `diff` picks another:
-
-```json
-"diff": { "command": "nvim -c 'CodeDiff --exit-on-close'", "pipe": false }
-```
-
-That is Neovim with [codediff.nvim](https://github.com/esmuellert/codediff.nvim),
-which finds the changes itself (`"pipe": false`). A plain string is a pager the
-diff is piped to, and `"gui": true` runs an app with a window of its own, such as
-[Fork](https://git-fork.com) (`"command": "fork status"`).
+`prefix G` opens [Hunk](https://hunk.dev) in a large popup over the window.
+It watches the codebase's changes live and shows whole changed files side by
+side, including while the editor is open. Quit Hunk with `q` to close the
+popup. Hunk and a Git repository are required; its appearance follows your Hunk
+configuration. `trails diff [DIR]` runs the same live viewer in the terminal.
+The former Trails `diff` configuration is no longer used.
 
 ### Checklist
 
@@ -740,8 +717,8 @@ without a Trails-specific reporting hook or extension.
 | `trails new NAME [AGENT]` | start a trail named `NAME`, `-y` for YOLO |
 | `trails star [TRAIL]` / `next` | star the trail you are on, or `TRAIL`; to the starred trail that most wants you |
 | `trails rename [TRAIL] NAME` | name the trail you are on, or `TRAIL` (its ID); `''` takes its name away |
-| `trails edit` / `shell` `[DIR]` | the editor or a shell beside the agent |
-| `trails diff [DIR]` | the codebase's changes, side by side; from `prefix G`, the diff beside the agent |
+| `trails edit [DIR]` | the editor beside the agent |
+| `trails diff [DIR]` | the live Hunk diff; `prefix G` opens it in a popup |
 | `trails checklist [DIR]` / `note TEXT` | the checklist; add an item |
 | `trails ls [-a \| DIR]` | the trails, here, in `DIR` or everywhere |
 | `trails restore` | bring back every lost trail |
@@ -786,7 +763,6 @@ and opens the file.
 | `server` | tmux socket name (`tmux -L NAME`). Empty means `trails`. A missing key means `trails` too, except an upgrade that still has records on the ordinary server pins `"default"` once. Use `default` to stay there. To move: `brew services stop trails`, `trails server trails`, `brew services start trails`; the trails come back on their conversations |
 | `workspaces` | see [Workspaces](#workspaces) |
 | `data` | a folder for each codebase's checklist; `.trails/checklist.md` in the codebase without it |
-| `diff` | what shows the diff: see [the diff](#the-editor-a-shell-and-the-diff) |
 | `map` | `two` (`side`, `stacked`, `auto`) and `layout` (a tmux layout for three or more) |
 | `notify` | the operating system's notifications: see [Notifications](#notifications) |
 
@@ -868,12 +844,12 @@ bind -N "trails: the picker, on a click on [session]" -n MouseDown1StatusLeft if
 bind -N "trails: star this trail, or unstar it" S run-shell "TRAILS_CLIENT=#{client_name} 'trails' star"
 bind -N "trails: the starred trail that most wants you" F run-shell "TRAILS_CLIENT=#{client_name} 'trails' next"
 bind -N "trails: the editor beside the agent" E run-shell "TRAILS_CLIENT=#{client_name} 'trails' edit"
-bind -N "trails: a shell beside the agent" ` run-shell "TRAILS_CLIENT=#{client_name} 'trails' shell"
+bind -N "trails: a floating pane" ` new-pane
 bind -N "trails: this codebase's checklist" N display-popup -E -w 60% -h 50% -s bg=terminal -S bg=terminal,fg=brightblack "'trails' checklist"
 bind -N "trails: the previous workspace" K run-shell "TRAILS_CLIENT=#{client_name} 'trails' ws prev"
 bind -N "trails: the next workspace" J run-shell "TRAILS_CLIENT=#{client_name} 'trails' ws next"
 bind -N "trails: the map" M run-shell "TRAILS_CLIENT=#{client_name} 'trails' map here"
-bind -N "trails: the diff beside the agent, shown or put away" G run-shell "TRAILS_CLIENT=#{client_name} 'trails' diff"
+bind -N "trails: the live diff in Hunk" G run-shell "TRAILS_CLIENT=#{client_name} 'trails' diff"
 bind -N "trails: rename this trail" R command-prompt -p "rename trail:" "run-shell \"TRAILS_CLIENT=#{client_name} 'trails' rename '%%'\""
 set -g status-left-length 40
 set -g status-right-length 80
