@@ -508,7 +508,12 @@ anything polling it), so a lost row can say what the trail was doing.
 differs from `@trails_id`, the record and `@trails_id` follow it, and the
 conversation left goes into the history. Otherwise a restore after tmux dies would
 bring back the conversation you left. Without such a hook the record keeps the
-conversation the trail started on.
+conversation the trail started on. Only the pane's own agent moves it: a hook
+outside tmux, or in a process that runs without the pane's `TMUX_PANE` (a fork an
+agent runs in the background), exits before it reads anything, and an ID from
+further down the pane's process tree than the first is dropped (the depth guard in
+`trails state`). Trails has no notion of a fork: adopting one is the user's, with
+the agent's own resume in a trail of its own.
 
 **Deleting a record at the right moment is the hard part.** A trail you quit
 is over, and a trail tmux took down is the whole point, but from outside both

@@ -304,7 +304,10 @@ Without hooks, a trail is *unknown*.
 Each status command ends in `2>/dev/null || true`: silent, never failing a turn,
 and inert outside tmux. Cursor pre-hooks also return the JSON response its protocol
 requires to let the prompt or tool call proceed. With `--id`, a trail follows its conversation through
-`/resume` and `/clear`, and a restore brings back the one it is in now.
+`/resume` and `/clear`, and a restore brings back the one it is in now. A conversation that runs
+outside the trail's pane, such as a fork an agent sends to the background, is not
+the trail's: the trail keeps its own, and trails leaves the fork alone. To keep it in
+a trail, start one and pick the conversation up there with the agent's own resume.
 
 <a id="hooks-for-each-agent"></a>
 <details>
