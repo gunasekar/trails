@@ -5307,7 +5307,7 @@ EOF
     sr_said="unstarred"
   else
     for sr_w; do tmux set-option -w -t "$sr_w" @trails_starred 1; done
-    rec_rewrite "$sr_tid" '/^starred=/ { next } 1 END { print "starred=1" }'
+    rec_rewrite "$sr_tid" '/^starred=/ { next } 1; END { print "starred=1" }'
     sr_said="★ starred"
   fi
   [ -z "$CLIENT" ] || tmux display-message -c "$CLIENT" "trails: $sr_ws/$sr_label $sr_said" 2>/dev/null
