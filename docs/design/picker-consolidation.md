@@ -310,8 +310,8 @@ What happens to the folder picked depends on where it is (D6):
   ▌ default    not added to a workspace
     personal   add it here
     acme       add it here
-    prcpnt     add it here
-    padnam     add it here
+    globex     add it here
+    zenith     add it here
   ```
 
   A bare `trails` in such a folder asks the same question, in the same order,

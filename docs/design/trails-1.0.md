@@ -67,8 +67,8 @@ unrelated repos:
 ```text
 ~/workspace/
 ├─ acme/        53 repos   → workspace acme
-├─ prcpnt/                 → workspace prcpnt
-├─ padnam/                 → workspace padnam
+├─ globex/                 → workspace globex
+├─ zenith/                 → workspace zenith
 └─ gunasekar/   10 repos   → workspace personal
 ~/.dotfiles, ~/.dotfiles-private → workspace personal
 ```
@@ -173,13 +173,13 @@ airbochs $ ssh probochs -t trails
 Pick a workspace: █
 ▌ acme       3 trails · 1 needs you
   personal   1 trail
-  prcpnt     nothing running
+  globex     nothing running
 ```
 
 1. **Pick acme.** Its session is up, so you attach, landing on the trail
    that needs you.
-2. **Pick prcpnt, with nothing running.** No empty session is made
-   (principle 7): the same picker shows prcpnt's codebases, and starting a
+2. **Pick globex, with nothing running.** No empty session is made
+   (principle 7): the same picker shows globex's codebases, and starting a
    trail creates the session with that trail as its first window.
 3. **Inside a workspace,** plain tmux moves you: next and previous window,
    prefix+s / `choose-tree`, prefix+( and ) for the previous and next session.
@@ -243,8 +243,8 @@ From nowhere in particular (`~`, a fresh SSH login) or `trails ws`:
 Pick a workspace: █          # enter: open · ctrl-n: new workspace
 ▌ acme        ● 3 trails · 1 needs you
   personal    ● 1 trail
-  prcpnt        nothing running
-  padnam        nothing running
+  globex        nothing running
+  zenith        nothing running
 ```
 
 Sorted by what wants you, then by name. This is where most SSH logins land,
