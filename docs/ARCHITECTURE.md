@@ -764,7 +764,12 @@ closed, and are removed when their trail ends.
 
 `trails git [DIR]` (`prefix G`) resolves the codebase the same way and opens
 lazygit through the same popup helper, `git_popup`, without Hunk's graphics
-workaround. lazygit and a Git worktree are required.
+workaround. lazygit and a Git worktree are required. Both check their program, git and the
+worktree before any popup opens; a key's refusal (`refuse`: run-shell, no pane, a client
+named) goes to that client's message line for 5 seconds instead of stderr, which run-shell
+would show over the pane in view mode. `prefix E` refuses a missing `$EDITOR` the same way.
+Should Hunk or lazygit itself exit non-zero in the popup, `git_hold` keeps the popup open
+until Enter so its error can be read.
 
 ## Keys
 

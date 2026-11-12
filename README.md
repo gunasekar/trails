@@ -582,6 +582,11 @@ The former Trails `diff` configuration is no longer used.
 popup, in the same codebase, to stage, commit and push. Quit it with `q`.
 `trails git [DIR]` runs it in the terminal.
 
+If lazygit, Hunk or `$EDITOR` (nvim by default) isn't installed, or the codebase
+isn't a Git repository, `prefix G`, `H` and `E` say so on tmux's message line
+and open nothing. tmux runs them with the server's `PATH` and `EDITOR`, which a
+server started by launchd may not share with your shell.
+
 ### Checklist
 
 What to do next in a codebase, and the prompts you mean to give its agent, parked
