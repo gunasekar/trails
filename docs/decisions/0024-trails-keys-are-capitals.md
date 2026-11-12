@@ -1,7 +1,8 @@
 # 24. trails' keys are capital letters
 
 - Status: accepted. Amended in 1.12: `H` is gone, since `prefix ?` lists trails' keys
-  among tmux's own by their notes (`bind -N`)
+  among tmux's own by their notes (`bind -N`). Amended after 1.23:
+  `H` is a key again, the live Hunk diff, its old `G` now lazygit
 - Date: 2026-10
 
 ## Context

@@ -3,7 +3,8 @@
 - Status: accepted. Amended in 1.14: the diff is asked for with `prefix G`, never opened by
   the width, since a pane that isn't needed costs memory (Hunk idles at ~120MB, a few
   hundred with a large diff, one per trail) and the agent's room, and the editor and the
-  shell are asked for too
+  shell are asked for too. Amended after 1.23: the diff popup moved to `prefix H`, and
+  `prefix G` opens lazygit, as a git client beside the diff rather than in its place
 - Date: 2026-10
 
 

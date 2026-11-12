@@ -747,7 +747,7 @@ window. Trails does not assign it a role or manage its layout. Exit its shell to
 close it. Older tmux versions retain the other Trails keys, but do not get this
 binding; a regular tmux split remains available.
 
-## The live diff
+## The live diff and lazygit
 
 `trails diff [DIR]` resolves the codebase from `DIR`, the current window's
 `@trails_dir`, the current pane's directory, or `$PWD`. `prefix H` runs

@@ -65,8 +65,9 @@ covered yet.
 | | `?`: the keys, `trails help keys` | A `t-edges` (the text) · checked by hand with real fzf |
 | Beside the agent | editor creation and reuse, kept when the agent exits | A `t-tools` · M3 |
 | | native floating pane from the backtick binding (tmux 3.8+) | A `t-floating` · M3 |
-| | Hunk in the terminal and refusal outside a Git repository | A `t-diff` |
-| | live Hunk popup with and without the editor, closes on quit, adds no split | A `t-diffpane` · M3 |
+| | Hunk and lazygit in the terminal, and refusal outside a Git repository | A `t-diff` |
+| | live Hunk and lazygit popups with and without the editor, close on quit, add no split | A `t-diffpane` · M3 |
+| | no lazygit, Hunk or `$EDITOR`: prefix G, H and E say so on the message line, open nothing | A `t-missing` |
 | Checklist | prefix N: add, Esc, Enter copies, ctrl-e; tick; count; `note`; path, old `notes` key and file | A `t-checklist` · M10 |
 | Ending | ctrl-x | A `t-picker`, `t-tools`, `t-map` |
 | | resume old trails, from the history; ctrl-x forgets one; a resume that dies keeps it | A `t-hooks` · M5 |
