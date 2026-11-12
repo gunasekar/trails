@@ -8,7 +8,7 @@ grouped by what you are doing. The [README](../README.md) has the detail of
 each command and key.
 
 Keys are the ones `trails tmux-config` prints: `prefix P` the picker, `prefix S` a
-star, `prefix F` the starred trail that wants you, `prefix E` the editor, `` prefix ` `` a floating pane (tmux 3.8+), `prefix G` the live diff popup,
+star, `prefix F` the starred trail that wants you, `prefix E` the editor, `` prefix ` `` a floating pane (tmux 3.8+), `prefix H` the live diff popup, `prefix G` lazygit,
 `prefix N` the checklist, `prefix M` the map; `prefix ?` lists them all.
 
 ## The everyday loop
@@ -87,9 +87,11 @@ star, `prefix F` the starred trail that wants you, `prefix E` the editor, `` pre
    left. Again goes back.
 2. `` prefix ` ``: a native tmux floating pane on tmux 3.8+, the same as
    `prefix *`. Run a shell or another command; exit the shell to close it.
-3. `prefix G`: Hunk watches the codebase in a large popup, including while the
+3. `prefix H`: Hunk watches the codebase in a large popup, including while the
    editor is open. `q` closes it. Hunk and a Git repository are required;
-   `trails diff [DIR]` runs Hunk in the current terminal.
+   `trails diff [DIR]` runs Hunk in the current terminal. `prefix G` opens
+   lazygit in the same popup to stage and commit; `trails git [DIR]` runs it in
+   the terminal.
 4. Where nothing runs, the editor gets a window of its own (`checkout·nvim`).
 5. When the agent ends, the editor stays as the codebase's window.
 6. ctrl-e in the picker: the editor for the row's codebase.

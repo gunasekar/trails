@@ -162,13 +162,16 @@ assert_match "$keys" "^In the picker" "the picker's keys"
 assert_match "$keys" "^  \? +these keys; q comes back" "? among them"
 assert_match "$keys" "^In tmux, from trails tmux-config" "and the tmux ones"
 assert_eq "$("$TRAILS" help | grep -c '^In tmux, from trails tmux-config')" 1 "trails help has them, once"
-# No key of trails' own for them: tmux's ? lists trails' keys with its own (ADR 24).
-assert_eq "$("$TRAILS" tmux-config | grep -c -e ' --keys"$' -e '^bind -N "[^"]*" H ')" 0 "no prefix H"
+# No key of trails' own for them: tmux's ? lists trails' keys with its own (ADR 24). H,
+# once that help key, is now the live diff.
+assert_eq "$("$TRAILS" tmux-config | grep -c ' --keys"$')" 0 "no help key"
+assert_match "$("$TRAILS" tmux-config)" "^bind -N \"[^\"]*\" H run-shell .* diff\"$" "prefix H is the live diff"
+assert_match "$("$TRAILS" tmux-config)" "^bind -N \"[^\"]*\" G run-shell .* git\"$" "prefix G is lazygit"
 # The backtick exists only when native floating panes are available.
 if tmux list-commands | grep -q '^new-pane '; then
-  extra_keys='` ' binding_count=12
+  extra_keys='` ' binding_count=13
 else
-  extra_keys='' binding_count=11
+  extra_keys='' binding_count=12
 fi
 assert_eq "$("$TRAILS" tmux-config | sed -n 's/^bind -N "[^"]*" \([^ ]*\) .*/\1/p' | grep -v -e '^[A-Z]$' -e '^-n$' | tr '\n' ' ')" "$extra_keys" "capitals and the optional backtick"
 # Outside the prefix table, one binding only: a click on the status line's [session] (ADR 28),

@@ -80,7 +80,8 @@ not in trails.
 | The trail's window | how the workspace shows a trail | a window in the workspace session named like the agent's, marked `@trails_window`, whose first pane is a nested tmux client of the trail's session |
 | Agent and editor panes | the agent and your editor beside it | panes of the trail's window marked `@trails_pane` `agent` or `editor` |
 | Floating pane | an on-demand tmux pane, commonly a shell | a native floating pane in the trail's window, created by `` prefix ` `` on tmux 3.8 or later; not marked or managed by trails |
-| Diff popup | Hunk watching the codebase | a popup on the client that pressed `prefix G`; no pane or saved diff state |
+| Diff popup | Hunk watching the codebase | a popup on the client that pressed `prefix H`; no pane or saved diff state |
+| lazygit popup | lazygit in the codebase | a popup on the client that pressed `prefix G`, opened the same way as the diff |
 | Editor window | your editor with no trail in the codebase, or left when one ended | a window `<codebase>·nvim` marked `@trails_tool editor`; a *tool window* in the code |
 | Map | several agents side by side | panes, each a nested client of a trail's session, in a window no editor attaches to |
 
@@ -749,7 +750,7 @@ binding; a regular tmux split remains available.
 ## The live diff
 
 `trails diff [DIR]` resolves the codebase from `DIR`, the current window's
-`@trails_dir`, the current pane's directory, or `$PWD`. `prefix G` runs
+`@trails_dir`, the current pane's directory, or `$PWD`. `prefix H` runs
 `diff_cmd` for the requesting client and opens a 90% by 90% tmux popup there;
 from a shell, the same command runs in that terminal. The popup runs
 `hunk diff --watch`, with Git's `diff.context` set to 99999 for that process so
@@ -761,12 +762,16 @@ passthrough or graphics settings for other panes. Quitting Hunk closes the popup
 there is no diff pane to lay out or remember. Legacy marked diff panes are recognized until
 closed, and are removed when their trail ends.
 
+`trails git [DIR]` (`prefix G`) resolves the codebase the same way and opens
+lazygit through the same popup helper, `git_popup`, without Hunk's graphics
+workaround. lazygit and a Git worktree are required.
+
 ## Keys
 
 trails binds nothing. `trails tmux-config` prints lines for a tmux.conf: the picker in a
 `display-popup`, which leaves no window behind and from
 which `switch-client` works (the popup check behind D4 of the design is
-`test/t-popup.sh`), the editor, the floating-pane shortcut where supported, and the live diff. The popups are styled onto the
+`test/t-popup.sh`), the editor, the floating-pane shortcut where supported, lazygit and the live diff. The popups are styled onto the
 terminal's own background (`-s`, `-S`, tmux 3.3): tmux 3.8's default
 `popup-style` is a theme grey, gray45 when the terminal reports a light theme,
 and the picker's dim text is unreadable on it. The colour's name is chosen by
@@ -776,15 +781,15 @@ a popup is `popup-style` itself, so on 3.8 it keeps the grey; 3.8 added
 Every key trails binds is a capital letter, but the backtick for a floating pane: trails' keys read apart from tmux's and from a
 tmux.conf's own, which are mostly lower case
 ([ADR 24](decisions/0024-trails-keys-are-capitals.md)). `prefix P`, `S`, `F`, `N`,
-`G`, `R`, `J` and `K` are free in tmux 3.8's default table (`C`, `D`, `L` and `T`
+`G`, `H`, `R`, `J` and `K` are free in tmux 3.8's default table (`C`, `D`, `L` and `T`
 are taken); `P` is "pick a trail", `S` a star, `F` the starred trail that wants
-you, `N` the checklist, `G` the git diff, `R` rename, and `K` and `J` the previous and next workspace, vim's up and down, beside tmux's
+you, `N` the checklist, `G` lazygit, `H` the live diff, `R` rename, and `K` and `J` the previous and next workspace, vim's up and down, beside tmux's
 `(` and `)` for every session. `E` for the editor takes spreading the panes out
 evenly (still `:select-layout -E`), and `M` for the map takes clearing the marked
 pane (which `prefix m` on it still does). Each is bound with a note (`bind -N
 "trails: …"`): tmux's `prefix ?` is `list-keys -N`, which lists only the keys that
 have one, so without it trails' keys were missing from tmux's own list. With it,
-trails needs no help key of its own (1.11 had `H`); the picker's `?` has the rest.
+trails needs no help key of its own (1.11 had `H`, now the live diff); the picker's `?` has the rest.
 
 `run-shell "trails tmux-config | tmux source-file -"` in tmux.conf loads them all each time
 tmux reads it, so they follow an upgrade; the lines it prints that say so are tmux

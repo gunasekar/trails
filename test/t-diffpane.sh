@@ -1,5 +1,6 @@
 #!/bin/sh
-# Hunk opens in a popup on a trail, including when the editor is open.
+# Hunk (prefix H) and lazygit (prefix G) open in a popup on a trail, including when the
+# editor is open.
 . "$REPO/test/lib.sh"
 t_setup
 (cd "$PROJ" && git init -q && echo one >a && git add a && git -c user.email=t@t -c user.name=t commit -qm init && echo two >a) || fail "no repository"
@@ -19,3 +20,10 @@ EDITOR=ed TMUX="$sock,1,0" TRAILS_CLIENT="$term" "$TRAILS" edit
 show_diff
 wait_for 5 screen_has driver-1 "hunk diff --watch in $PROJ context=99999 graphics=false" || fail "Hunk popup missing with editor"
 assert_eq "$(tmux list-panes -t "$win" -F '#{@trails_pane}' | sort | tr '\n' ' ')" 'agent editor ' "editor remains beside agent"
+tmux send-keys -t driver-1 q Enter
+wait_for 5 sh -c "! tmux capture-pane -pt driver-1 | grep -q 'hunk diff --watch'" || fail "Hunk popup did not close"
+tmux run-shell -b "env TMUX='$sock,1,0' TRAILS_CLIENT='$term' '$TRAILS' git"
+wait_for 5 screen_has driver-1 "lazygit  in $PROJ" || fail "lazygit popup missing"
+assert_eq "$(tmux list-panes -t "$win" -F '#{@trails_pane}' | sort | tr '\n' ' ')" 'agent editor ' "lazygit adds no split pane"
+tmux send-keys -t driver-1 q Enter
+wait_for 5 sh -c "! tmux capture-pane -pt driver-1 | grep -q 'lazygit  in'" || fail "lazygit popup did not close"

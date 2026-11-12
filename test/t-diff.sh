@@ -9,3 +9,7 @@ assert_match "$("$TRAILS" diff "$T" 2>&1)" "isn't a git repository" "not a repos
 if tmux list-commands | grep -q '^new-pane '; then
   "$TRAILS" tmux-config | grep -q '^bind -N "trails: a floating pane" ` new-pane$' || fail "backtick is not a floating pane"
 fi
+# lazygit, the same way: in the codebase, and only in a repository.
+out=$(printf 'q\n' | "$TRAILS" git "$PROJ") || fail "lazygit failed"
+assert_match "$out" "^lazygit  in $PROJ$" "lazygit in the codebase"
+assert_match "$("$TRAILS" git "$T" 2>&1)" "isn't a git repository" "lazygit: not a repository"

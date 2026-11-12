@@ -98,9 +98,9 @@ Type "P"
 Sleep 3.5s
 Escape
 Sleep 1.5s
-# The agent's changes in the live Hunk popup: prefix G.
+# The agent's changes in the live Hunk popup: prefix H.
 Ctrl+B
-Type "G"
+Type "H"
 Sleep 5s
 # Quit the popup, then open the editor beside the agent and a floating shell.
 Type "q"

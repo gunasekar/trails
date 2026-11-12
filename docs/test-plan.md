@@ -30,7 +30,7 @@ covered yet.
 | 3 | New trail in this codebase | A `t-picker` |
 | 4 | New trail in another codebase | A `t-screens` |
 | 5 | Move between trails and workspaces | A `t-screens`, `t-inside`, `t-grouped` |
-| 6 | Editor beside the agent, floating pane, live diff popup | A `t-tools`, `t-floating`, `t-diffpane` · M3 |
+| 6 | Editor beside the agent, floating pane, live diff and lazygit popups | A `t-tools`, `t-floating`, `t-diffpane` · M3 |
 | 7 | Come back after a break, restore after tmux dies | A `t-restore`, `t-autorestore`, `t-upgrade` · M4 |
 | 8 | Finish, or resume old work | A `t-launch`, `t-picker` (ctrl-x) · M5 (resume) |
 
@@ -93,7 +93,7 @@ Each on the real machine, in Ghostty, with `trails tmux-config` pasted into tmux
 |---|---|---|
 | M1 | From another machine: `ssh host -t trails`, pick a trail, `prefix P` to a trail in another workspace, detach, reconnect | Every workspace listed; attached on that trail; switched without reconnecting; the cursor on where you were on return |
 | M2 | Ask claude something that needs a permission; let another finish its turn | `needs you` and `your turn` in the picker, the cursor on the one that needs you |
-| M3 | In a Git trail on tmux 3.8+: `prefix E`, again, `` prefix ` ``, exit the shell; `prefix G`, then `q`; quit the agent | Editor right 60%, agent left; back to the agent; a floating pane opens and closes; live Hunk appears in a popup without changing the layout; the editor remains when the agent exits |
+| M3 | In a Git trail on tmux 3.8+: `prefix E`, again, `` prefix ` ``, exit the shell; `prefix H`, then `q`; `prefix G`, then `q`; quit the agent | Editor right 60%, agent left; back to the agent; a floating pane opens and closes; live Hunk, then lazygit, appear in a popup without changing the layout; the editor remains when the agent exits |
 | M4 | `tmux kill-server`, then `trails`, then `trails restore` | Trails shown `lost` in the picker; each back on its conversation, in its workspace |
 | M5 | End a claude trail, then **↩ resume old trails**, Tab on it, Enter | Listed as closed; Tab flips YOLO; resumes on its conversation |
 | M6 | `brew install` or `bin/trails` on PATH; `trails tmux-config` into tmux.conf, reload | Every line accepted, every key works |

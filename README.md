@@ -44,7 +44,8 @@ brew install gunasekar/tap/trails
 
 Or put [`bin/trails`](bin/trails), one POSIX `sh` script, anywhere on your
 `PATH`. It needs tmux 3.3 or later, fzf and jq, and at least one agent CLI.
-[Hunk](https://hunk.dev) is required for the live diff, and `curl` keeps the
+[Hunk](https://hunk.dev) is required for the live diff,
+[lazygit](https://github.com/jesseduffield/lazygit) for `prefix G`, and `curl` keeps the
 editor picker's preview live. Native floating panes require tmux 3.8 or later.
 
 ## Quickstart
@@ -92,7 +93,7 @@ editor picker's preview live. Native floating panes require tmux 3.8 or later.
    ```
 
 From then on it is keys: `prefix P` for every trail, `E` for the
-editor beside the agent, `G` for its diff. `prefix ?` lists them all, trails'
+editor beside the agent, `H` for its diff, `G` for lazygit. `prefix ?` lists them all, trails'
 as `trails: …`. The
 everyday loop, and every other way trails is used, are in
 [docs/scenarios.md](docs/scenarios.md).
@@ -108,7 +109,8 @@ In tmux, after `prefix`, from `trails tmux-config`:
 | `F` | to the starred trail that most wants you; again, the next one |
 | `E` | the editor beside the agent; again, back where you were |
 | `` ` `` | a new floating pane (tmux 3.8), the same as `prefix *` |
-| `G` | the live Hunk diff in a popup ([the diff](#the-editor-a-shell-and-the-diff)) |
+| `G` | lazygit in a popup ([the diff](#the-editor-a-shell-and-the-diff)) |
+| `H` | the live Hunk diff in a popup ([the diff](#the-editor-a-shell-and-the-diff)) |
 | `N` | the codebase's [checklist](#checklist) |
 | `M` | the [map](#the-map): up to four trails side by side |
 | `K` `J` | the previous and next workspace |
@@ -569,12 +571,16 @@ window of its own. `trails edit` does the same from a shell.
 closes it. Each invocation creates a new pane. On older tmux versions that lack
 `new-pane`, use your usual tmux split keys instead.
 
-`prefix G` opens [Hunk](https://hunk.dev) in a large popup over the window.
+`prefix H` opens [Hunk](https://hunk.dev) in a large popup over the window.
 It watches the codebase's changes live and shows whole changed files side by
 side, including while the editor is open. Quit Hunk with `q` to close the
 popup. Hunk and a Git repository are required; its appearance follows your Hunk
 configuration. `trails diff [DIR]` runs the same live viewer in the terminal.
 The former Trails `diff` configuration is no longer used.
+
+`prefix G` opens [lazygit](https://github.com/jesseduffield/lazygit) in the same
+popup, in the same codebase, to stage, commit and push. Quit it with `q`.
+`trails git [DIR]` runs it in the terminal.
 
 ### Checklist
 
@@ -718,7 +724,8 @@ without a Trails-specific reporting hook or extension.
 | `trails star [TRAIL]` / `next` | star the trail you are on, or `TRAIL`; to the starred trail that most wants you |
 | `trails rename [TRAIL] NAME` | name the trail you are on, or `TRAIL` (its ID); `''` takes its name away |
 | `trails edit [DIR]` | the editor beside the agent |
-| `trails diff [DIR]` | the live Hunk diff; `prefix G` opens it in a popup |
+| `trails diff [DIR]` | the live Hunk diff; `prefix H` opens it in a popup |
+| `trails git [DIR]` | lazygit; `prefix G` opens it in a popup |
 | `trails checklist [DIR]` / `note TEXT` | the checklist; add an item |
 | `trails ls [-a \| DIR]` | the trails, here, in `DIR` or everywhere |
 | `trails restore` | bring back every lost trail |
@@ -849,7 +856,8 @@ bind -N "trails: this codebase's checklist" N display-popup -E -w 60% -h 50% -s 
 bind -N "trails: the previous workspace" K run-shell "TRAILS_CLIENT=#{client_name} 'trails' ws prev"
 bind -N "trails: the next workspace" J run-shell "TRAILS_CLIENT=#{client_name} 'trails' ws next"
 bind -N "trails: the map" M run-shell "TRAILS_CLIENT=#{client_name} 'trails' map here"
-bind -N "trails: the live diff in Hunk" G run-shell "TRAILS_CLIENT=#{client_name} 'trails' diff"
+bind -N "trails: lazygit in a popup" G run-shell "TRAILS_CLIENT=#{client_name} 'trails' git"
+bind -N "trails: the live diff in Hunk" H run-shell "TRAILS_CLIENT=#{client_name} 'trails' diff"
 bind -N "trails: rename this trail" R command-prompt -p "rename trail:" "run-shell \"TRAILS_CLIENT=#{client_name} 'trails' rename '%%'\""
 set -g status-left-length 40
 set -g status-right-length 80

@@ -4452,9 +4452,10 @@ checklist_cmd() {
   esac
 }
 
-# ─── The diff ────────────────────────────────────────────────────────────────
-# Hunk watches the selected codebase. The key opens a popup; a shell invocation uses
-# the terminal. DIR, the trail window, the current pane and PWD determine the codebase.
+# ─── The diff and lazygit ────────────────────────────────────────────────────
+# Hunk watches the selected codebase (prefix H); lazygit works in it (prefix G). A key opens
+# a popup; a shell invocation uses the terminal. DIR, the trail window, the current pane and
+# PWD determine the codebase.
 diff_dir() {
   dd=${1:-}
   if [ -z "$dd" ] && [ -n "$TMUX" ]; then
@@ -4470,14 +4471,40 @@ diff_dir() {
   printf '%s' "$dd"
 }
 
+# From a key (run-shell: in tmux, no pane, a client named), reopen as "trails SUBCOMMAND FLAG
+# DIR" in a 90% popup on that client, titled with the codebase, and do not return. Else return.
+git_popup() {
+  if [ -n "$TMUX" ] && [ -z "${TMUX_PANE:-}" ] && [ -n "$CLIENT" ]; then
+    gp_bg=$(popup_bg)
+    exec tmux -L "$TRAILS_SERVER" display-popup -c "$CLIENT" -E -w 90% -h 90% -d "$3" -s "bg=$gp_bg" -S "bg=$gp_bg,fg=brightblack" \
+      -T " $(codebase_label "$3") " "$(shq "$SELF") $1 $2 $(shq "$3")"
+  fi
+}
+
 diff_cmd() {
   dir=$(diff_dir "${1:-}") || exit 1
-  if [ -n "$TMUX" ] && [ -z "${TMUX_PANE:-}" ] && [ -n "$CLIENT" ]; then
-    dbg=$(popup_bg)
-    exec tmux -L "$TRAILS_SERVER" display-popup -c "$CLIENT" -E -w 90% -h 90% -d "$dir" -s "bg=$dbg" -S "bg=$dbg,fg=brightblack" \
-      -T " $(codebase_label "$dir") " "$(shq "$SELF") diff --hunk $(shq "$dir")"
-  fi
+  git_popup diff --hunk "$dir"
   hunk_show "$dir"
+}
+
+git_cmd() {
+  dir=$(diff_dir "${1:-}") || exit 1
+  git_popup git --lazygit "$dir"
+  lazygit_show "$dir"
+}
+
+lazygit_show() {
+  cd "$1" || exit 1
+  if ! command -v lazygit >/dev/null 2>&1; then
+    echo 'trails: lazygit is required for prefix G'
+  elif ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "trails: $(tilde_path "$1") isn't a git repository"
+  else
+    lazygit
+    return $?
+  fi
+  if [ -t 0 ]; then printf '\npress enter to close'; read -r _; fi
+  return 1
 }
 
 hunk_show() {
@@ -4502,13 +4529,13 @@ hunk_show() {
 # tmux.conf, to paste or ignore, or to load whole with the one run-shell line it opens with:
 # the picker in a popup, which leaves no window behind (prefix P, and a click on [session]),
 # a star and the starred trail that wants you, the editor and a floating-pane binding, the checklist in a
-# popup, the previous and next workspace, the map, the diff, rename, and the status line:
+# popup, the previous and next workspace, the map, lazygit and the diff, rename, and the status line:
 # tmux's own [session] at its left ([▦ map] on the map), and the checklist's count.
 # Every key trails binds is a capital letter, so trails' keys read apart from tmux's and your own
-# (ADR 24), but for ` for a native floating pane on tmux 3.8 or later. P, S, F, N, G, R, J
+# (ADR 24), but for ` for a native floating pane on tmux 3.8 or later. P, S, F, N, G, H, R, J
 # and K are free in tmux 3.8's default prefix table (C, D, L and T are taken); P for "pick a
-# trail", S star, F the starred trail that wants you, N the checklist, G the live diff in a popup, R rename. No key for trails'
-# own help: tmux's ? lists trails' keys with its own, by their notes, and ? in the picker has the
+# trail", S star, F the starred trail that wants you, N the checklist, G lazygit and H the live Hunk diff, each in a popup, R rename. No key
+# for trails' own help (1.11 had H): tmux's ? lists trails' keys with its own, by their notes, and ? in the picker has the
 # rest (trails help keys). K and J the previous and next workspace, vim's
 # up and down, beside tmux's ( and ), which cycle through every session. Two take tmux's own:
 # E for the editor takes spreading the panes out evenly (still :select-layout -E), and M for
@@ -4627,7 +4654,8 @@ bind -N "trails: this codebase's checklist" N display-popup -E -w 60% -h 50% -s 
 bind -N "trails: the previous workspace" K run-shell "TRAILS_CLIENT=#{client_name} $kq ws prev"
 bind -N "trails: the next workspace" J run-shell "TRAILS_CLIENT=#{client_name} $kq ws next"
 bind -N "trails: the map" M run-shell "TRAILS_CLIENT=#{client_name} $kq map here"
-bind -N "trails: the live diff in Hunk" G run-shell "TRAILS_CLIENT=#{client_name} $kq diff"
+bind -N "trails: lazygit in a popup" G run-shell "TRAILS_CLIENT=#{client_name} $kq git"
+bind -N "trails: the live diff in Hunk" H run-shell "TRAILS_CLIENT=#{client_name} $kq diff"
 bind -N "trails: rename this trail" R command-prompt -p "rename trail:" "run-shell \"TRAILS_CLIENT=#{client_name} $kq rename '%%'\""
 set -g status-left-length 40
 set -g status-right-length 80
@@ -5453,7 +5481,8 @@ In tmux, from trails tmux-config (prefix, then; tmux's own ? lists them too):
                     read it whole; space ticks it, enter copies it
   K J               the previous and next workspace
   M                 the map: up to four trails side by side
-  G                 the live Hunk diff in a popup
+  G                 lazygit in a popup
+  H                 the live Hunk diff in a popup
   R                 rename the trail you are on (trails rename)
 
 In the picker — "＋ new trail…" (for the codebase you are in, its agents; for a workspace, a
@@ -5539,6 +5568,7 @@ usage: trails [command]
                     (the config's "data" says where); esc closes
   tmux-config       print tmux configuration, including theme indicator slots
   diff [DIR]        the live Hunk diff in this codebase
+  git [DIR]         lazygit in this codebase
   state WORD [--id ID] [--agent PROGRAM]
                     for an agent's hooks: working, waiting or idle, the conversation
                     it is in, and the program saying it (https://github.com/gunasekar/trails#hooks-for-each-agent)
@@ -5590,7 +5620,7 @@ esac
 # config is broken, and boot, which tmux needs whatever the config says. ls carries on
 # without them (only its closed rows need them), so a typo in the file can't blank what reads it.
 case $1 in
-  help | -h | --help | config | keys | --keys | note | checklist | diff | --forget | --layout | --peek | --hold | --wants | boot | rename | star | next | --notify) AGENTS= ;;
+  help | -h | --help | config | keys | --keys | note | checklist | diff | git | --forget | --layout | --peek | --hold | --wants | boot | rename | star | next | --notify) AGENTS= ;;
   ls | ws) AGENTS=$(load_agents) || AGENTS= ;;
   *) AGENTS=$(load_agents) || exit 1 ;;
 esac
@@ -5606,7 +5636,7 @@ esac
 # Records from before 1.8 move to its layout, once (rec_migrate): first thing for anything that
 # reads them. Not for what never does; the wrapper's --forget sees to its own.
 case $1 in
-  help | -h | --help | config | keys | --keys | note | checklist | diff | --layout | --peek | --forget | --hold | --wants | --notify) ;;
+  help | -h | --help | config | keys | --keys | note | checklist | diff | git | --layout | --peek | --forget | --hold | --wants | --notify) ;;
   *) rec_migrate ;;
 esac
 
@@ -5693,6 +5723,14 @@ set -g @window_label_suffix '#{E:@trails_bell}'
 EOF
     fi
     exit 0
+    ;;
+  git)
+    if [ "${2:-}" = --lazygit ]; then
+      lazygit_show "${3:-}"
+    else
+      git_cmd "${2:-}"
+    fi
+    exit
     ;;
   diff)
     if [ "${2:-}" = --hunk ]; then
