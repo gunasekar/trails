@@ -101,15 +101,15 @@ type_in default/fast exit
 wait_for 5 no_session default || fail "an empty workspace session was left behind"
 
 # A configured workspace: the trail lands in its session, under the codebase's label.
-mkdir -p "$T/work/lattiq/augur"
+mkdir -p "$T/work/acme/orbit"
 cat >"$XDG_CONFIG_HOME/trails/config.json" <<CFG
 { "agents": [ { "name": "stub", "program": "agent", "session": { "start": "--session-id {id}", "resume": "--resume {id}", "id": "uuid" } } ],
-  "workspaces": { "lattiq": ["~/work/lattiq/*"] } }
+  "workspaces": { "acme": ["~/work/acme/*"] } }
 CFG
-DRIVER_DIR=$T/work/lattiq/augur driver "$TRAILS" new api
-wait_for 5 screen_has lattiq/api 'agent id=' || fail "no trail in lattiq"
-wait_for 5 sh -c "[ \"\$(tmux list-windows -t lattiq -F '#{window_name}')\" = 'augur·api' ]" || fail "no window in lattiq"
-assert_file "$(trec lattiq/api)" "the record under the workspace"
+DRIVER_DIR=$T/work/acme/orbit driver "$TRAILS" new api
+wait_for 5 screen_has acme/api 'agent id=' || fail "no trail in acme"
+wait_for 5 sh -c "[ \"\$(tmux list-windows -t acme -F '#{window_name}')\" = 'orbit·api' ]" || fail "no window in acme"
+assert_file "$(trec acme/api)" "the record under the workspace"
 
 # A directory no workspace claims runs in default, and says so. (Run off a terminal, the
 # attach at the end fails; the trail is up by then.)

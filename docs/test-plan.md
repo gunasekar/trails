@@ -160,7 +160,7 @@ Data loss first.
 | ctrl-n on the workspaces with a name in use | added to that workspace | refused |
 | a deleted current directory | a trail made pointing nowhere | refused |
 | a refusal in a popup | gone with the popup | the picker's waits for Enter, the note's shows on tmux's line |
-| a workspace whose name begins a trail's window (`lattiq`, a trail of `~/workspace/lattiq` itself, `lattiq-1a2b`) | "a tmux session named lattiq exists and isn't a trails workspace": a bare `-t lattiq` found the window first, by prefix | the workspace's session named exactly, `=lattiq:` (`t-prefix`) |
+| a workspace whose name begins a trail's window (`acme`, a trail of `~/workspace/acme` itself, `acme-1a2b`) | "a tmux session named acme exists and isn't a trails workspace": a bare `-t acme` found the window first, by prefix | the workspace's session named exactly, `=acme:` (`t-prefix`) |
 | `trails tmux-config` from a path with a space or `'` | broken bindings | quoted |
 | an older fzf | the lists failed on its unknown options | each newer option asked of fzf; hints in a header, a snapshot preview |
 | an agent entry that isn't an object, a second by one name | broke every agent; two rows starting the first | skipped and said so |

@@ -6,7 +6,7 @@
 ## Context
 
 Since [ADR 22](0022-an-unnamed-trail-is-named-by-its-id.md) an unnamed trail's window is
-`augur-3f9a`: unique, and saying nothing about the work. What the work is, trails already
+`orbit-3f9a`: unique, and saying nothing about the work. What the work is, trails already
 knows without asking any agent: an agent titles its terminal (OSC 2), Claude with its
 summary of the conversation, and the trail's session passes it on as `<agent> · <task>`
 (`TRAIL_TITLE`), which the picker's task column and the record's `task=` read.
@@ -40,8 +40,8 @@ first. Only you know when the work has moved on.
 
 - No agent integration: any agent that titles its terminal shows a task, and one that does
   not shows its window's name alone, as before.
-- A trail renamed while it runs has a session `lattiq/augur-3f9a` and a name `payments`, where
-  one named at start has `lattiq/payments`. Both show the name everywhere but `tmux a -t`.
+- A trail renamed while it runs has a session `acme/orbit-3f9a` and a name `payments`, where
+  one named at start has `acme/payments`. Both show the name everywhere but `tmux a -t`.
   The next restore brings a renamed trail back as `<workspace>/<name>`, and the two meet.
 - The agent keeps the name it was started with (`session.name`, Claude's `--name`): trails
   can't reach into it.

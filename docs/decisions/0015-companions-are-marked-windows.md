@@ -21,7 +21,7 @@ one codebase, and opening it twice must not make two.
 ## Decision
 
 `trails edit` makes an ordinary window in the workspace session beside the
-codebase's trails, named like a trail's (`augur·ide`, `augur·nvim`) and marked
+codebase's trails, named like a trail's (`orbit·ide`, `orbit·nvim`) and marked
 `@trails_companion` with the codebase on it. `trails shell` is a pane across
 the bottom of that window, marked `@trails_shell`.
 
@@ -31,7 +31,7 @@ the trail's window in the workspace a cell that
 no editor attaches to, the editor and the shell are panes of that cell, marked
 `@trails_pane` `edit` and `shell`: the editor on the left 60%, the shell along
 the bottom, or under the editor when there is one. The `·ide` window and `@trails_of` go. The editor alone
-remains a window, `augur·nvim`, where nothing runs, with the shell along its
+remains a window, `orbit·nvim`, where nothing runs, with the shell along its
 bottom; a cell whose trail ends keeps its panes as such a window.*
 
 - **The window you are on decides the codebase.** From a trail or another

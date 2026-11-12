@@ -61,12 +61,12 @@ is false.
 
 **Worked example for R8.** One user groups code by the company it belongs to,
 and git already switches identity per folder
-(`includeIf "gitdir:~/workspace/lattiq/"`). Each company is a workspace of
+(`includeIf "gitdir:~/workspace/acme/"`). Each company is a workspace of
 unrelated repos:
 
 ```text
 ~/workspace/
-├─ lattiq/      53 repos   → workspace lattiq
+├─ acme/        53 repos   → workspace acme
 ├─ prcpnt/                 → workspace prcpnt
 ├─ padnam/                 → workspace padnam
 └─ gunasekar/   10 repos   → workspace personal
@@ -93,18 +93,18 @@ window is also linked into a small session of its own that editors attach to.
 What `tmux ls` and `choose-tree` show:
 
 ```text
-lattiq                  ← workspace
-├─ augur·claude         ← trail
-├─ augur·claude-2       ← another trail, same codebase
-├─ augur·nvim           ← companion
+acme                    ← workspace
+├─ orbit·claude         ← trail
+├─ orbit·claude-2       ← another trail, same codebase
+├─ orbit·nvim           ← companion
 └─ ledger·codex
-lattiq/augur            ← editor view: augur·claude, linked
-lattiq/augur-2          ← editor view: augur·claude-2, linked
-lattiq/ledger           ← editor view: ledger·codex, linked
+acme/orbit              ← editor view: orbit·claude, linked
+acme/orbit-2            ← editor view: orbit·claude-2, linked
+acme/ledger             ← editor view: ledger·codex, linked
 ```
 
 **Why editor views exist.** Every client of a session shares its current
-window, so an editor attached to `lattiq` would follow whatever window you
+window, so an editor attached to `acme` would follow whatever window you
 browse to. A window can belong to several sessions (`link-window`), so each
 trail's window is linked into its own session: the editor sees one trail, and
 the workspace session moves freely. They are plain sessions, named
@@ -125,9 +125,9 @@ what trails lists, never where a trail may run.
 
 ```json
 "workspaces": {
-  "lattiq": {
-    "root": "~/workspace/lattiq",
-    "codebases": ["~/workspace/lattiq/*"]
+  "acme": {
+    "root": "~/workspace/acme",
+    "codebases": ["~/workspace/acme/*"]
   },
   "personal": {
     "codebases": ["~/workspace/gunasekar/*", "~/.dotfiles", "~/.dotfiles-private"]
@@ -145,7 +145,7 @@ what trails lists, never where a trail may run.
 - **Overlaps:** the most specific entry wins; an exact path beats a glob.
 - **Worktrees follow their main repo** (`git rev-parse --git-common-dir`),
   wherever they live, so they are never listed. Their windows read
-  `augur@<branch>·claude`.
+  `orbit@<branch>·claude`.
 
 **Listed, not allowed.** The picker lists a workspace's codebases and ends
 with "＋ another directory…". Starting a trail in a directory no workspace
@@ -171,12 +171,12 @@ shows without reconnecting.
 airbochs $ ssh probochs -t trails
 
 Pick a workspace: █
-▌ lattiq     3 trails · 1 needs you
+▌ acme       3 trails · 1 needs you
   personal   1 trail
   prcpnt     nothing running
 ```
 
-1. **Pick lattiq.** Its session is up, so you attach, landing on the trail
+1. **Pick acme.** Its session is up, so you attach, landing on the trail
    that needs you.
 2. **Pick prcpnt, with nothing running.** No empty session is made
    (principle 7): the same picker shows prcpnt's codebases, and starting a
@@ -195,14 +195,14 @@ Pick a workspace: █
 
 Zed over SSH, VS Code Remote-SSH or nvim's terminal runs `trails` in a
 codebase. It lists that codebase's trails, whatever their workspace, and
-attaches to the chosen trail's editor view (`lattiq/augur`): one agent,
+attaches to the chosen trail's editor view (`acme/orbit`): one agent,
 nothing else. Starting a new trail creates its window in the workspace and its
 editor view. The editor never sees workspaces.
 
 ### From a shell in a repo
 
-`cd ~/workspace/lattiq/augur; trails` shows augur's trails, as 0.6 does.
-Picking one attaches to the lattiq workspace with that trail's window
+`cd ~/workspace/acme/orbit; trails` shows orbit's trails, as 0.6 does.
+Picking one attaches to the acme workspace with that trail's window
 selected. Inside tmux it runs `switch-client` instead of nesting, which fixes
 R6.
 
@@ -213,9 +213,9 @@ the workspace, beside that codebase's trails.
 
 | Companion | Command | Opens | Window |
 | --- | --- | --- | --- |
-| Editor | `trails edit` | `$EDITOR` in the codebase | `augur·nvim` |
-| Shell | `trails shell` | `$SHELL` in the codebase | `augur·shell` |
-| Side by side | `trails ide` | a layout window: editor beside a nested view of the agent, as the map does | `augur·ide` |
+| Editor | `trails edit` | `$EDITOR` in the codebase | `orbit·nvim` |
+| Shell | `trails shell` | `$SHELL` in the codebase | `orbit·shell` |
+| Side by side | `trails ide` | a layout window: editor beside a nested view of the agent, as the map does | `orbit·ide` |
 
 - **One editor per directory.** Trails sharing a path share its editor; a
   worktree is another path, so it gets its own.
@@ -241,7 +241,7 @@ From nowhere in particular (`~`, a fresh SSH login) or `trails ws`:
 
 ```console
 Pick a workspace: █          # enter: open · ctrl-n: new workspace
-▌ lattiq      ● 3 trails · 1 needs you
+▌ acme        ● 3 trails · 1 needs you
   personal    ● 1 trail
   prcpnt        nothing running
   padnam        nothing running
@@ -255,16 +255,16 @@ so it stays short.
 `trails` at a shell in the workspace, or from a bound popup:
 
 ```console
-lattiq ▸ Pick a trail: █     # enter: open · tab: YOLO · ctrl-n: name it · ctrl-e: editor · ctrl-x: end
-▌ ● needs you  augur     claude · yolo  Health endpoint returns 500
+acme ▸ Pick a trail: █     # enter: open · tab: YOLO · ctrl-n: name it · ctrl-e: editor · ctrl-x: end
+▌ ● needs you  orbit     claude · yolo  Health endpoint returns 500
   ● your turn  ledger    codex          Postgres 17 migration
-  ● working    augur     claude    #2   Flaky ledger test
-    editor     augur     nvim
+  ● working    orbit     claude    #2   Flaky ledger test
+    editor     orbit     nvim
   ○ lost       billing   claude         Rate limit headers
-  augur     · new claude
+  orbit     · new claude
   ledger    · new claude
   billing   · new claude
-  ＋ another codebase…           (51 more under ~/workspace/lattiq)
+  ＋ another codebase…           (51 more under ~/workspace/acme)
   ↩ resume old trails  (12 ended)
 ```
 
@@ -276,7 +276,7 @@ lattiq ▸ Pick a trail: █     # enter: open · tab: YOLO · ctrl-n: name it �
   The rest sit behind "another codebase…", an fzf over the directories under
   `root`. Typing filters everything anyway.
 
-Companions appear as rows (`editor augur nvim`) so they can be reached from
+Companions appear as rows (`editor orbit nvim`) so they can be reached from
 the picker too.
 
 ### From an editor, or a shell in a repo
@@ -284,7 +284,7 @@ the picker too.
 0.6's picker as it is, with the workspace in the prompt:
 
 ```console
-augur (lattiq) ▸ Pick a trail: █
+orbit (acme) ▸ Pick a trail: █
 ▌ ● needs you  claude · yolo  Health endpoint returns 500
   ● working    claude    #2   Flaky ledger test
   claude · new trail
@@ -297,7 +297,7 @@ fzf's `--preview` runs `tmux capture-pane -p -t <window>` for the row under
 the cursor, so the right half shows that agent's screen as it is now:
 
 ```console
-▌ ● needs you  augur  claude   Health endpoint… │ Do you want to run `pytest -x`?
+▌ ● needs you  orbit  claude   Health endpoint… │ Do you want to run `pytest -x`?
   ● working    ledger codex    Postgres 17…      │   1. Yes  2. Yes, don't ask  3. No
 ```
 
@@ -309,7 +309,7 @@ default below a width that fits two columns, such as an editor side panel.
 
 - **No tree of our own.** Workspace → codebase → trail is what prefix+s /
   `choose-tree` shows, with the editor views as sessions beside them.
-- **No status-bar additions.** Window names (`augur·claude`) carry the state
+- **No status-bar additions.** Window names (`orbit·claude`) carry the state
   through tmux's own status line, and the `set-titles-string` guidance from
   0.6 covers the rest.
 
@@ -361,7 +361,7 @@ rebuilt from them.
   re-creates its editor view. Companions are not restored: an editor or shell
   is reopened with one command.
 - **Records move from session to window.** 0.6 keys a record by session name;
-  1.0 keys it by the trail's editor view name (`lattiq/augur-2`, a file one
+  1.0 keys it by the trail's editor view name (`acme/orbit-2`, a file one
   directory down in the state directory), with its workspace, codebase label
   and name inside, and marks the window `@trails_id` as today. A 0.6 record
   keeps its old key until it is restored, which moves it.
@@ -414,29 +414,29 @@ fewest things.
 | D15 | Companions | Marked `@trails_companion`; toggle back is `last-window`; `ide` takes the trail you are on, else the codebase's most wanting; ctrl-e in the picker |
 
 **D1. Plain names, refuse on collision.** A workspace session is named after
-the workspace (`lattiq`), as a tmux user expects in `tmux ls`
+the workspace (`acme`), as a tmux user expects in `tmux ls`
 (principle 1). The `@trails_workspace` option, not a name prefix, tells trails
 which sessions are its own. When a session by that name exists without the
 mark, trails stops:
 
 ```text
-trails: a session named "lattiq" exists and isn't a trails workspace.
-        Rename it (tmux rename-session -t lattiq …) or the workspace in config.json.
+trails: a session named "acme" exists and isn't a trails workspace.
+        Rename it (tmux rename-session -t acme …) or the workspace in config.json.
 ```
 
 Adopting the user's session would add windows to something they built
 (principle 4). A `trails-` prefix would dodge a rare collision by making every
-workspace read `trails-lattiq`.
+workspace read `trails-acme`.
 
 **D2. No `open` list in 1.0.** `trails restore` brings back what was running,
 and users who want fixed layouts have tmuxinator or sesh, which work beside
 trails because its sessions are plain. It would be the first setting that
 makes trails create something nobody asked for. Revisit only if it's missed.
 
-**D3. Named trails name their editor view.** `trails new payments` in lattiq
-gives `lattiq/payments`; an unnamed second trail in augur gives
-`lattiq/augur-2`. This is 0.6's `#name` / `#2` rule carried over, and the name
-you chose is what you type in `tmux a -t lattiq/payments`.
+**D3. Named trails name their editor view.** `trails new payments` in acme
+gives `acme/payments`; an unnamed second trail in orbit gives
+`acme/orbit-2`. This is 0.6's `#name` / `#2` rule carried over, and the name
+you chose is what you type in `tmux a -t acme/payments`.
 
 **D4. Verified.** Inside `display-popup`, `$TMUX` is set, `display-message`
 resolves the client that opened the popup, and `switch-client` from there
@@ -472,10 +472,10 @@ selected, and inside tmux runs `switch-client`. `TRAILS_ATTACH=view` or
 environment it starts a tmux server with, so a server started from an
 editor's terminal does not make every later pane look like one.
 
-**D9. Window names say the codebase and the agent.** `augur·claude`, and
-`augur·claude-2` for the second unnamed trail there, so the window and its
-view (`lattiq/augur-2`) agree on the N. A named trail's window says the name
-instead of the agent, `augur·payments`, as its view does. A worktree's
+**D9. Window names say the codebase and the agent.** `orbit·claude`, and
+`orbit·claude-2` for the second unnamed trail there, so the window and its
+view (`acme/orbit-2`) agree on the N. A named trail's window says the name
+instead of the agent, `orbit·payments`, as its view does. A worktree's
 codebase label is `<repo>@<branch>`.
 
 **D10. Unclaimed directories run in `default`.** `trails new` in a directory
@@ -521,7 +521,7 @@ starts the cursor there.
 
 **D15. Companions are marked windows, and toggle with `last-window`.**
 `trails edit`, `shell` and `ide` make an ordinary window in the workspace,
-named like a trail's (`augur·nvim`, `augur·shell`, `augur·ide`) and marked
+named like a trail's (`orbit·nvim`, `orbit·shell`, `orbit·ide`) and marked
 `@trails_companion` with the codebase on it, so the picker lists them (kind
 where the state goes, then codebase and what runs) and a second `trails
 edit` selects the one there instead of making another. Run from the

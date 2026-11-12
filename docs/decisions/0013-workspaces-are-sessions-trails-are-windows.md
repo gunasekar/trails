@@ -27,13 +27,13 @@ makes sense with trails uninstalled.
   paths or globs under `workspaces`. trails never infers one from the directory
   layout. A git worktree belongs where its main checkout does. With no
   `workspaces` key, one workspace, `default`, holds everything.
-- **A workspace session is named after the workspace**, plainly (`lattiq`), and
+- **A workspace session is named after the workspace**, plainly (`acme`), and
   marked `@trails_workspace`. A session of that name that trails did not make is
   refused, never adopted. No session exists for an empty workspace: the first
   trail creates it, and the last one out takes it down.
-- **A trail is a window in its workspace session**, `augur`, `augur-2` for
-  the second unnamed trail in that codebase, or `augur·payments` for a named
-  one. (Until 1.6 the agent was in the name too: `augur·claude`.) What trails knows about it lives on the
+- **A trail is a window in its workspace session**, `orbit`, `orbit-2` for
+  the second unnamed trail in that codebase, or `orbit·payments` for a named
+  one. (Until 1.6 the agent was in the name too: `orbit·claude`.) What trails knows about it lives on the
   window as `@trails_*` options (agent, conversation, directory, workspace, view,
   label, name, start time), so nothing is parsed out of a name. *Amended 2026-10
   (ADR 16): the agent's window lives in the trail's view, and the window of that

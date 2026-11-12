@@ -7,11 +7,11 @@ t_setup
 ws() { "$TRAILS" ws "$@"; }
 ws_of() { "$TRAILS" ws of "$1" 2>/dev/null; }
 
-mkdir -p "$T/workspace/lattiq/augur/cmd" "$T/workspace/lattiq/special" "$T/workspace/lattiq/special/docs" \
+mkdir -p "$T/workspace/acme/orbit/cmd" "$T/workspace/acme/special" "$T/workspace/acme/special/docs" \
   "$T/workspace/gunasekar/trails" "$T/.dotfiles/zsh" "$T/other" "$T/infra"
 
 # No workspaces configured: everything is "default".
-assert_eq "$(ws_of "$T/workspace/lattiq/augur")" default "default with no config"
+assert_eq "$(ws_of "$T/workspace/acme/orbit")" default "default with no config"
 assert_match "$(ws 2>&1)" 'no workspaces in' "ws says so"
 
 # Three workspaces, as the design doc spells them: object form, bare list, root or not.
@@ -19,21 +19,21 @@ cat >"$XDG_CONFIG_HOME/trails/config.json" <<EOF
 {
   "agents": [ { "name": "stub", "program": "agent" } ],
   "workspaces": {
-    "lattiq":   { "root": "~/workspace/lattiq", "codebases": ["~/workspace/lattiq/*"] },
-    "personal": ["~/workspace/gunasekar/*", "~/.dotfiles", "~/workspace/lattiq/special/"],
+    "acme":   { "root": "~/workspace/acme", "codebases": ["~/workspace/acme/*"] },
+    "personal": ["~/workspace/gunasekar/*", "~/.dotfiles", "~/workspace/acme/special/"],
     "empty":    {},
     "bad.name": ["~/other"]
   }
 }
 EOF
 
-assert_eq "$(ws_of "$T/workspace/lattiq/augur")" lattiq "a glob"
+assert_eq "$(ws_of "$T/workspace/acme/orbit")" acme "a glob"
 assert_eq "$(ws_of "$T/workspace/gunasekar/trails")" personal "another glob"
 assert_eq "$(ws_of "$T/.dotfiles")" personal "an exact path"
-assert_eq "$(ws_of "$T/workspace/lattiq/special")" personal "an exact path beats a glob"
-assert_eq "$(ws_of "$T/workspace/lattiq/augur/cmd")" lattiq "a glob reaches subdirectories"
+assert_eq "$(ws_of "$T/workspace/acme/special")" personal "an exact path beats a glob"
+assert_eq "$(ws_of "$T/workspace/acme/orbit/cmd")" acme "a glob reaches subdirectories"
 assert_eq "$(ws_of "$T/.dotfiles/zsh")" personal "an exact path reaches the folders inside it"
-assert_eq "$(ws_of "$T/workspace/lattiq/special/docs")" personal "the nearest entry claims a folder, not the longer glob"
+assert_eq "$(ws_of "$T/workspace/acme/special/docs")" personal "the nearest entry claims a folder, not the longer glob"
 assert_eq "$(ws_of "$T/other")" "" "a bad workspace name claims nothing"
 assert_match "$(ws of "$T/other" 2>&1)" 'no workspace claims ~/other.*trails ws add' "and says what to do"
 assert_match "$(ws of "$T/other" 2>&1)" 'skipping workspace "bad.name"' "the bad name is reported"
@@ -41,36 +41,36 @@ assert_match "$(ws of "$T/other" 2>&1)" 'skipping workspace "bad.name"' "the bad
 
 # A worktree follows its main checkout, and a subdirectory of a repo follows the repo.
 g() { git -c user.name=t -c user.email=t@t -c init.defaultBranch=main "$@"; }
-( cd "$T/workspace/lattiq/augur" && g init -q && touch a && g add a && g commit -qm a &&
-  g worktree add -q "$T/wt/augur-retry" -b retry ) >/dev/null 2>&1 || fail "git setup"
+( cd "$T/workspace/acme/orbit" && g init -q && touch a && g add a && g commit -qm a &&
+  g worktree add -q "$T/wt/orbit-retry" -b retry ) >/dev/null 2>&1 || fail "git setup"
 ( cd "$T/.dotfiles" && g init -q && touch a && g add a && g commit -qm a ) >/dev/null 2>&1 || fail "git setup"
-assert_eq "$(ws_of "$T/wt/augur-retry")" lattiq "a worktree follows its repo"
+assert_eq "$(ws_of "$T/wt/orbit-retry")" acme "a worktree follows its repo"
 assert_eq "$(ws_of "$T/.dotfiles/zsh")" personal "a repo's subdirectory follows the repo"
 
 # The listing: names in config order, roots, entries as written (the ~ is the point).
 list=$(ws 2>/dev/null)
-assert_eq "$(printf '%s\n' "$list" | cut -f1 | tr '\n' ' ')" "lattiq personal empty " "listed in order"
+assert_eq "$(printf '%s\n' "$list" | cut -f1 | tr '\n' ' ')" "acme personal empty " "listed in order"
 # shellcheck disable=SC2088
-assert_eq "$(printf '%s\n' "$list" | awk -F'\t' '$1 == "lattiq" { print $2 "|" $3 }')" \
-  '~/workspace/lattiq|~/workspace/lattiq/*' "root and entry"
+assert_eq "$(printf '%s\n' "$list" | awk -F'\t' '$1 == "acme" { print $2 "|" $3 }')" \
+  '~/workspace/acme|~/workspace/acme/*' "root and entry"
 assert_eq "$(printf '%s\n' "$list" | awk -F'\t' '$1 == "empty" { print $2 "|" $3 }')" "-|" "no root, no entries"
 
 # On a terminal, padded columns rather than tabs.
 driver "sh -c '$TRAILS ws list; sleep 30'"
 wait_for 5 screen_has driver-1 'personal' || fail "no table on the terminal"
 assert_match "$(screen driver-1 | grep '^personal')" '^personal +~/workspace/gunasekar/\* +1 codebase$' "the first entry, with its count"
-assert_match "$(screen driver-1 | grep '^lattiq')" '^lattiq +~/workspace/lattiq/\* +2 codebases +root ~/workspace/lattiq$' "the glob, its count, the root"
+assert_match "$(screen driver-1 | grep '^acme')" '^acme +~/workspace/acme/\* +2 codebases +root ~/workspace/acme$' "the glob, its count, the root"
 assert_match "$(screen driver-1)" '^ +~/\.dotfiles$' "a second entry on its own line"
 
 # Adding: a new workspace, an existing one, the same entry twice, a bad name.
 assert_eq "$(cd "$T/infra" && ws add infra)" "added ~/infra to infra" "add here to a new workspace"
 assert_eq "$(ws_of "$T/infra")" infra "and it resolves"
-assert_eq "$(ws add lattiq "$T/other")" "added ~/other to lattiq" "add a directory to an existing one"
-assert_eq "$(ws_of "$T/other")" lattiq "and it resolves"
-assert_match "$(ws add lattiq "$T/other" 2>&1)" 'already in lattiq' "no duplicates"
+assert_eq "$(ws add acme "$T/other")" "added ~/other to acme" "add a directory to an existing one"
+assert_eq "$(ws_of "$T/other")" acme "and it resolves"
+assert_match "$(ws add acme "$T/other" 2>&1)" 'already in acme' "no duplicates"
 # shellcheck disable=SC2088
-assert_eq "$(jq -r '.workspaces.lattiq.codebases | join(",")' "$XDG_CONFIG_HOME/trails/config.json")" \
-  '~/workspace/lattiq/*,~/other' "the config as written"
+assert_eq "$(jq -r '.workspaces.acme.codebases | join(",")' "$XDG_CONFIG_HOME/trails/config.json")" \
+  '~/workspace/acme/*,~/other' "the config as written"
 assert_match "$(ws add 'no/slash' "$T/other" 2>&1)" 'letters, digits' "a bad name is refused"
 assert_match "$(ws add infra "$T/nope" 2>&1)" 'no such directory' "a missing directory is refused"
 

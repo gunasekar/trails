@@ -47,4 +47,4 @@ another when a record has the one it drew.
   is the way to a short one.
 - A name made only of four hex digits, `beef` or `cafe`, is refused.
 - Trails from 1.8 and 1.9 keep what they have until they end: their eight-digit IDs are
-  still read, and their `augur`, `augur-2` sessions still badge as `-` and `#2`.
+  still read, and their `orbit`, `orbit-2` sessions still badge as `-` and `#2`.

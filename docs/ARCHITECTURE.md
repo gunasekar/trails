@@ -90,7 +90,7 @@ the trail's session, and the trail's, in the workspace. Where it matters the tex
 says which.
 
 The agent's window, and the trail's window after it, is named `<codebase>-<ID>`
-for an unnamed trail, its trail ID without the `t` (`augur-3f9a`,
+for an unnamed trail, its trail ID without the `t` (`orbit-3f9a`,
 [ADR 22](decisions/0022-an-unnamed-trail-is-named-by-its-id.md)), or
 `<codebase>·<name>` for a named one: the trail's key without its workspace (a
 trail renamed while it runs keeps its session, below), and not the agent, which
@@ -156,7 +156,7 @@ without the session, and so an editor's panel, ever seeing them. The session goe
 window's client with it; a window you killed is rebuilt by the next attach
 (`ensure_window`), since the trail lives on, and one that lost only its agent
 pane, the nested client detached, gets the pane back the same way. Named trails name their session:
-`lattiq/payments`. tmux gives a window one size, so a session shown by two clients
+`acme/payments`. tmux gives a window one size, so a session shown by two clients
 of different shapes (the trail's window and an editor's panel) is sized to the one
 you last typed in, and the other sees it clipped or filled: accepted, as in the
 map.
@@ -429,18 +429,18 @@ So `trails` writes that down outside tmux, one file per trail, named by the trai
 ID under its codebase's folder ([ADR 20](decisions/0020-a-trail-has-an-id-of-its-own.md)):
 
 ```text
-~/.local/state/trails/sessions/code-augur/t3f9a
+~/.local/state/trails/sessions/code-orbit/t3f9a
 agent=claude
-dir=/Users/me/code/augur
+dir=/Users/me/code/orbit
 id=15fcb95c-19cc-49dc-a7fc-7a7dd032e5c9
 yolo=yolo
 task=Fixing the flaky test
-workspace=lattiq
-label=augur
+workspace=acme
+label=orbit
 name=
 server=trails
 trail=t3f9a
-session=lattiq/augur-3f9a
+session=acme/orbit-3f9a
 ```
 
 **A trail's ID is its own.** `launch` makes it (`new_tid`, four hex digits from a

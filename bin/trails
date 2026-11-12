@@ -553,7 +553,7 @@ edit_config() {
 # globs under "workspaces" in the config, with an optional root:
 #
 #   "workspaces": {
-#     "lattiq":   { "root": "~/workspace/lattiq", "codebases": ["~/workspace/lattiq/*"] },
+#     "acme":     { "root": "~/workspace/acme", "codebases": ["~/workspace/acme/*"] },
 #     "personal": { "codebases": ["~/workspace/gunasekar/*", "~/.dotfiles"] }
 #   }
 #
@@ -590,7 +590,7 @@ load_workspaces() {
 
 # The directories a workspace entry may claim $1 by, one per line: itself, the repository
 # it is inside, and that repository's main checkout when it is a worktree. So a directory
-# inside a listed repo, or a worktree of one wherever it lives (../augur-retry-budget,
+# inside a listed repo, or a worktree of one wherever it lives (../orbit-retry-budget,
 # .claude/worktrees/), goes where the repo goes without being listed. Physical paths
 # throughout: the config's globs are matched against what `pwd -P` would say.
 workspace_candidates() {
@@ -609,8 +609,8 @@ workspace_candidates() {
 }
 
 # The workspace directory $1 belongs to, by the config. The most specific entry wins: an
-# exact path over a glob, and a longer glob over a shorter one — so "~/work/lattiq/*" and
-# "~/work/lattiq/special" both claiming special give it to the second. A glob's * crosses
+# exact path over a glob, and a longer glob over a shorter one — so "~/work/acme/*" and
+# "~/work/acme/special" both claiming special give it to the second. A glob's * crosses
 # "/", as case's does, so a listed repo's subdirectories match it too, and a plain path claims
 # the folders inside it the same way (D6 in docs/design/picker-consolidation.md). The candidates are
 # tried in order, nearest first, and the first that any entry claims decides.
@@ -681,7 +681,7 @@ tilde_path() {
 # per line under its workspace, what each glob matches today (a listed path that is not
 # there says so), and the root as a dim note where one is set:
 #
-#   lattiq    ~/workspace/lattiq/*     53 codebases   root ~/workspace/lattiq
+#   acme      ~/workspace/acme/*       53 codebases   root ~/workspace/acme
 #   personal  ~/workspace/gunasekar/*  10 codebases
 #             ~/.dotfiles
 ws_list() {
@@ -873,10 +873,10 @@ codebase_label() {
 }
 
 # A trail's badge in the picker and `trails ls`: #<name> for one you named, #<ID> for an
-# unnamed one (#3f9a, its session augur-3f9a). Trails from before 1.10 have #N for the Nth
+# unnamed one (#3f9a, its session orbit-3f9a). Trails from before 1.10 have #N for the Nth
 # unnamed trail of a codebase and - for the first. $1 is its key, its session's name, $2 its
 # codebase label, $3 its name if any. A trail you named is the one case where
-# the badge is the name to call it by — `tmux a -t lattiq/payments`.
+# the badge is the name to call it by — `tmux a -t acme/payments`.
 trail_badge() {
   [ -n "$3" ] && {
     printf '#%s' "$3"
@@ -1146,7 +1146,7 @@ TASK_FMT='#{=45:#{?#{==:#{pane_title},#{host}},,#{s|^[^A-Za-z0-9 ]+ ||:pane_titl
 # What the current trail is working on, at the right of the status line before the checklist's
 # count: "Fixing the flaky test · ☑ 2/5 · 14:05". Each item brings the " · " after it, so one
 # that shows nothing leaves no separator behind. Only for an unnamed trail: a named one's name, in
-# its window's name (augur·payments), says what it is for. Cut at 40 characters (ADR 23).
+# its window's name (orbit·payments), says what it is for. Cut at 40 characters (ADR 23).
 #
 # Read off the trail's window, not the agent's: the agent pane there (@trails_pane agent) is a
 # client of the trail's session, and its title is that session's TRAIL_TITLE, "claude · task",
@@ -1203,7 +1203,7 @@ RST=$(printf '\033[0m')
 #   key       its record's key and the name to attach to: its session
 #   ws        its workspace
 #   label     @agent — "claude", or "claude (YOLO)"
-#   codebase  the codebase label its window is named from (augur, augur@retry)
+#   codebase  the codebase label its window is named from (orbit, orbit@retry)
 #   badge     #name, #N, or -
 #
 # One list-windows for the lot. A trail's window is the one in its session, the session named
@@ -1463,7 +1463,7 @@ rank_dot() {
 #
 #   life       running (the trail is there) or stopped (it isn't)
 #   state      a STATES id: needs-you, your-turn, unknown, working · lost, closed
-#   session    what to attach to: the trail's session (lattiq/augur-3f9a); for a lost one the
+#   session    what to attach to: the trail's session (acme/orbit-3f9a); for a lost one the
 #              session it had; - for a trail that ended
 #   trail      its trail ID (t3f9a), - for one that ended
 #   yolo       yolo or -
@@ -1516,10 +1516,10 @@ ls_rows() {
 # trail in columns — a tab jumps to the next 8-stop, so a TSV on screen is a ragged grid.
 # `[ -t 1 ]` tells them apart with no flag: a caller's `$(...)` is a pipe.
 #
-#   #3f9a    ● needs you  claude · yolo  lattiq    ~/code/api             Rework the retry budget
+#   #3f9a    ● needs you  claude · yolo  acme      ~/code/api             Rework the retry budget
 #            ● your turn  claude         personal  ~/.dotfiles            Fix the flaky test
-#            ○ lost       claude · yolo  lattiq    ~/code/foundry         Improve observability
-#            ○ closed     claude         lattiq    ~/notes      2h ago    Weekly review
+#            ○ lost       claude · yolo  acme      ~/code/catalog         Improve observability
+#            ○ closed     claude         acme      ~/notes      2h ago    Weekly review
 #
 # The badge column leads, the workspace column follows the agent, and either is left out when
 # no row has one.
@@ -1622,7 +1622,7 @@ list_sessions() {
 
 # The running trails as the codebase screen's raw rows (see print_menu for the shape): this
 # directory's. The key is worth hiding — on one
-# codebase's screen `lattiq/augur` would repeat on every row — and what differs survives
+# codebase's screen `acme/orbit` would repeat on every row — and what differs survives
 # as a `#3f9a` or `#name` badge; the window id is the target, what ctrl-x and the preview act on.
 live_trails() {
   sessions | while IFS="$TAB" read -r wid key ws label dir cb badge task; do
@@ -2708,7 +2708,7 @@ EOF
 
   # Its name, if it has one: the one you gave, the one its record kept, or for a closed
   # trail resumed the one its history kept. Kept only if free — a lost #payments comes back as
-  # lattiq/payments, not lattiq/augur-3f9a — and a restore counts its own record as free.
+  # acme/payments, not acme/orbit-3f9a — and a restore counts its own record as free.
   label=$(codebase_label "$PWD")
   name=
   if [ -z "$3" ] && [ -n "$TRAILS_NAME" ]; then
@@ -2778,8 +2778,8 @@ EOF
     done
     sess=$ws/$label-${tid#t}
   fi
-  # The window's name, for the status line and choose-tree: augur-3f9a, as its session, or
-  # augur·payments for one you named. Not the agent: which one runs is the trail's business,
+  # The window's name, for the status line and choose-tree: orbit-3f9a, as its session, or
+  # orbit·payments for one you named. Not the agent: which one runs is the trail's business,
   # and the picker says it.
   if [ -n "$name" ]; then
     win=${label}·$name
@@ -3136,7 +3136,7 @@ attach_key() {
 # because that lived only in tmux. So write it down outside tmux, one small file per trail,
 # named by its trail ID under its codebase (ADR 20):
 #
-#   ~/.local/state/trails/sessions/code-augur/t3f9a   agent= dir= id= yolo= task= workspace= label= name=
+#   ~/.local/state/trails/sessions/code-orbit/t3f9a   agent= dir= id= yolo= task= workspace= label= name=
 #
 # and bring trails back from it: lost rows in the picker, or `trails restore` for the lot.
 # The workspace in the record is a fallback: a restore puts the trail where the config says
@@ -3218,7 +3218,7 @@ new_id() {
 }
 
 # A trail's ID: t and four hex digits, made at launch and kept until the trail ends, a restore
-# included (ADR 20). An unnamed trail's session and window are named by it, augur-3f9a (ADR 22).
+# included (ADR 20). An unnamed trail's session and window are named by it, orbit-3f9a (ADR 22).
 # Its record is sessions/<codebase>/<ID>, the codebase as path_key names it, the checklist's
 # name for it under "data"; the folder is for reading, and nothing depends on it: a record is
 # found by its ID alone. Not the conversation ID, which a /clear changes, nor the tmux address,
@@ -3453,7 +3453,7 @@ EOF
 }
 
 # Is this record's trail gone? Not "is a window of that name running": a name can be taken
-# by something else (a `tmux new -s lattiq/augur` of your own), and that would hide the dead
+# by something else (a `tmux new -s acme/orbit` of your own), and that would hide the dead
 # record from every lost row and from restore. launch() stamps each trail's window with its
 # trail ID (@trails_trail), and a record is alive only while a window carries it. A window
 # from before 1.8, not yet given one by sessions(), matches as 1.7 did: its session and its
@@ -4798,7 +4798,7 @@ in_map() {
     is_map
 }
 
-# fzf's preview: the agent's own screen. It is what makes a name pickable — "trails-foundry"
+# fzf's preview: the agent's own screen. It is what makes a name pickable — "trails-catalog"
 # is a name, the screen tells you it is sat on a permission prompt. -e keeps the colours.
 # A trail's screen as it is now, without the blank rows under its last line: the preview
 # follows the bottom, and those would push the text off it. Blank is judged without colour.
@@ -4894,7 +4894,7 @@ map_agent() { tmux display-message -pt "$1" '#{@agent}' 2>/dev/null; }
 # working sort list_sessions() and live_trails() use, so pane 1 of the grid is always the one
 # to look at first.
 #
-# Each row shows its trail's key — lattiq/augur-3f9a — since box-wide the codebase and the
+# Each row shows its trail's key — acme/orbit-3f9a — since box-wide the codebase and the
 # workspace are what tell trails apart.
 map_menu() {
   sessions | classify | while IFS="$TAB" read -r state _wid key _ws label _dir _cb _badge task; do

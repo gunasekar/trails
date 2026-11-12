@@ -253,7 +253,7 @@ Today's config already says this, so it needs no new keys:
 A workspace with two workspace directories lists both:
 
 ```json
-"lattiq": { "codebases": ["~/workspace/lattiq/*", "~/workspace/lattiq-infra/*"] }
+"acme": { "codebases": ["~/workspace/acme/*", "~/workspace/acme-infra/*"] }
 ```
 
 #### The picker
@@ -274,7 +274,7 @@ personal ▸ New trail in: █   # enter: pick · esc: back
     kitewatch
     markview-smart-tables.nvim
     markview.nvim
-    studio-web
+    storefront
     trips
   ~/.dotfiles                       ● 1 trail
   ~/.dotfiles-private
@@ -285,17 +285,17 @@ personal ▸ New trail in: █   # enter: pick · esc: back
 What happens to the folder picked depends on where it is (D6):
 
 - **Inside a workspace directory or a codebase**, like
-  `~/workspace/lattiq/apps/backend`: it already belongs to the workspace, by
+  `~/workspace/acme/apps/backend`: it already belongs to the workspace, by
   the rule that a directory inside a listed one belongs to it (`trails ws of`
-  says `lattiq` for it today). Nothing is asked and nothing is written to the
+  says `acme` for it today). Nothing is asked and nothing is written to the
   config. The trail starts there, labelled `backend`. While it has trails or
   recent history, the tree lists it under its parent, so the next one needs no
   browsing:
 
   ```console
-  ▌ ~/workspace/lattiq/
+  ▌ ~/workspace/acme/
       apps/backend                  ● 1 trail
-      augur                         ○ 3 ended
+      orbit                         ○ 3 ended
       …
   ```
 
@@ -309,7 +309,7 @@ What happens to the folder picked depends on where it is (D6):
   ~/Downloads/spike is in no workspace: █
   ▌ default    not added to a workspace
     personal   add it here
-    lattiq     add it here
+    acme       add it here
     prcpnt     add it here
     padnam     add it here
   ```
@@ -324,7 +324,7 @@ add` and the question above add one codebase, never a workspace directory.
 
 - (a) One level: a workspace directory lists its children, and anything deeper
   is reached by `browse…`, *recommended*. Predictable, and a large directory
-  like `~/workspace/lattiq` stays one screen of names to filter.
+  like `~/workspace/acme` stays one screen of names to filter.
 - (b) Every level: the whole tree under each workspace directory. Finds nested
   repos without browsing, but lists every subfolder of every repo.
 

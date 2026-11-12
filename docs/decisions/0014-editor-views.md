@@ -40,7 +40,7 @@ Where an attach lands depends on who is asking:
   server begun from an editor's terminal does not make every later pane look
   like one.
 
-The view's name is also the trail's record key, so `tmux a -t lattiq/payments`,
+The view's name is also the trail's record key, so `tmux a -t acme/payments`,
 the record file and the `session` field of `trails ls` all say the same thing.
 A name is checked free against running trails, old sessions and records before
 it is used.

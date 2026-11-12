@@ -37,14 +37,14 @@ and a live preview of the highlighted trail.
 ```text
 trails ▸ █                         enter: go · ctrl-s: star · ctrl-r: rename · ctrl-x: end · ?: keys
 ▌ ＋ new trail…                    in trails (personal)
-  ▦ map                            4 trails · almanac-1112 needs you
+  ▦ map                            4 trails · journal-1112 needs you
   personal                         3 trails · 1 your turn
   ▸ 1 trails-c6         ★ your turn  12m  trails      claude          Fix the flaky cart test
     2 dotfiles-8e         working         _dotfiles   claude · yolo   Tidy zsh startup
       cart-71             lost            trails      claude          enter restores it
     3 notes               editor          trails
-  lattiq                           2 trails · 1 needs you
-    1 almanac-1112      ★ needs you   4m  almanac     codex           Which migration first?
+  acme                             2 trails · 1 needs you
+    1 journal-1112      ★ needs you   4m  journal     codex           Which migration first?
     2 billing-3f          working         billing     claude          Split the invoice job
   default                          nothing running
   ── yours ──

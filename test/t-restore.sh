@@ -41,7 +41,7 @@ newid=$(tmux display-message -pt default/fast '#{@trails_id}')
 [ "$newid" != "$id2" ] || fail "fast should have a new id"
 assert_eq "$(sed -n 's/^id=//p' "$(trec default/fast)")" "$newid" "record follows the new id"
 # Refused inside BOOT, restore_one starts it fresh; the wrapper's --refused asks the same, and
-# must find it back already rather than start a second (lattiq/consent and consent-2, both
+# must find it back already rather than start a second (acme/consent and consent-2, both
 # fresh, both one trail, before the launch lock checked).
 fast_tid=$(tmux display-message -pt default/fast '#{@trails_trail}')
 sleep 6
