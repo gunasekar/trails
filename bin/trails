@@ -944,6 +944,9 @@ TAB=$(printf '\t')
 # tab, and the shell reads a tab as whitespace, dropping empty fields. The unit separator is
 # meant for this, and appears in no name.
 US=$(printf '\037')
+# The bytes that continue a UTF-8 character, 0x80 to 0xBF: where a byte-counting awk (mawk,
+# the macOS awk) may cut a string without splitting a character. In one printf, for speed.
+UTF8_CONT=$(printf '\200\201\202\203\204\205\206\207\210\211\212\213\214\215\216\217\220\221\222\223\224\225\226\227\230\231\232\233\234\235\236\237\240\241\242\243\244\245\246\247\250\251\252\253\254\255\256\257\260\261\262\263\264\265\266\267\270\271\272\273\274\275\276\277')
 
 # Every trails tmux call goes to TRAILS_SERVER (-L), including when $TMUX points at another
 # socket: otherwise a run from an ordinary tmux would create and list sessions there.
@@ -2090,7 +2093,8 @@ one_rows() {
     [ -z "$or_lost" ] || printf '%s\n' "$or_lost"
     [ -z "$USE_TMUX" ] || tmux list-windows -a -F "W$TAB#{session_name}$TAB#{window_id}$TAB#{window_index}$TAB#{window_name}$TAB#{?@trails_workspace,1,0}$TAB#{?@trails_map,1,0}$TAB#{@trails_window}$TAB#{@trails_session}$TAB#{@trails_starred}$TAB#{@trails_state_at}$TAB#{@trails_tool}$TAB#{@trails_dir}$TAB#{session_group}" 2>/dev/null
   } | awk -F"$TAB" -v OFS="$TAB" -v now="$(date +%s)" -v cols="${TRAILS_COLS:-0}" \
-    -v red="$RED" -v yel="$YEL" -v dim="$DIM" -v rst="$RST" -v bold="$(printf '\033[1m')" '
+    -v red="$RED" -v yel="$YEL" -v dim="$DIM" -v rst="$RST" -v bold="$(printf '\033[1m')" -v cont="$UTF8_CONT" '
+    BEGIN { bytes = length("…") > 1 }
     function vlen(s) { gsub(/·|…|★|▦|─/, "x", s); return length(s) }
     function pad(s, w) { return s sprintf("%*s", w - vlen(s), "") }
     function ago(t,  s) {
@@ -2108,14 +2112,19 @@ one_rows() {
       if (length(idx) > wi) wi = length(idx)
     }
     # Task t cut to n columns, … last; whole when it fits or no width is known. Its colour
-    # goes when it is cut. Cut bytes at the end of a character a byte-counting awk split are
-    # dropped.
-    function fit(t, n,  p) {
+    # goes when it is cut. A byte-counting awk (mawk, the macOS awk) backs the cut off to the
+    # start of the character it would split: while the next byte continues a character. No
+    # regex over those bytes: gawk in a UTF-8 locale refuses a byte range in one ("Invalid
+    # collation character", which fails the whole program), and the macOS awk cannot match
+    # against a split character. gawk counts characters, so never splits one.
+    function fit(t, n,  p, k) {
       if (cols <= 0) return t
       p = t; gsub(/\033\[[0-9;]*m/, "", p)
       if (vlen(p) <= n) return t
       if (n < 4) return ""
-      p = substr(p, 1, n - 1); sub(/[\200-\377]+$/, "", p); sub(/ +$/, "", p)
+      k = n - 1
+      while (bytes && k > 0 && index(cont, substr(p, k + 1, 1))) k--
+      p = substr(p, 1, k); sub(/ +$/, "", p)
       return p "…"
     }
     function agent(label,  a) { a = label; sub(/ .*/, "", a); return a (label ~ /\(YOLO\)/ ? " · yolo" : "") }

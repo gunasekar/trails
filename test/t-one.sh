@@ -197,6 +197,16 @@ assert_match "$(printf '%s\n' "$rows" | grep 'c·three')" " stub +$task$" "at 12
 rows=$(wide 70)
 [ "$(printf '%s\n' "$rows" | widest)" -le 67 ] || fail "rows past 67 columns at 70: $(printf '%s\n' "$rows" | widest)"
 case $(printf '%s\n' "$rows" | grep 'c·three') in *stub*) fail "at 70, the agent column stayed" ;; *"  Split the"*…) ;; *) fail "at 70, the task not cut: $rows" ;; esac
+# A task of two-byte characters, cut at two widths a byte apart so one cut lands inside a
+# character: still cut with …, never half a character (mawk, the macOS awk and gawk alike).
+type_in "$(tmux list-panes -t '=beta/three:' -F '#{pane_id}')" "title Résumé éééééééééééééééééééééééééééééééééééé"
+wait_for 5 sh -c "tmux display-message -pt '=beta/three:' '#{pane_title}' | grep -q Résumé" || fail "the accented task never reached the pane"
+for w in 69 70; do
+  rm -f "$T/dump"
+  picker "FZF_DUMP='$T/dump' TRAILS_COLS=$w"
+  iconv -f UTF-8 -t UTF-8 "$T/dump" >/dev/null 2>&1 || fail "at $w, a character cut in half: $(grep 'c·three' "$T/dump" | od -c | tail -3)"
+  case $(grep 'c·three' "$T/dump") in *"Résumé é"*…*) ;; *) fail "at $w, the accented task not cut: $(grep 'c·three' "$T/dump")" ;; esac
+done
 
 # ── Esc closes it ───────────────────────────────────────────────────────────────
 rm -f "$T/dump"
