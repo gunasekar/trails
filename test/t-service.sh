@@ -46,7 +46,9 @@ assert_match "$(cat "$T/boot.log")" "starting the tmux server" "boot started it"
 
 # The service refusing: the server starts here, as before the service, and trails says so.
 tmux kill-server
-wait_for 5 sh -c "! pgrep -f '$TRAILS boot' >/dev/null" || fail "boot outlived its server"
+# [b]oot: the pattern must not match the sh -c running it, which the procps pgrep (Linux) does
+# not leave out the way the BSD one (macOS) leaves out its ancestors.
+wait_for 5 sh -c "! pgrep -f '$TRAILS [b]oot' >/dev/null" || fail "boot outlived its server"
 out=$(SVC_FAIL=1 TRAILS_SERVICE=test.trails "$TRAILS" restore 2>&1)
 assert_match "$out" "restored default/payments" "the trail came back without the service"
 assert_match "$out" "starting tmux here instead" "and trails said where the server is"
