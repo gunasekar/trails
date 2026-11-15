@@ -213,6 +213,9 @@ the workspaces you are not in, and nothing at all when none do:
 [acme] 󰂚 2 1:checkout-3f9a  2:checkout-b07e!  3:billing·nvim   Fix the flaky cart-total test · 14:05
 ```
 
+The picker also shows a bell beside each flagged trail. Visiting its window clears
+that bell, even when its state remains `needs you` or `your turn`.
+
 The bell is a Nerd Font glyph; set another, or none, in the config:
 `"alerts": { "glyph": "*" }`, or `"alerts": false`. A theme whose window format
 shows no tmux flags can show the same bell after a window's name with

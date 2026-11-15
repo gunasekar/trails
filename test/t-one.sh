@@ -53,8 +53,8 @@ case $order in
 esac
 assert_match "$rows" "beta +1 trail · 1 needs you" "a workspace's header says what it holds"
 assert_match "$rows" "alpha +2 trails" "and the other's"
-assert_match "$rows" "[0-9] c·three +needs you +[0-9]+m +c +stub" "a trail: number, name, state, for how long, codebase, agent"
-assert_match "$rows" "[0-9] notes +yours" "a window of yours, in its workspace"
+assert_match "$rows" "[0-9] +c·three +needs you +[0-9]+m +c +stub" "a trail: number, name, state, for how long, codebase, agent"
+assert_match "$rows" "[0-9] +notes +yours" "a window of yours, in its workspace"
 case $rows in *"alpha/"* | *"beta/"* | *"●"*) fail "a trail's own session listed, or a dot: $rows" ;; *) ;; esac
 assert_match "$rows" "＋ new trail… +in c \(beta\)" "new trail, for the codebase you're on"
 tmux switch-client -c "$term" -t '=alpha:'
@@ -66,7 +66,7 @@ t2=$(tid alpha/two)
 assert_eq "$(tmux show -wqv -t '=alpha/two:' @trails_starred)" 1 "starred on its window"
 assert_eq "$(grep -h '^starred=' "$STATE"/*/"$t2")" starred=1 "and in its record"
 rows=$(drawn)
-assert_match "$rows" "^ +★ [0-9] a·two +" "two has its star, in its place"
+assert_match "$rows" "^ +★ [0-9] +a·two +" "two has its star, in its place"
 assert_eq "$(printf '%s\n' "$rows" | grep -c '★')" 1 "once: no list of the starred of its own"
 
 # A restore keeps it.
@@ -86,7 +86,7 @@ assert_eq "$(tmux show -wqv -t '=alpha/two:' @trails_starred)" "" "an empty TRAI
 # ctrl-s in the picker: the row's trail, and no other kind of row.
 picker "FZF_PICK='a·two' FZF_KEYS=ctrl-s"
 assert_eq "$(tmux show -wqv -t '=alpha/two:' @trails_starred)" 1 "ctrl-s stars the row's trail"
-assert_match "$(drawn)" "★ [0-9] a·two" "and the list shows it"
+assert_match "$(drawn)" "★ [0-9] +a·two" "and the list shows it"
 picker "FZF_PICK=' notes ' FZF_KEYS=ctrl-s"
 assert_eq "$(tmux list-windows -t '=alpha:' -F '#{window_name} #{@trails_starred}' | awk '$1 == "notes" { print $2 }')" "" "a window of yours takes no star"
 picker "FZF_PICK='a·two' FZF_KEYS=ctrl-s"

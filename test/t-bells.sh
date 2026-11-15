@@ -66,6 +66,27 @@ assert_eq "$(tmux show -v -t '=beta:' @trails_wants_here)" 1 "beta's: three"
 wait_for 5 sh -c "tmux capture-pane -p -t driver-1 | tail -n 1 | grep -q '^\\[alpha\\] 󰂚 1 '" ||
   fail "the status line does not say one elsewhere: $(bar)"
 
+# Picker bells follow the workspace flag, independently of the agent state.
+sock=$(tmux display-message -p '#{socket_path}')
+picker_rows() {
+  rm -f "$T/dump"
+  tmux run-shell "env TMUX='$sock,1,0' TRAILS_CLIENT='$term' FZF_DUMP='$T/dump' '$TRAILS' 2>>'$T/picker.err'"
+  sed 1d "$T/dump" | cut -f3 | perl -pe 's/\e\[[0-9;]*m//g'
+}
+rows=$(picker_rows)
+printf '%s\n' "$rows" | grep '󰂚.*two' >/dev/null || fail "picker misses two's bell: $rows"
+printf '%s\n' "$rows" | grep '󰂚.*three' >/dev/null || fail "picker misses three's bell: $rows"
+cfg=$XDG_CONFIG_HOME/trails/config.json
+jq '.alerts = {"glyph":"@"}' "$cfg" >"$T/config-next"
+mv "$T/config-next" "$cfg"
+rows=$(picker_rows)
+printf '%s\n' "$rows" | grep '@.*two' >/dev/null || fail "custom picker bell missing: $rows"
+jq '.alerts = false' "$cfg" >"$T/config-next"
+mv "$T/config-next" "$cfg"
+rows=$(picker_rows)
+printf '%s\n' "$rows" | grep -E '(󰂚|@).*two' >/dev/null && fail "disabled picker bell shown: $rows"
+jq 'del(.alerts)' "$cfg" >"$T/config-next"
+mv "$T/config-next" "$cfg"
 # Starred, a trail's window has ★ before its number in the window list (tmux's stock format).
 "$TRAILS" star "$(tmux display-message -pt '=alpha/two:' '#{@trails_trail}')"
 assert_eq "$(tmux show -wqv -t "$(win alpha alpha/two)" @trails_starred)" 1 "the star on its workspace window"
@@ -75,6 +96,9 @@ case $(bar) in "[alpha] ★"*) fail "a star count after [alpha]: $(bar)" ;; *) ;
 # Opening two clears its bell; on beta, alpha's count is what is elsewhere.
 tmux select-window -t "$(win alpha alpha/two)"
 wait_for 5 sh -c "[ \"\$(tmux show -v -t '=alpha:' @trails_wants_here)\" = 0 ]" || fail "two's bell outlived opening it"
+rows=$(picker_rows)
+printf '%s\n' "$rows" | grep 'two.*your turn' >/dev/null || fail "two lost its state: $rows"
+printf '%s\n' "$rows" | grep '󰂚.*two' >/dev/null && fail "picker kept two's cleared bell: $rows"
 tmux switch-client -c "$term" -t "=beta:"
 wait_for 5 sh -c "[ \"\$(tmux show -gv @trails_wants_all)\" = 0 ]" || fail "beta's bell outlived opening it: $(tmux show -gv @trails_wants_all)"
 wait_for 5 sh -c "! tmux capture-pane -p -t driver-1 | tail -n 1 | grep -q '󰂚'" || fail "a bell with nothing waiting: $(bar)"

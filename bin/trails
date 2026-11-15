@@ -2081,6 +2081,8 @@ OHEOF
 # trail with no window there yet follows the windows. Each row is the picker's three fields
 # (verb, target, drawn), sorted on a hidden key, its parts joined by \001, below any character, so a workspace sorts before another whose name it begins.
 one_rows() {
+  or_glyph=$(jq -r 'if (.alerts | type) == "object" and (.alerts.glyph | type) == "string" then .alerts.glyph elif .alerts == false then "" else "󰂚" end' "$CONFIG" 2>/dev/null) || or_glyph='󰂚'
+  [ -f "$CONFIG" ] || or_glyph='󰂚'
   or_lost=
   [ -z "${TRAILS_RESTORE_OK:-}" ] || or_lost=$(rec_dead | while read -r k; do
     printf 'L\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$k" "$(rec_ws "$k")" "$(rec_get "$k" dir)" "$(rec_codebase "$k")" \
@@ -2091,9 +2093,9 @@ one_rows() {
     printf '%s\n' "$WORKSPACES" | cut -d'|' -f1 | awk 'NF && !seen[$0]++ { print "S\t" $0 }'
     [ -n "${TRAILS_MENU_CACHE:-}" ] && [ -s "$TRAILS_MENU_CACHE" ] && sed 's/^/C	/' "$TRAILS_MENU_CACHE"
     [ -z "$or_lost" ] || printf '%s\n' "$or_lost"
-    [ -z "$USE_TMUX" ] || tmux list-windows -a -F "W$TAB#{session_name}$TAB#{window_id}$TAB#{window_index}$TAB#{window_name}$TAB#{?@trails_workspace,1,0}$TAB#{?@trails_map,1,0}$TAB#{@trails_window}$TAB#{@trails_session}$TAB#{@trails_starred}$TAB#{@trails_state_at}$TAB#{@trails_tool}$TAB#{@trails_dir}$TAB#{session_group}" 2>/dev/null
+    [ -z "$USE_TMUX" ] || tmux list-windows -a -F "W$TAB#{session_name}$TAB#{window_id}$TAB#{window_index}$TAB#{window_name}$TAB#{?@trails_workspace,1,0}$TAB#{?@trails_map,1,0}$TAB#{@trails_window}$TAB#{@trails_session}$TAB#{@trails_starred}$TAB#{@trails_state_at}$TAB#{@trails_tool}$TAB#{@trails_dir}$TAB#{session_group}$TAB#{window_bell_flag}" 2>/dev/null
   } | awk -F"$TAB" -v OFS="$TAB" -v now="$(date +%s)" -v cols="${TRAILS_COLS:-0}" \
-    -v red="$RED" -v yel="$YEL" -v dim="$DIM" -v rst="$RST" -v bold="$(printf '\033[1m')" -v cont="$UTF8_CONT" '
+    -v bellglyph="$or_glyph" -v red="$RED" -v yel="$YEL" -v dim="$DIM" -v rst="$RST" -v bold="$(printf '\033[1m')" -v cont="$UTF8_CONT" '
     BEGIN { bytes = length("…") > 1 }
     function vlen(s) { gsub(/·|…|★|▦|─/, "x", s); return length(s) }
     function pad(s, w) { return s sprintf("%*s", w - vlen(s), "") }
@@ -2139,6 +2141,7 @@ one_rows() {
     $1 == "W" {
       n++; ws_[n] = $2; wid[n] = $3; idx[n] = $4; wnm[n] = $5; isws[n] = $6; cell[n] = $8; tool[n] = $12; wdir[n] = $13
       sess[$2] = 1; grp[$2] = $14
+      if ($6 == 1 && $8 != "" && $15 == 1) bell[$8] = 1
       if ($6 == 1) wsess[$2] = 1
       if ($7 == 1) mapsess[$2] = 1
       if ($9 != "" && $9 == $2) { trailsess[$2] = 1; star[$2] = $10; at[$2] = $11; tname[$2] = $5 }
@@ -2174,8 +2177,12 @@ one_rows() {
       # Fitted to the width, when it is known: a task longer than the room left is cut to one
       # line with …, rather than wrapped onto a second; under 90 columns the agent column goes
       # too. fzf takes 3 columns of its own (the pointer, the scrollbar).
+      bellwidth = bellglyph != "" ? 1 : 0
+      # Count UTF-8 characters even with a byte-counting awk, as for the row names.
+      for (b = 1; b <= length(bellglyph); b++)
+        if (!bytes || !index(cont, substr(bellglyph, b, 1))) bellwidth++
       noag = cols > 0 && cols < 90
-      room = cols > 0 ? cols - 3 - (2 + 1 + 1 + wi + 1 + wn + 2 + 9 + 1 + 4 + 2 + wc + (noag ? 0 : 2 + wa) + 2) : 0
+      room = cols > 0 ? cols - 3 - bellwidth - (2 + 1 + 1 + wi + 1 + wn + 2 + 9 + 1 + 4 + 2 + wc + (noag ? 0 : 2 + wa) + 2) : 0
       # Headers, then each row under its workspace.
       for (j = 1; j <= nw; j++) {
         w = wsl[j]
@@ -2193,7 +2200,7 @@ one_rows() {
       }
       for (r = 1; r <= nr; r++) {
         w = rw[r]; if (!(w in wo)) continue
-        line = "  " (rs[r] == "★" ? yel "★" rst : " ") " " sprintf("%*s", wi, ri[r]) " " pad(rn[r], wn) "  " rpt[r] rwd[r] rst sprintf("%*s", 9 - vlen(rwd[r]), "") \
+        line = "  " (rs[r] == "★" ? yel "★" rst : " ") " " sprintf("%*s", wi, ri[r]) " " (bellwidth ? (rb[r] ? yel bellglyph rst " " : sprintf("%*s", bellwidth, "")) : "") pad(rn[r], wn) "  " rpt[r] rwd[r] rst sprintf("%*s", 9 - vlen(rwd[r]), "") \
           " " sprintf("%4s", ra[r]) "  " pad(rc[r], wc) (noag ? "" : "  " pad(rg[r], wa)) "  " fit(rk[r], room)
         sub(/ +$/, "", line)
         print "2" S wo[w] S w S rp[r] sprintf("%05d", r), rv[r], rt[r], line
@@ -2212,6 +2219,7 @@ one_rows() {
       else if (st == "idle") { word = "your turn"; paint = yel; turn[w]++ }
       else { word = (st == "unknown" ? "unknown" : "working"); paint = dim }
       count[w]++
+      rb[nr + 1] = bell[k]
       a = (st == "blocked" || st == "idle") ? ago(at[k]) : ""
       row(w, pos, "attach", cwid[k], (star[k] != "" ? "★" : " "), ix, name, word, paint, a, ccb[k], agent(clab[k]), ctask[k])
     }' | LC_ALL=C sort -t "$TAB" -k1,1 | cut -f2-
