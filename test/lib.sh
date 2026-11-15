@@ -123,10 +123,11 @@ driver() {
 # attached until the test kills it. $1.. are trails' arguments.
 trails_bg() { driver "$TRAILS" "$@"; }
 
-# Wait until the latest driver's trails has handed over to `tmux attach`: its pane runs
-# tmux. A test that goes on before that races the trails still running in the driver.
+# Wait until the latest driver's terminal is an attached tmux client. Looking at
+# pane_current_command races any short-lived tmux query trails runs before the picker.
 driver_attached() {
-  wait_for 10 sh -c "tmux display-message -pt 'driver-$DRIVERS' '#{pane_current_command}' 2>/dev/null | grep -qx tmux"
+  da_tty=$(tmux display-message -pt "driver-$DRIVERS" '#{pane_tty}')
+  wait_for 10 sh -c "tmux list-clients -F '#{client_tty}' 2>/dev/null | grep -Fxq '$da_tty'"
 }
 
 # Wait until a command succeeds, up to $1 seconds (default 5), polling every 0.1s.
